@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-brand: #1a56db;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased;
+  }
+
+  /* Smooth focus rings for accessibility */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-blue-500 ring-offset-2;
+  }
+}
+
+@layer components {
+  /* Wizard card */
+  .wizard-card {
+    @apply bg-white rounded-2xl shadow-sm border border-gray-200 p-6 md:p-8;
+  }
+
+  /* Form field group */
+  .field-group {
+    @apply space-y-1;
+  }
+
+  .field-label {
+    @apply block text-sm font-medium text-gray-700;
+  }
+
+  .field-input {
+    @apply block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm
+           placeholder-gray-400 shadow-sm
+           focus:border-blue-500 focus:ring-1 focus:ring-blue-500;
+  }
+
+  .field-input-error {
+    @apply border-red-400 focus:border-red-500 focus:ring-red-500;
+  }
+
+  .field-error {
+    @apply text-xs text-red-600 mt-1;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2
+           text-sm font-medium transition-colors focus-visible:outline-none
+           focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50
+           disabled:pointer-events-none;
+  }
+
+  .btn-primary {
+    @apply btn bg-blue-600 text-white hover:bg-blue-700
+           focus-visible:ring-blue-500;
+  }
+
+  .btn-secondary {
+    @apply btn bg-white text-gray-700 border border-gray-300 hover:bg-gray-50
+           focus-visible:ring-gray-400;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700
+           focus-visible:ring-red-500;
+  }
+
+  .btn-ghost {
+    @apply btn text-gray-600 hover:bg-gray-100 hover:text-gray-900;
+  }
+
+  .btn-lg {
+    @apply px-6 py-3 text-base;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  /* Badge */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  .badge-blue   { @apply badge bg-blue-100 text-blue-800; }
+  .badge-green  { @apply badge bg-green-100 text-green-800; }
+  .badge-yellow { @apply badge bg-yellow-100 text-yellow-800; }
+  .badge-red    { @apply badge bg-red-100 text-red-800; }
+  .badge-gray   { @apply badge bg-gray-100 text-gray-800; }
+
+  /* Status badge mapped from tournament status */
+  .status-draft     { @apply badge-gray; }
+  .status-published { @apply badge-blue; }
+  .status-live      { @apply badge-green; }
+  .status-review    { @apply badge-yellow; }
+  .status-archived  { @apply badge-gray; }
+
+  /* Section heading */
+  .section-title {
+    @apply text-lg font-semibold text-gray-900;
+  }
+
+  .section-subtitle {
+    @apply text-sm text-gray-500 mt-0.5;
+  }
+
+  /* Divider */
+  .divider {
+    @apply border-t border-gray-200 my-6;
+  }
+
+  /* Score display (used in scorecards) */
+  .score-display {
+    @apply text-5xl font-black tabular-nums leading-none;
+  }
+
+  /* Live pulse dot */
+  .live-dot {
+    @apply inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse;
+  }
+}
