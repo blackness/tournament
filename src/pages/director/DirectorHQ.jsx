@@ -6,7 +6,7 @@ import { TOURNAMENT_STATUS_LABELS, TOURNAMENT_STATUS } from '../../lib/constants
 import { PageLoader } from '../../components/ui/LoadingSpinner'
 import {
   Trophy, Calendar, MapPin, Users, ExternalLink, Edit,
-  Trash2, AlertTriangle, X, ChevronRight, Play,
+  Trash2, AlertTriangle, X, ChevronRight, Play, Link2, Copy, Check,
   CheckCircle, Archive, Eye
 } from 'lucide-react'
 
@@ -401,6 +401,33 @@ function MatchList({ matches, tournamentId }) {
   )
 }
 
+function CopyLinkButton({ matchId, pin }) {
+  const [copied, setCopied] = useState(false)
+
+  function handleCopy() {
+    const url = window.location.origin + '/scorekeeper/' + matchId
+    const text = pin ? url + '\nPIN: ' + pin : url
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      title={pin ? 'Copy scorekeeper link + PIN' : 'Copy scorekeeper link'}
+      className={'flex-shrink-0 p-1.5 rounded-lg transition-colors ' + (
+        copied
+          ? 'text-green-600 bg-green-50'
+          : 'text-gray-300 hover:text-gray-500 hover:bg-gray-100'
+      )}
+    >
+      {copied ? <Check size={13} /> : <Copy size={13} />}
+    </button>
+  )
+}
+
 function MatchRow({ match: m, tournamentId }) {
   const isLive  = m.status === 'in_progress'
   const isDone  = m.status === 'complete' || m.status === 'forfeit'
@@ -458,6 +485,11 @@ function MatchRow({ match: m, tournamentId }) {
             className="text-xs text-amber-600 hover:text-amber-800 border border-amber-300 rounded px-1.5 py-0.5 flex-shrink-0">
             Fix teams
           </button>
+        )}
+
+        {/* Copy scorekeeper link */}
+        {!isDone && (
+          <CopyLinkButton matchId={m.id} pin={m.scorekeeper_pin} />
         )}
 
         {isLive ? (
