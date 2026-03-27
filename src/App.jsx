@@ -23,6 +23,7 @@ import { WizardPage }         from './pages/director/WizardPage'
 import { DirectorHQ }         from './pages/director/DirectorHQ'
 import { ScheduleEditor }     from './pages/director/ScheduleEditor'
 import { BracketGenerator }  from './pages/director/BracketGenerator'
+import { RosterManager }     from './pages/director/RosterManager'
 import { ConstraintReview }   from './pages/director/ConstraintReview'
 import { QRManager }          from './pages/director/QRManager'
 
@@ -69,6 +70,7 @@ export default function App() {
             <Route path="/director/:tournamentId/edit"        element={<WizardPage mode="edit" />} />
             <Route path="/director/:tournamentId/schedule"    element={<ScheduleEditor />} />
             <Route path="/director/:tournamentId/bracket"     element={<BracketGenerator />} />
+            <Route path="/director/:tournamentId/roster"      element={<RosterManager />} />
             <Route path="/director/:tournamentId/constraints" element={<ConstraintReview />} />
             <Route path="/director/:tournamentId/qr"          element={<QRManager />} />
           </Route>
