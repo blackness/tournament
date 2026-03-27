@@ -6,6 +6,7 @@ import {
   ChevronLeft, Play, RotateCcw, CheckCircle, X,
   Plus, Clock, UserPlus, Upload
 } from 'lucide-react'
+import { PinGate, checkScorekeeperAuth } from '../lib/scorekeeperAuth'
 
 const SCREEN = { PRE: 'pre', LIVE: 'live', POST: 'post' }
 const PLAYER_PICKER_TIMEOUT = 10000 // 10 seconds to pick player
@@ -19,6 +20,8 @@ export function ScorekeeperPage() {
   const [loading, setLoading]     = useState(true)
   const [screen, setScreen]       = useState(SCREEN.PRE)
   const [error, setError]         = useState(null)
+  const [authed, setAuthed]       = useState(false)
+  const [authChecking, setAuthChecking] = useState(true)
 
   // Player picker state
   const [picker, setPicker]       = useState(null) // { statId, teamId, label, isSecondary, primaryEventId }
@@ -47,6 +50,12 @@ export function ScorekeeperPage() {
       setSportConfig(m.tournament?.sport_template?.config ?? null)
       if (m.status === 'in_progress') setScreen(SCREEN.LIVE)
       else if (m.status === 'complete' || m.status === 'forfeit') setScreen(SCREEN.POST)
+
+      // Auth check
+      const tid = m.tournament_id ?? m.tournament?.id
+      const { authed: ok } = await checkScorekeeperAuth(matchId, tid, m.scorekeeper_pin)
+      setAuthed(ok)
+      setAuthChecking(false)
 
       await loadRosters(m)
       const { data: ev } = await supabase
@@ -264,12 +273,16 @@ export function ScorekeeperPage() {
     setMatch(prev => ({ ...prev, cap_status: capStatus }))
   }
 
-  if (loading) return <PageLoader />
+  if (loading || authChecking) return <PageLoader />
   if (!match) return (
     <div className="max-w-lg mx-auto px-4 py-16 text-center text-gray-400">
       <p className="text-lg font-semibold text-gray-700">Game not found</p>
     </div>
   )
+
+  if (!authed) {
+    return <PinGate match={match} onSuccess={() => setAuthed(true)} />
+  }
 
   const pickerRoster = picker
     ? (picker.teamId === match.team_a?.id ? roster.a : roster.b)

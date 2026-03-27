@@ -13,6 +13,7 @@ import { BracketPage }       from './pages/BracketPage'
 import { SchedulePage }      from './pages/SchedulePage'
 import { TeamPage }          from './pages/TeamPage'
 import { GameDayPage }       from './pages/GameDayPage'
+import { TeamComparePage }   from './pages/TeamComparePage'
 import { LiveScoreboard }    from './pages/LiveScoreboard'
 import { CourtLanding }      from './pages/CourtLanding'
 import { SpectatorDashboard} from './pages/SpectatorDashboard'
@@ -51,6 +52,7 @@ export default function App() {
             <Route path="/t/:slug/schedule"                   element={<SchedulePage />} />
             <Route path="/t/:slug/team/:teamId"               element={<TeamPage />} />
           <Route path="/t/:slug/gameday"                     element={<GameDayPage />} />
+          <Route path="/t/:slug/compare/:teamIdA/:teamIdB"     element={<TeamComparePage />} />
             <Route path="/score/:matchId"                     element={<LiveScoreboard />} />
             <Route path="/dashboard"                          element={<SpectatorDashboard />} />
           </Route>

@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/LoadingSpinner'
-import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RefreshCw, Heart } from 'lucide-react'
+import { isFavorite, toggleFavorite } from './TeamPage'
 
 export function StandingsPage() {
   const { slug, divisionId }          = useParams()
@@ -198,6 +199,7 @@ function StandingsRow({ row, rank, advances, primaryColor, slug }) {
           >
             {row.team_short_name ?? row.team_name}
           </Link>
+          <FavButton teamId={row.team_id} />
           {advances && gp > 0 && (
             <span className="hidden sm:inline text-xs text-blue-500 font-medium whitespace-nowrap">
               Advances
@@ -222,6 +224,16 @@ function StandingsRow({ row, rank, advances, primaryColor, slug }) {
       {/* GP */}
       <td className="px-3 py-3 text-center text-gray-400 tabular-nums">{gp}</td>
     </tr>
+  )
+}
+
+function FavButton({ teamId }) {
+  const [faved, setFaved] = useState(isFavorite(teamId))
+  return (
+    <button onClick={e => { e.preventDefault(); setFaved(toggleFavorite(teamId).includes(teamId)) }}
+      className={'p-0.5 rounded transition-colors flex-shrink-0 ' + (faved ? 'text-red-400' : 'text-gray-200 hover:text-red-300')}>
+      <Heart size={12} fill={faved ? 'currentColor' : 'none'} />
+    </button>
   )
 }
 

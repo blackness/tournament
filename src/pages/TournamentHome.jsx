@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/LoadingSpinner'
 import { Trophy, Calendar, MapPin, Users, ChevronRight, Clock, Star } from 'lucide-react'
 
 export function TournamentHome() {
   const { slug } = useParams()
+  const { user } = useAuth()
   const [tournament, setTournament] = useState(null)
   const [divisions, setDivisions]   = useState([])
   const [liveMatches, setLiveMatches] = useState([])
@@ -127,14 +129,14 @@ export function TournamentHome() {
             <p className="text-sm text-gray-600">{tournament.description}</p>
           </div>
         )}
-        {/* Scorekeeper entry */}
-        {(isLive || isUpcoming) && (
+        {/* Staff access -- only shown when logged in */}
+        {user && (isLive || isUpcoming) && (
           <div className="px-6 pb-4">
             <Link
               to={'/t/' + slug + '/gameday'}
               className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-gray-900 hover:bg-gray-700 text-white text-sm font-semibold transition-colors"
             >
-              Scorekeeper entry
+              Staff / Scorekeeper entry
             </Link>
           </div>
         )}

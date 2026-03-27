@@ -42,7 +42,7 @@ export function DirectorHQ() {
 
       const { data: m } = await supabase
         .from('matches')
-        .select('id, status, score_a, score_b, team_a:tournament_teams!team_a_id(name), team_b:tournament_teams!team_b_id(name), time_slot:time_slots(scheduled_start)')
+        .select('id, status, score_a, score_b, scorekeeper_pin, tournament_id, team_a:tournament_teams!team_a_id(name, id), team_b:tournament_teams!team_b_id(name, id), time_slot:time_slots(scheduled_start), venue:venues(name)')
         .eq('tournament_id', tournamentId)
         .neq('status', 'cancelled')
         .order('time_slot(scheduled_start)')
@@ -200,6 +200,9 @@ export function DirectorHQ() {
         </div>
       </div>
 
+      {/* PIN management */}
+      <PinManager tournamentId={tournamentId} matches={matches} onPinsUpdated={() => window.location.reload()} />
+
       {/* Games */}
       {matches.length > 0 && (
         <MatchList matches={matches} tournamentId={tournamentId} />
@@ -273,6 +276,78 @@ function QuickLink({ to, label, sub, external }) {
   )
   if (external) return <a href={to} target="_blank" rel="noreferrer" className={cls}>{inner}</a>
   return <Link to={to} className={cls}>{inner}</Link>
+}
+
+function PinManager({ tournamentId, matches, onPinsUpdated }) {
+  const [open, setOpen]       = useState(false)
+  const [pin, setPin]         = useState('')
+  const [saving, setSaving]   = useState(false)
+  const [message, setMessage] = useState(null)
+
+  const unpinnedCount = matches.filter(m => !m.scorekeeper_pin && m.status === 'scheduled').length
+
+  async function generatePins() {
+    setSaving(true)
+    // Use the same PIN for all unassigned scheduled matches (tournament-wide PIN)
+    const tournamentPin = pin.trim() || Math.floor(1000 + Math.random() * 9000).toString()
+    const unassigned = matches.filter(m => !m.scorekeeper_pin && m.status === 'scheduled')
+    for (const m of unassigned) {
+      await supabase.from('matches').update({ scorekeeper_pin: tournamentPin }).eq('id', m.id)
+    }
+    setMessage('PIN set: ' + tournamentPin + ' (' + unassigned.length + ' games)')
+    setSaving(false)
+    setPin('')
+    setTimeout(() => { setMessage(null); onPinsUpdated() }, 3000)
+  }
+
+  const hasAnyPin = matches.some(m => m.scorekeeper_pin)
+  const samplePin = matches.find(m => m.scorekeeper_pin)?.scorekeeper_pin
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+            Scorekeeper PIN
+            {hasAnyPin && (
+              <span className="badge badge-green">Active: {samplePin}</span>
+            )}
+          </p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {hasAnyPin
+              ? 'Scorekeepers use this PIN to access the console'
+              : unpinnedCount + ' games have no PIN set'}
+          </p>
+        </div>
+        <button onClick={() => setOpen(o => !o)} className="btn-secondary btn btn-sm">
+          {open ? 'Close' : hasAnyPin ? 'Change PIN' : 'Set PIN'}
+        </button>
+      </div>
+
+      {open && (
+        <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-3 flex-wrap">
+          <input
+            type="text"
+            className="field-input w-32"
+            placeholder="e.g. 1234"
+            value={pin}
+            maxLength={6}
+            onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
+          />
+          <button onClick={generatePins} disabled={saving} className="btn-primary btn btn-sm">
+            {saving ? 'Setting...' : pin ? 'Set PIN: ' + pin : 'Generate random PIN'}
+          </button>
+          <p className="text-xs text-gray-400">Applies to all unstarted games</p>
+        </div>
+      )}
+
+      {message && (
+        <p className="mt-2 text-sm font-semibold text-green-700 bg-green-50 px-3 py-1.5 rounded-lg">
+          {message}
+        </p>
+      )}
+    </div>
+  )
 }
 
 function MatchList({ matches, tournamentId }) {
