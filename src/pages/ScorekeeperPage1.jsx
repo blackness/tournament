@@ -142,15 +142,8 @@ export function ScorekeeperPage() {
   }
 
   // -- Stat tap -- record immediately, then show player picker ---------------
-  const lastTap = useRef({})
   async function handleStatTap(teamId, statId) {
     if (!teamId) return
-    // Debounce -- ignore taps within 800ms of the same stat
-    const key = teamId + statId
-    const now = Date.now()
-    if (lastTap.current[key] && now - lastTap.current[key] < 800) return
-    lastTap.current[key] = now
-
     const statDef = sportConfig?.stats?.find(s => s.id === statId)
     if (!statDef) return
 
@@ -843,30 +836,29 @@ function PostGameScreen({ match, events, roster, sportConfig }) {
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Player stats</p>
           <div className="space-y-2">
             {Object.entries(playerStats)
-              .map(([playerId, pStats]) => {
-                const player = allPlayers.find(p => p.id === playerId)
-                return player ? { player, pStats } : null
-              })
-              .filter(Boolean)
-              .sort((a, b) => {
-                const aScore = scoringStats.reduce((s, st) => s + (a.pStats[st.id] ?? 0), 0)
-                const bScore = scoringStats.reduce((s, st) => s + (b.pStats[st.id] ?? 0), 0)
+              .sort(([, a], [, b]) => {
+                const aScore = scoringStats.reduce((s, st) => s + (a[st.id] ?? 0), 0)
+                const bScore = scoringStats.reduce((s, st) => s + (b[st.id] ?? 0), 0)
                 return bScore - aScore
               })
-              .map(({ player, pStats }) => (
-                <div key={player.id} className="flex items-center gap-3 bg-gray-900 rounded-xl px-3 py-2.5">
-                  <span className="text-xs text-gray-600 font-mono w-5 text-right">{player.number ?? '-'}</span>
-                  <span className="text-sm text-white flex-1">{player.name}</span>
-                  <div className="flex gap-3">
-                    {stats.filter(s => pStats[s.id]).map(s => (
-                      <div key={s.id} className="text-center">
-                        <p className="text-sm font-bold text-white tabular-nums">{pStats[s.id]}</p>
-                        <p className="text-xs text-gray-600">{s.short}</p>
-                      </div>
-                    ))}
+              .map(([playerId, pStats]) => {
+                const player = allPlayers.find(p => p.id === playerId)
+                if (!player) return null
+                return (
+                  <div key={playerId} className="flex items-center gap-3 bg-gray-900 rounded-xl px-3 py-2.5">
+                    <span className="text-xs text-gray-600 font-mono w-5 text-right">{player.number ?? '-'}</span>
+                    <span className="text-sm text-white flex-1">{player.name}</span>
+                    <div className="flex gap-3">
+                      {stats.filter(s => pStats[s.id]).map(s => (
+                        <div key={s.id} className="text-center">
+                          <p className="text-sm font-bold text-white tabular-nums">{pStats[s.id]}</p>
+                          <p className="text-xs text-gray-600">{s.short}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))
+                )
+              })
             }
           </div>
         </div>

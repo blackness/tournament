@@ -17,11 +17,13 @@ export function TournamentHome() {
 
   useEffect(() => {
     async function load() {
+      try {
       // Load tournament + divisions
       const { data: t, error } = await supabase
         .from('tournaments')
         .select('*, sport_template:sport_templates(slug, display_name), divisions(*)')
         .eq('slug', slug)
+        .is('deleted_at', null)
         .single()
 
       if (error || !t) { setNotFound(true); setLoading(false); return }
@@ -60,7 +62,11 @@ export function TournamentHome() {
         .limit(6)
 
       setUpcomingMatches(upcoming ?? [])
-      setLoading(false)
+      } catch (err) {
+        console.error('TournamentHome error:', err)
+      } finally {
+        setLoading(false)
+      }
     }
     load()
   }, [slug])

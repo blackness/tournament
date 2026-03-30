@@ -47,7 +47,7 @@ export function serpentineSeeding(teams, numPools) {
 
 /**
  * Generate a full tournament schedule.
- * Full implementation — called by WizardStep6Schedule.
+ * Full implementation - called by WizardStep6Schedule.
  */
 export function generateSchedule(config) {
   const {
@@ -57,7 +57,7 @@ export function generateSchedule(config) {
     endTime,
     lunchBreakStart,
     lunchBreakEnd,
-    gameDurationMinutes     = 90,
+    gameDurationMinutes      = 90,
     breakBetweenGamesMinutes = 30,
     minRestBetweenTeamGames  = 90,
     tournamentId,
@@ -67,67 +67,77 @@ export function generateSchedule(config) {
     return { slots: [], matches: [], conflicts: [] }
   }
 
+  const crypto       = globalThis.crypto
   const slotDuration = gameDurationMinutes + breakBetweenGamesMinutes
   const start        = new Date(startTime)
   const end          = endTime ? new Date(endTime) : new Date(start.getTime() + 10 * 60 * 60 * 1000)
   const lunchStart   = lunchBreakStart ? new Date(lunchBreakStart) : null
   const lunchEnd     = lunchBreakEnd   ? new Date(lunchBreakEnd)   : null
 
-  // Build all time slots per venue
-  const slots   = []
-  const matches = []
-  const crypto  = globalThis.crypto
+  // Build time rounds -- all venues play simultaneously within each round
+  const timeRounds = []
+  let cursor = new Date(start)
+  while (cursor < end) {
+    if (lunchStart && lunchEnd && cursor >= lunchStart && cursor < lunchEnd) {
+      cursor = new Date(lunchEnd)
+      continue
+    }
+    const slotEnd = new Date(cursor.getTime() + gameDurationMinutes * 60 * 1000)
+    if (slotEnd > end) break
 
-  for (const venue of venues) {
-    let cursor = new Date(start)
-    while (cursor < end) {
-      // Skip lunch
-      if (lunchStart && lunchEnd && cursor >= lunchStart && cursor < lunchEnd) {
-        cursor = new Date(lunchEnd)
-        continue
-      }
-      const slotEnd = new Date(cursor.getTime() + gameDurationMinutes * 60 * 1000)
-      if (slotEnd > end) break
-
-      slots.push({
+    timeRounds.push({
+      time: new Date(cursor),
+      slots: venues.map(venue => ({
         id:              crypto.randomUUID(),
         venue_id:        venue.id,
         scheduled_start: cursor.toISOString(),
         scheduled_end:   slotEnd.toISOString(),
         _assigned:       false,
-      })
-
-      cursor = new Date(cursor.getTime() + slotDuration * 60 * 1000)
-    }
+      })),
+    })
+    cursor = new Date(cursor.getTime() + slotDuration * 60 * 1000)
   }
 
-  // Generate round-robin matchups per pool
+  const slots = timeRounds.flatMap(r => r.slots)
+
+  // Assign a home venue to each pool for field affinity
+  const poolHomeVenue = {}
+  pools.forEach((pool, i) => {
+    poolHomeVenue[pool.id] = venues[i % venues.length]?.id ?? venues[0]?.id
+  })
+
+  // Generate all matchups, sorted by round so rounds fill across all pools before moving on
   const allMatchups = []
   for (const pool of pools) {
-    const poolMatchups = generatePoolMatchups(pool)
-    allMatchups.push(...poolMatchups.map(m => ({ ...m, pool_id: pool.id })))
+    const matchups = generatePoolMatchups(pool)
+    matchups.forEach(m => allMatchups.push({ ...m, pool_id: pool.id, home_venue: poolHomeVenue[pool.id] }))
   }
+  allMatchups.sort((a, b) => (a.round ?? 1) - (b.round ?? 1))
 
-  // Assign matchups to slots (greedy, respecting min rest)
+  const matches      = []
   const teamLastSlot = {}
+  const minRestMs    = minRestBetweenTeamGames * 60 * 1000
 
   for (const matchup of allMatchups) {
     let assigned = false
 
-    for (const slot of slots) {
-      if (slot._assigned) continue
+    for (const round of timeRounds) {
+      const slotTimeMs = round.time.getTime()
+      const slotEndMs  = slotTimeMs + gameDurationMinutes * 60 * 1000
 
-      const slotTime = new Date(slot.scheduled_start).getTime()
-      const aLast    = teamLastSlot[matchup.team_a_id]
-      const bLast    = teamLastSlot[matchup.team_b_id]
-      const minRest  = minRestBetweenTeamGames * 60 * 1000
+      const aLast = teamLastSlot[matchup.team_a_id]
+      const bLast = teamLastSlot[matchup.team_b_id]
+      if (aLast && slotTimeMs - aLast < minRestMs) continue
+      if (bLast && slotTimeMs - bLast < minRestMs) continue
 
-      if (aLast && slotTime - aLast < minRest) continue
-      if (bLast && slotTime - bLast < minRest) continue
+      // Prefer home venue, fall back to any free slot in this round
+      const slot = round.slots.find(s => !s._assigned && s.venue_id === matchup.home_venue)
+               ?? round.slots.find(s => !s._assigned)
+      if (!slot) continue
 
       slot._assigned = true
-      teamLastSlot[matchup.team_a_id] = slotTime + gameDurationMinutes * 60 * 1000
-      teamLastSlot[matchup.team_b_id] = slotTime + gameDurationMinutes * 60 * 1000
+      teamLastSlot[matchup.team_a_id] = slotEndMs
+      teamLastSlot[matchup.team_b_id] = slotEndMs
 
       matches.push({
         id:           crypto.randomUUID(),
@@ -139,13 +149,11 @@ export function generateSchedule(config) {
         round:        matchup.round,
         match_number: matches.length + 1,
       })
-
       assigned = true
       break
     }
 
     if (!assigned) {
-      // No slot found — add unscheduled
       matches.push({
         id:           crypto.randomUUID(),
         pool_id:      matchup.pool_id,
@@ -158,7 +166,6 @@ export function generateSchedule(config) {
       })
     }
   }
-
   const conflicts = validateSchedule(matches, slots, teamLastSlot, minRestBetweenTeamGames)
 
   return { slots, matches, conflicts }
@@ -208,7 +215,7 @@ function validateSchedule(matches, slots, teamLastSlot, minRestMinutes) {
         severity: 'error',
         teamId:   match.team_a_id,
         matchIds: [match.id],
-        message:  'A game could not be scheduled — not enough time slots',
+        message:  'A game could not be scheduled - not enough time slots',
       })
       continue
     }
@@ -265,7 +272,7 @@ export function applyScheduleDelay(slots, fromTime, offsetMinutes, venueId = nul
 }
 
 /**
- * Tiebreaker calculation — returns teams sorted by tiebreaker order.
+ * Tiebreaker calculation - returns teams sorted by tiebreaker order.
  */
 export function applyTiebreakers(teamStats, headToHead, tiebreakerOrder) {
   return [...teamStats].sort((a, b) => {

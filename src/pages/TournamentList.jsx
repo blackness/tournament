@@ -11,14 +11,20 @@ export function TournamentList() {
 
   useEffect(() => {
     async function load() {
-      const { data } = await supabase
-        .from('tournaments')
-        .select('id, slug, name, start_date, end_date, status, logo_url, primary_color, venue_name')
-        .in('status', ['published', 'live', 'review', 'archived'])
-        .eq('is_public', true)
-        .order('start_date', { ascending: false })
-      setTournaments(data ?? [])
-      setLoading(false)
+      try {
+        const { data, error } = await supabase
+          .from('tournaments')
+          .select('id, slug, name, start_date, end_date, status, logo_url, primary_color, venue_name')
+          .is('deleted_at', null)
+          .in('status', ['published', 'live', 'review', 'archived'])
+          .order('start_date', { ascending: false })
+        if (error) console.error('TournamentList query error:', error)
+        setTournaments(data ?? [])
+      } catch (err) {
+        console.error('TournamentList load error:', err)
+      } finally {
+        setLoading(false)
+      }
     }
     load()
   }, [])
@@ -32,7 +38,7 @@ export function TournamentList() {
   const upcoming = filtered.filter(t => t.status === 'published')
   const past     = filtered.filter(t => ['review', 'archived'].includes(t.status))
 
-  if (loading) return <PageLoader message="Loading tournaments…" />
+  if (loading) return <PageLoader />
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">

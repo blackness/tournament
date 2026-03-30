@@ -176,27 +176,16 @@ export function LiveScoreboard() {
       </div>
 
       {/* Event feed */}
-      {events.length > 0 && (() => {
-        // Deduplicate by sequence+team, filter standalone assist rows
-        const seen = new Set()
-        const deduped = events.filter(ev => {
-          if (ev.stat_id === 'assist' && ev.score_a_after === null) return false
-          const key = ev.match_id + '-' + ev.sequence + '-' + ev.team_id
-          if (seen.has(key)) return false
-          seen.add(key)
-          return true
-        })
-        return (
-          <div className="flex-1 px-4 py-4 max-w-lg mx-auto w-full">
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Play by play</h2>
-            <div className="space-y-2">
-              {deduped.map(ev => (
-                <EventRow key={ev.id} event={ev} teamA={teamA} teamB={teamB} />
-              ))}
-            </div>
+      {events.length > 0 && (
+        <div className="flex-1 px-4 py-4 max-w-lg mx-auto w-full">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Play by play</h2>
+          <div className="space-y-2">
+            {events.map(ev => (
+              <EventRow key={ev.id} event={ev} teamA={teamA} teamB={teamB} />
+            ))}
           </div>
-        )
-      })()}
+        </div>
+      )}
 
       {isScheduled && (
         <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">

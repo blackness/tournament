@@ -48,6 +48,7 @@ export const db = {
         .from('sport_templates')
         .select('*')
         .eq('slug', slug)
+        .is('deleted_at', null)
         .single(),
   },
 
@@ -66,10 +67,11 @@ export const db = {
         .from('tournaments')
         .select(`*, sport_template:sport_templates(slug, display_name, config), divisions(*)`)
         .eq('slug', slug)
+        .is('deleted_at', null)
         .single(),
 
     byId: (id) =>
-      supabase.from('tournaments').select('*').eq('id', id).single(),
+      supabase.from('tournaments').select('*').eq('id', id).is('deleted_at', null).single(),
 
     create: (data) =>
       supabase.from('tournaments').insert(data).select().single(),

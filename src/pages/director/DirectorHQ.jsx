@@ -284,17 +284,17 @@ function PinManager({ tournamentId, matches, onPinsUpdated }) {
   const [saving, setSaving]   = useState(false)
   const [message, setMessage] = useState(null)
 
-  const unpinnedCount = matches.filter(m => !m.scorekeeper_pin && m.status === 'scheduled').length
+  const unpinnedCount = matches.filter(m => !['complete','forfeit','cancelled'].includes(m.status) && !m.scorekeeper_pin).length
 
   async function generatePins() {
     setSaving(true)
-    // Use the same PIN for all unassigned scheduled matches (tournament-wide PIN)
     const tournamentPin = pin.trim() || Math.floor(1000 + Math.random() * 9000).toString()
-    const unassigned = matches.filter(m => !m.scorekeeper_pin && m.status === 'scheduled')
-    for (const m of unassigned) {
+    // Apply to all non-completed matches (overwrite existing PINs too)
+    const toPin = matches.filter(m => !['complete', 'forfeit', 'cancelled'].includes(m.status))
+    for (const m of toPin) {
       await supabase.from('matches').update({ scorekeeper_pin: tournamentPin }).eq('id', m.id)
     }
-    setMessage('PIN set: ' + tournamentPin + ' (' + unassigned.length + ' games)')
+    setMessage('PIN set: ' + tournamentPin + ' (' + toPin.length + ' games)')
     setSaving(false)
     setPin('')
     setTimeout(() => { setMessage(null); onPinsUpdated() }, 3000)
@@ -401,6 +401,97 @@ function MatchList({ matches, tournamentId }) {
   )
 }
 
+function ScoreEditor({ match: m, onClose, onSaved }) {
+  const [scoreA, setScoreA]   = useState(m.score_a ?? 0)
+  const [scoreB, setScoreB]   = useState(m.score_b ?? 0)
+  const [isForfeit, setIsForfeit] = useState(false)
+  const [forfeitTeam, setForfeitTeam] = useState('a')
+  const [saving, setSaving]   = useState(false)
+
+  async function handleSave() {
+    setSaving(true)
+    const finalA = isForfeit ? (forfeitTeam === 'b' ? 15 : 0) : Number(scoreA)
+    const finalB = isForfeit ? (forfeitTeam === 'a' ? 15 : 0) : Number(scoreB)
+    const winnerId = finalA > finalB ? m.team_a?.id
+                   : finalB > finalA ? m.team_b?.id : null
+
+    await supabase.from('matches').update({
+      score_a:      finalA,
+      score_b:      finalB,
+      winner_id:    winnerId,
+      status:       isForfeit ? 'forfeit' : 'complete',
+      completed_at: new Date().toISOString(),
+    }).eq('id', m.id)
+
+    // Recompute standings
+    await supabase.rpc('fn_recompute_standings', { p_match_id: m.id }).catch(() => {})
+    setSaving(false)
+    onSaved()
+  }
+
+  const teamA = m.team_a?.name ?? 'Team A'
+  const teamB = m.team_b?.name ?? 'Team B'
+
+  return (
+    <div className="px-3 pb-3 pt-1 border-t border-gray-100 bg-gray-50/50 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-gray-700">
+          {m.status === 'complete' || m.status === 'forfeit' ? 'Correct score' : 'Record result'}
+        </p>
+        <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+          <input type="checkbox" checked={isForfeit} onChange={e => setIsForfeit(e.target.checked)} className="rounded" />
+          Forfeit
+        </label>
+      </div>
+
+      {isForfeit ? (
+        <div>
+          <p className="text-xs text-gray-500 mb-1.5">Which team forfeited?</p>
+          <div className="grid grid-cols-2 gap-2">
+            {[['a', teamA], ['b', teamB]].map(([side, name]) => (
+              <button key={side} onClick={() => setForfeitTeam(side)}
+                className={'py-2 rounded-lg text-xs font-semibold border-2 transition-colors ' + (
+                  forfeitTeam === side
+                    ? 'border-red-400 bg-red-50 text-red-700'
+                    : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                )}>
+                {name}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-1.5 text-center">
+            Winner gets 15-0. Score recorded as forfeit.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 items-center gap-2">
+          <div className="text-center">
+            <p className="text-xs text-gray-500 mb-1 truncate">{teamA}</p>
+            <input type="number" min="0" max="99" value={scoreA}
+              onChange={e => setScoreA(e.target.value)}
+              className="field-input text-center text-xl font-black w-full" />
+          </div>
+          <div className="text-center text-gray-400 text-sm font-bold">vs</div>
+          <div className="text-center">
+            <p className="text-xs text-gray-500 mb-1 truncate">{teamB}</p>
+            <input type="number" min="0" max="99" value={scoreB}
+              onChange={e => setScoreB(e.target.value)}
+              className="field-input text-center text-xl font-black w-full" />
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <button onClick={handleSave} disabled={saving}
+          className={'btn btn-sm flex-1 ' + (isForfeit ? 'btn-danger' : 'btn-primary')}>
+          {saving ? 'Saving...' : isForfeit ? 'Record forfeit' : 'Save score'}
+        </button>
+        <button onClick={onClose} className="btn-secondary btn btn-sm">Cancel</button>
+      </div>
+    </div>
+  )
+}
+
 function CopyLinkButton({ matchId, pin }) {
   const [copied, setCopied] = useState(false)
 
@@ -434,6 +525,7 @@ function MatchRow({ match: m, tournamentId }) {
   const hasTBD  = !m.team_a?.id || !m.team_b?.id
   const [editing, setEditing] = useState(false)
   const [allTeams, setAllTeams] = useState([])
+  const [scoreEdit, setScoreEdit] = useState(false)
   const [saving, setSaving]   = useState(false)
   const [teamA, setTeamA]     = useState(m.team_a?.id ?? '')
   const [teamB, setTeamB]     = useState(m.team_b?.id ?? '')
@@ -487,6 +579,14 @@ function MatchRow({ match: m, tournamentId }) {
           </button>
         )}
 
+        {/* Score correction / forfeit */}
+        {!hasTBD && (
+          <button onClick={e => { e.stopPropagation(); setScoreEdit(s => !s) }}
+            className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded px-1.5 py-0.5 flex-shrink-0">
+            {isDone ? 'Correct' : 'Forfeit'}
+          </button>
+        )}
+
         {/* Copy scorekeeper link */}
         {!isDone && (
           <CopyLinkButton matchId={m.id} pin={m.scorekeeper_pin} />
@@ -537,6 +637,11 @@ function MatchRow({ match: m, tournamentId }) {
             <button onClick={() => setEditing(false)} className="btn-secondary btn btn-sm">Cancel</button>
           </div>
         </div>
+      )}
+
+      {/* Score correction / forfeit panel */}
+      {scoreEdit && (
+        <ScoreEditor match={m} onClose={() => setScoreEdit(false)} onSaved={() => { setScoreEdit(false); window.location.reload() }} />
       )}
     </div>
   )

@@ -104,50 +104,43 @@ export function SchedulePage() {
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="flex flex-wrap gap-2 items-center">
-        {/* Group by */}
-        <div className="flex bg-gray-100 rounded-lg p-0.5 gap-0.5">
-          {[['time','By time'],['field','By field'],['division','By division']].map(([val, label]) => (
-            <button
-              key={val}
-              onClick={() => setGroupBy(val)}
-              className={'px-3 py-1.5 rounded-md text-xs font-medium transition-colors ' + (
-                groupBy === val ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              )}
-            >
+      {/* Controls -- stacked on mobile */}
+      <div className="space-y-2">
+        <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
+          {[['time','Time'],['field','Field'],['division','Division']].map(([val, label]) => (
+            <button key={val} onClick={() => setGroupBy(val)}
+              className={'flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ' + (
+                groupBy === val ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+              )}>
               {label}
             </button>
           ))}
         </div>
 
-        {/* Field filter */}
-        {venues.length > 1 && (
-          <select
-            className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 bg-white focus:ring-1 focus:ring-blue-500"
-            value={filterVenue}
-            onChange={e => setFilterVenue(e.target.value)}
-          >
-            <option value="all">All fields</option>
-            {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
+        {(venues.length > 1 || divisions.length > 1) && (
+          <div className="flex gap-2">
+            {venues.length > 1 && (
+              <select
+                className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 text-gray-600 bg-white"
+                value={filterVenue} onChange={e => setFilterVenue(e.target.value)}>
+                <option value="all">All fields</option>
+                {venues.map(v => <option key={v.id} value={v.id}>{v.short_name ?? v.name}</option>)}
+              </select>
+            )}
+            {divisions.length > 1 && (
+              <select
+                className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 text-gray-600 bg-white"
+                value={filterDivision} onChange={e => setFilterDivision(e.target.value)}>
+                <option value="all">All divisions</option>
+                {divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            )}
+          </div>
         )}
 
-        {/* Division filter */}
-        {divisions.length > 1 && (
-          <select
-            className="text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 bg-white focus:ring-1 focus:ring-blue-500"
-            value={filterDivision}
-            onChange={e => setFilterDivision(e.target.value)}
-          >
-            <option value="all">All divisions</option>
-            {divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
-        )}
-
-        <span className="text-xs text-gray-400 ml-auto">
+        <p className="text-xs text-gray-400 text-right">
           {filtered.length} game{filtered.length !== 1 ? 's' : ''}
-        </span>
+        </p>
       </div>
 
       {/* Schedule groups */}
@@ -191,67 +184,51 @@ export function SchedulePage() {
   )
 }
 
-function ScheduleMatchCard({ match: m, showVenue, showDivision, showTime, brandColor, tournamentId }) {
-  const isLive  = m.status === 'in_progress'
-  const isDone  = m.status === 'complete' || m.status === 'forfeit'
-  const teamA   = m.team_a
-  const teamB   = m.team_b
+function ScheduleMatchCard({ match: m, showVenue, showDivision, showTime, brandColor }) {
+  const isLive = m.status === 'in_progress'
+  const isDone = m.status === 'complete' || m.status === 'forfeit'
+  const teamA  = m.team_a
+  const teamB  = m.team_b
 
   return (
     <Link
       to={'/score/' + m.id}
       className={[
-        'flex items-center gap-3 p-3 bg-white rounded-xl border transition-all hover:shadow-sm',
+        'block p-3 bg-white rounded-xl border transition-all active:scale-98',
         isLive ? 'border-green-200 bg-green-50/30' : 'border-gray-200',
       ].join(' ')}
     >
-      {/* Time column */}
-      <div className="w-14 flex-shrink-0 text-center">
-        {m.time_slot?.scheduled_start ? (
-          <div>
-            <p className={'text-xs font-bold tabular-nums ' + (isLive ? 'text-green-600' : 'text-gray-700')}>
-              {formatTime(m.time_slot.scheduled_start)}
-            </p>
-            {isLive && (
-              <span className="inline-flex items-center gap-0.5 text-xs text-green-600 font-semibold mt-0.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                Live
-              </span>
-            )}
-            {isDone && <p className="text-xs text-gray-400">Final</p>}
-          </div>
-        ) : (
-          <p className="text-xs text-gray-400">TBD</p>
+      {/* Top row: time + venue + live badge */}
+      <div className="flex items-center gap-2 mb-2">
+        {m.time_slot?.scheduled_start && (
+          <span className={'text-xs font-bold tabular-nums ' + (isLive ? 'text-green-600' : 'text-gray-500')}>
+            {formatTime(m.time_slot.scheduled_start)}
+          </span>
+        )}
+        {isLive && (
+          <span className="inline-flex items-center gap-1 text-xs text-green-600 font-semibold bg-green-50 px-1.5 py-0.5 rounded-full border border-green-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+            LIVE
+          </span>
+        )}
+        {isDone && <span className="text-xs text-gray-400 font-medium">Final</span>}
+        {m.venue && showVenue && (
+          <span className="text-xs text-gray-400 ml-auto flex items-center gap-0.5">
+            <MapPin size={10} /> {m.venue.short_name ?? m.venue.name}
+          </span>
+        )}
+        {m.pool && !showVenue && (
+          <span className="text-xs text-gray-400 ml-auto">{m.pool.name}</span>
         )}
       </div>
 
-      {/* Divider */}
-      <div className="w-px self-stretch bg-gray-100 flex-shrink-0" />
-
-      {/* Teams */}
-      <div className="flex-1 min-w-0 space-y-1">
+      {/* Teams + scores */}
+      <div className="space-y-1.5">
         <MatchTeamRow team={teamA} score={isDone || isLive ? m.score_a : null}
           isWinner={isDone && m.score_a > m.score_b} />
         <MatchTeamRow team={teamB} score={isDone || isLive ? m.score_b : null}
           isWinner={isDone && m.score_b > m.score_a} />
       </div>
-
-      {/* Meta */}
-      <div className="flex-shrink-0 text-right space-y-0.5 hidden sm:block">
-        {showVenue && m.venue && (
-          <p className="text-xs text-gray-400 flex items-center justify-end gap-1">
-            <MapPin size={10} /> {m.venue.short_name ?? m.venue.name}
-          </p>
-        )}
-        {showDivision && m.division && (
-          <p className="text-xs text-gray-400">{m.division.name}</p>
-        )}
-        {m.round_label && (
-          <p className="text-xs text-gray-300">{m.round_label}</p>
-        )}
-      </div>
-
-      <ChevronRight size={14} className="text-gray-300 flex-shrink-0" />
     </Link>
   )
 }
@@ -261,11 +238,11 @@ function MatchTeamRow({ team, score, isWinner }) {
     <div className="flex items-center gap-2">
       <div className="w-2.5 h-2.5 rounded-full flex-shrink-0"
         style={{ backgroundColor: team?.primary_color ?? '#e5e7eb' }} />
-      <span className={'text-sm truncate flex-1 ' + (isWinner ? 'font-bold text-gray-900' : 'text-gray-700')}>
-        {team?.name ?? 'TBD'}
+      <span className={'text-sm truncate flex-1 min-w-0 ' + (isWinner ? 'font-bold text-gray-900' : 'text-gray-600')}>
+        {team?.short_name ?? team?.name ?? 'TBD'}
       </span>
       {score !== null && score !== undefined && (
-        <span className={'text-sm font-bold tabular-nums flex-shrink-0 ' + (isWinner ? 'text-gray-900' : 'text-gray-400')}>
+        <span className={'text-base font-black tabular-nums flex-shrink-0 ' + (isWinner ? 'text-gray-900' : 'text-gray-400')}>
           {score}
         </span>
       )}
