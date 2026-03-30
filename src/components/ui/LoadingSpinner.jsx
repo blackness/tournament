@@ -1,17 +1,16 @@
 export function LoadingSpinner({ size = 'md', className = '' }) {
-  const sizes = { sm: 'w-4 h-4', md: 'w-8 h-8', lg: 'w-12 h-12' }
+  const s = { sm: 16, md: 24, lg: 40 }[size] ?? 24
   return (
-    <div className={`flex items-center justify-center ${className}`}>
-      <div className={`${sizes[size]} border-2 border-gray-200 border-t-blue-600 rounded-full animate-spin`} />
+    <div className={className} style={{ width:s, height:s, border:`${s/8}px solid rgba(255,255,255,0.1)`, borderTopColor:'var(--accent)', borderRadius:'50%', animation:'spin 0.7s linear infinite' }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )
 }
 
-export function PageLoader({ message = 'Loading...' }) {
+export function PageLoader() {
   return (
-    <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3 text-gray-500">
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', minHeight:'40vh' }}>
       <LoadingSpinner size="lg" />
-      <p className="text-sm">{message}</p>
     </div>
   )
 }

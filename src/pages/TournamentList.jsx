@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/LoadingSpinner'
-import { Trophy, Calendar, MapPin, Search, ChevronRight } from 'lucide-react'
+import { Search, ChevronRight, MapPin, Calendar } from 'lucide-react'
 
 export function TournamentList() {
   const [tournaments, setTournaments] = useState([])
@@ -41,109 +41,135 @@ export function TournamentList() {
   if (loading) return <PageLoader />
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
-      <div className="text-center space-y-2">
-        <h1 className="text-3xl font-bold text-gray-900">Tournaments</h1>
-        <p className="text-gray-500">Live scores, schedules, and standings.</p>
+    <div style={{ maxWidth:800, margin:'0 auto', padding:'40px 20px 80px' }}>
+
+      {/* Hero */}
+      <div style={{ marginBottom:32 }}>
+        <h1 style={{ fontSize:30, fontWeight:700, letterSpacing:'-0.03em', color:'var(--text-primary)', lineHeight:1.1, marginBottom:6 }}>
+          Tournaments
+        </h1>
+        <p style={{ fontSize:15, color:'var(--text-secondary)' }}>Live scores, schedules, and standings.</p>
       </div>
 
-      <div className="relative">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+      {/* Search */}
+      <div style={{ position:'relative', marginBottom:36 }}>
+        <Search size={15} style={{ position:'absolute', left:13, top:'50%', transform:'translateY(-50%)', color:'var(--text-muted)' }} />
         <input
           type="text"
-          className="field-input pl-9"
-          placeholder="Search tournaments or venues…"
+          style={{ width:'100%', padding:'10px 14px 10px 38px', fontSize:14, fontFamily:'inherit', background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:10, color:'var(--text-primary)', outline:'none' }}
+          placeholder="Search tournaments..."
           value={search}
           onChange={e => setSearch(e.target.value)}
+          onFocus={e => e.target.style.borderColor = 'var(--border-mid)'}
+          onBlur={e => e.target.style.borderColor = 'var(--border)'}
         />
       </div>
 
       {tournaments.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
-          <Trophy size={36} className="mx-auto mb-3 opacity-30" />
-          <p className="font-medium text-gray-600">No tournaments yet</p>
-          <p className="text-sm mt-1">Check back soon, or sign in to create one.</p>
+        <div style={{ textAlign:'center', padding:'64px 0', color:'var(--text-muted)' }}>
+          <div style={{ fontSize:40, marginBottom:12 }}></div>
+          <p style={{ fontSize:15, fontWeight:600, color:'var(--text-secondary)', marginBottom:6 }}>No tournaments yet</p>
+          <p style={{ fontSize:13 }}>Check back soon, or sign in to create one.</p>
         </div>
       ) : filtered.length === 0 ? (
-        <p className="text-center text-gray-400 py-8">No tournaments match "{search}"</p>
+        <p style={{ textAlign:'center', color:'var(--text-muted)', padding:'32px 0' }}>No tournaments match "{search}"</p>
       ) : (
-        <div className="space-y-8">
-          {live.length > 0     && <Section title="🔴 Live Now" tournaments={live} />}
-          {upcoming.length > 0 && <Section title="Upcoming"   tournaments={upcoming} />}
-          {past.length > 0     && <Section title="Past"       tournaments={past} muted />}
+        <div style={{ display:'flex', flexDirection:'column', gap:40 }}>
+          {live.length > 0 && <TSection title="Live now" tournaments={live} isLive />}
+          {upcoming.length > 0 && <TSection title="Upcoming" tournaments={upcoming} />}
+          {past.length > 0 && <TSection title="Past" tournaments={past} isPast />}
         </div>
       )}
     </div>
   )
 }
 
-function Section({ title, tournaments, muted = false }) {
+function TSection({ title, tournaments, isLive, isPast }) {
   return (
     <div>
-      <h2 className={`text-sm font-semibold uppercase tracking-wide mb-3 ${muted ? 'text-gray-400' : 'text-gray-700'}`}>
-        {title}
-      </h2>
-      <div className="space-y-2">
-        {tournaments.map(t => <TournamentCard key={t.id} tournament={t} muted={muted} />)}
+      {/* Section header */}
+      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
+        {isLive ? (
+          <span style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--live)', background:'var(--live-dim)', border:'1px solid rgba(34,197,94,0.2)', padding:'3px 10px', borderRadius:20 }}>
+            <span className="live-dot" />
+            Live
+          </span>
+        ) : (
+          <span style={{ fontSize:11, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)' }}>{title}</span>
+        )}
+        <div style={{ flex:1, height:1, background:'var(--border)' }} />
+      </div>
+
+      {/* Cards */}
+      <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+        {tournaments.map(t => <TCard key={t.id} tournament={t} isLive={isLive} isPast={isPast} />)}
       </div>
     </div>
   )
 }
 
-function TournamentCard({ tournament: t, muted }) {
-  const isLive = t.status === 'live'
+function TCard({ tournament: t, isLive, isPast }) {
+  const color = t.primary_color ?? '#8a8a9a'
+  const initial = (t.name ?? '?')[0].toUpperCase()
+
+  const formatDate = (d) => {
+    if (!d) return ''
+    return new Date(d + 'T12:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
   return (
-    <Link
-      to={`/t/${t.slug}`}
-      className={[
-        'flex items-center gap-4 p-4 bg-white rounded-xl border transition-all hover:shadow-sm hover:border-gray-300',
-        muted  ? 'opacity-60 hover:opacity-100' : '',
-        isLive ? 'border-green-200 bg-green-50/40' : 'border-gray-200',
-      ].join(' ')}
-    >
-      <div
-        className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-white"
-        style={{ backgroundColor: t.primary_color ?? '#1a56db' }}
-      >
-        {t.logo_url
-          ? <img src={t.logo_url} alt="" className="w-10 h-10 rounded-xl object-cover" />
-          : <Trophy size={18} />
-        }
-      </div>
+    <Link to={'/t/' + t.slug} style={{ display:'flex', alignItems:'stretch', background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, textDecoration:'none', overflow:'hidden', transition:'border-color 0.15s, background 0.15s' }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border-mid)'; e.currentTarget.style.background = 'var(--bg-raised)' }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-surface)' }}>
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold text-gray-900 truncate">{t.name}</span>
+      {/* Color bar */}
+      {!isPast && <div style={{ width:4, background:color, flexShrink:0 }} />}
+
+      <div style={{ padding:'15px 18px', display:'flex', alignItems:'center', gap:14, flex:1, opacity: isPast ? 0.6 : 1 }}>
+        {/* Icon */}
+        <div style={{ width:42, height:42, borderRadius:10, background: isPast ? 'var(--bg-hover)' : color, display:'flex', alignItems:'center', justifyContent:'center', fontSize:17, fontWeight:700, color:'#fff', flexShrink:0 }}>
+          {initial}
+        </div>
+
+        {/* Info */}
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:15, fontWeight:600, color:'var(--text-primary)', letterSpacing:'-0.02em', marginBottom:3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {t.name}
+          </div>
+          <div style={{ display:'flex', gap:14, fontSize:12, color:'var(--text-muted)', flexWrap:'wrap' }}>
+            {t.venue_name && (
+              <span style={{ display:'flex', alignItems:'center', gap:3 }}>
+                <MapPin size={11} /> {t.venue_name}
+              </span>
+            )}
+            {t.start_date && (
+              <span style={{ display:'flex', alignItems:'center', gap:3 }}>
+                <Calendar size={11} /> {formatDate(t.start_date)}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Status badge */}
+        <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
           {isLive && (
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-              Live
+            <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--live)', background:'var(--live-dim)', border:'1px solid rgba(34,197,94,0.2)', padding:'3px 9px', borderRadius:20 }}>
+              <span className="live-dot" /> Live
             </span>
           )}
-        </div>
-        <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500 flex-wrap">
-          <span className="flex items-center gap-1">
-            <Calendar size={11} />
-            {formatDateRange(t.start_date, t.end_date)}
-          </span>
-          {t.venue_name && (
-            <span className="flex items-center gap-1">
-              <MapPin size={11} />
-              {t.venue_name}
+          {!isLive && !isPast && t.start_date && (
+            <span style={{ fontSize:11, fontWeight:500, color:'#a78bfa', background:'rgba(139,92,246,0.1)', border:'1px solid rgba(139,92,246,0.2)', padding:'3px 9px', borderRadius:20 }}>
+              {formatDate(t.start_date)}
             </span>
           )}
+          {isPast && (
+            <span style={{ fontSize:11, color:'var(--text-muted)', background:'var(--bg-hover)', padding:'3px 9px', borderRadius:20 }}>
+              Final
+            </span>
+          )}
+          <ChevronRight size={15} style={{ color:'var(--text-muted)' }} />
         </div>
       </div>
-
-      <ChevronRight size={16} className="text-gray-300 flex-shrink-0" />
     </Link>
   )
-}
-
-function formatDateRange(start, end) {
-  if (!start) return '—'
-  const fmt = d => new Date(d + 'T12:00').toLocaleDateString('en-CA', {
-    month: 'short', day: 'numeric', year: 'numeric',
-  })
-  return start === end ? fmt(start) : `${fmt(start)} – ${fmt(end)}`
 }

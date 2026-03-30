@@ -1,90 +1,168 @@
 import { Outlet, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../lib/AuthContext'
-import { Trophy, LayoutDashboard, LogIn, LogOut, Menu, X } from 'lucide-react'
-import { useState } from 'react'
+import { LayoutDashboard, LogOut, Menu, X, User, ChevronDown } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+
+function LogoMark() {
+  return (
+    <div style={{ width:28, height:28, background:'#e8ff47', borderRadius:7, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+        <path d="M8 2L14 12H2L8 2Z" fill="#0a0a0c"/>
+      </svg>
+    </div>
+  )
+}
 
 export function PublicLayout() {
-  const { user, signOut } = useAuth()
+  const { user, profile, signOut } = useAuth()
   const navigate = useNavigate()
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuOpen, setMenuOpen]       = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const profileRef = useRef(null)
 
-  const handleSignOut = async () => {
+  useEffect(() => {
+    function handleClick(e) {
+      if (profileRef.current && !profileRef.current.contains(e.target)) setProfileOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  async function handleSignOut() {
     await signOut()
+    setProfileOpen(false)
     navigate('/tournaments')
   }
 
+  const displayName = profile?.display_name ?? user?.email?.split('@')[0] ?? 'Account'
+  const isDirector  = profile?.role === 'director' || profile?.role === 'admin'
+  const initials    = displayName.slice(0,2).toUpperCase()
+
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col" style={{ background:'var(--bg-base)' }}>
       {/* Nav */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-14">
-            {/* Logo */}
-            <Link to="/tournaments" className="flex items-center gap-2 font-bold text-gray-900">
-              <Trophy size={20} className="text-blue-600" />
-              <span>athleteOS</span>
-              <span className="text-gray-400 font-normal hidden sm:inline">/ Tournaments</span>
+      <header style={{ background:'var(--bg-surface)', borderBottom:'1px solid var(--border)', position:'sticky', top:0, zIndex:30 }}>
+        <div className="max-w-5xl mx-auto px-4 sm:px-6" style={{ height:52, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <Link to="/tournaments" style={{ display:'flex', alignItems:'center', gap:10, textDecoration:'none' }}>
+            <LogoMark />
+            <span style={{ fontSize:15, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.025em' }}>athleteOS</span>
+          </Link>
+
+          {/* Desktop */}
+          <nav className="hidden sm:flex items-center gap-1">
+            <Link to="/tournaments" style={{ fontSize:13, color:'var(--text-secondary)', padding:'5px 10px', borderRadius:7, textDecoration:'none' }}
+              className="hover:text-[var(--text-primary)] transition-colors">
+              Tournaments
             </Link>
 
-            {/* Desktop nav */}
-            <nav className="hidden sm:flex items-center gap-2">
-              <Link to="/tournaments" className="btn-ghost btn-sm btn">Browse</Link>
-              <Link to="/dashboard"   className="btn-ghost btn-sm btn">My Games</Link>
-              {user ? (
-                <>
-                  <Link to="/director" className="btn-ghost btn-sm btn flex items-center gap-1">
-                    <LayoutDashboard size={14} />
-                    Director
+            {user ? (
+              <>
+                {isDirector && (
+                  <Link to="/director" style={{ fontSize:13, color:'var(--text-secondary)', padding:'5px 10px', borderRadius:7, textDecoration:'none', display:'flex', alignItems:'center', gap:5 }}
+                    className="hover:text-[var(--text-primary)] transition-colors">
+                    <LayoutDashboard size={13} /> Director
                   </Link>
-                  <button onClick={handleSignOut} className="btn-secondary btn btn-sm">
-                    <LogOut size={14} />
-                    Sign out
+                )}
+                {/* Profile dropdown */}
+                <div style={{ position:'relative', marginLeft:4 }} ref={profileRef}>
+                  <button onClick={() => setProfileOpen(o => !o)}
+                    style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 10px', borderRadius:9, background:'transparent', border:'1px solid var(--border)', cursor:'pointer', color:'var(--text-secondary)', fontFamily:'inherit' }}
+                    className="hover:border-[var(--border-mid)] hover:text-[var(--text-primary)] transition-colors">
+                    <div style={{ width:24, height:24, borderRadius:'50%', background:'var(--bg-hover)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, color:'var(--accent)' }}>
+                      {initials}
+                    </div>
+                    <span style={{ fontSize:13, fontWeight:500, maxWidth:100, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{displayName}</span>
+                    <ChevronDown size={12} />
                   </button>
-                </>
-              ) : (
-                <Link to="/login" className="btn-primary btn btn-sm">
-                  <LogIn size={14} />
-                  Sign in
-                </Link>
-              )}
-            </nav>
 
-            {/* Mobile hamburger */}
-            <button
-              className="sm:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100"
-              onClick={() => setMenuOpen(o => !o)}
-            >
-              {menuOpen ? <X size={20} /> : <Menu size={20} />}
-            </button>
-          </div>
+                  {profileOpen && (
+                    <div style={{ position:'absolute', right:0, top:'calc(100% + 6px)', width:200, background:'var(--bg-raised)', border:'1px solid var(--border-mid)', borderRadius:12, boxShadow:'0 8px 24px rgba(0,0,0,0.4)', zIndex:50, overflow:'hidden' }}>
+                      <div style={{ padding:'12px 14px', borderBottom:'1px solid var(--border)' }}>
+                        <p style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{displayName}</p>
+                        <p style={{ fontSize:11, color:'var(--text-muted)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis' }}>{user.email}</p>
+                        {profile?.role && (
+                          <span style={{ display:'inline-block', marginTop:6, fontSize:10, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--accent)', background:'var(--accent-dim)', padding:'2px 7px', borderRadius:20 }}>
+                            {profile.role}
+                          </span>
+                        )}
+                      </div>
+                      {isDirector && (
+                        <Link to="/director" onClick={() => setProfileOpen(false)}
+                          style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 14px', fontSize:13, color:'var(--text-secondary)', textDecoration:'none' }}
+                          className="hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">
+                          <LayoutDashboard size={14} /> My tournaments
+                        </Link>
+                      )}
+                      <Link to="/profile" onClick={() => setProfileOpen(false)}
+                        style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 14px', fontSize:13, color:'var(--text-secondary)', textDecoration:'none' }}
+                        className="hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]">
+                        <User size={14} /> Profile
+                      </Link>
+                      <div style={{ borderTop:'1px solid var(--border)', marginTop:2 }}>
+                        <button onClick={handleSignOut}
+                          style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 14px', fontSize:13, color:'#f87171', background:'transparent', border:'none', cursor:'pointer', width:'100%', fontFamily:'inherit' }}
+                          className="hover:bg-[rgba(239,68,68,0.08)]">
+                          <LogOut size={14} /> Sign out
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center gap-2 ml-1">
+                <Link to="/login" className="btn btn-ghost btn-sm">Sign in</Link>
+                <Link to="/signup" className="btn btn-primary btn-sm">Sign up</Link>
+              </div>
+            )}
+          </nav>
+
+          {/* Mobile hamburger */}
+          <button className="sm:hidden p-2 rounded-lg" style={{ background:'transparent', border:'none', color:'var(--text-secondary)', cursor:'pointer' }}
+            onClick={() => setMenuOpen(o => !o)}>
+            {menuOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
         </div>
 
         {/* Mobile menu */}
         {menuOpen && (
-          <div className="sm:hidden border-t border-gray-200 bg-white px-4 py-3 space-y-1">
-            <Link to="/tournaments" className="block py-2 text-sm text-gray-700" onClick={() => setMenuOpen(false)}>Browse tournaments</Link>
-            <Link to="/dashboard"   className="block py-2 text-sm text-gray-700" onClick={() => setMenuOpen(false)}>My games</Link>
+          <div style={{ borderTop:'1px solid var(--border)', background:'var(--bg-surface)', padding:'12px 16px', display:'flex', flexDirection:'column', gap:2 }}>
+            <Link to="/tournaments" style={{ padding:'10px 8px', fontSize:14, color:'var(--text-secondary)', textDecoration:'none', borderRadius:8 }} onClick={() => setMenuOpen(false)}>
+              Tournaments
+            </Link>
             {user ? (
               <>
-                <Link to="/director" className="block py-2 text-sm text-gray-700" onClick={() => setMenuOpen(false)}>Director dashboard</Link>
-                <button onClick={handleSignOut} className="block w-full text-left py-2 text-sm text-red-600">Sign out</button>
+                {isDirector && (
+                  <Link to="/director" style={{ padding:'10px 8px', fontSize:14, color:'var(--text-secondary)', textDecoration:'none', borderRadius:8 }} onClick={() => setMenuOpen(false)}>
+                    Director dashboard
+                  </Link>
+                )}
+                <div style={{ borderTop:'1px solid var(--border)', paddingTop:10, marginTop:6 }}>
+                  <p style={{ fontSize:11, color:'var(--text-muted)', padding:'0 8px 8px' }}>{user.email}</p>
+                  <button onClick={handleSignOut} style={{ padding:'10px 8px', fontSize:14, color:'#f87171', background:'transparent', border:'none', cursor:'pointer', width:'100%', textAlign:'left', fontFamily:'inherit' }}>
+                    Sign out
+                  </button>
+                </div>
               </>
             ) : (
-              <Link to="/login" className="block py-2 text-sm text-blue-600 font-medium" onClick={() => setMenuOpen(false)}>Sign in</Link>
+              <div style={{ display:'flex', gap:8, paddingTop:10, borderTop:'1px solid var(--border)', marginTop:6 }}>
+                <Link to="/login" className="btn btn-ghost btn-sm flex-1 text-center" onClick={() => setMenuOpen(false)}>Sign in</Link>
+                <Link to="/signup" className="btn btn-primary btn-sm flex-1 text-center" onClick={() => setMenuOpen(false)}>Sign up</Link>
+              </div>
             )}
           </div>
         )}
       </header>
 
-      {/* Page content */}
-      <main className="flex-1">
-        <Outlet />
-      </main>
+      <main className="flex-1"><Outlet /></main>
 
-      {/* Footer */}
-      <footer className="border-t border-gray-200 bg-white py-6">
-        <div className="max-w-7xl mx-auto px-4 text-center text-xs text-gray-400">
-          athleteOS Tournament Module
+      <footer style={{ borderTop:'1px solid var(--border)', padding:'20px 24px' }}>
+        <div className="max-w-5xl mx-auto flex items-center justify-between" style={{ fontSize:12, color:'var(--text-muted)' }}>
+          <span>athleteOS</span>
+          <div className="flex gap-4">
+            <Link to="/tournaments" style={{ color:'var(--text-muted)', textDecoration:'none' }} className="hover:text-[var(--text-secondary)]">Tournaments</Link>
+            {!user && <Link to="/signup" style={{ color:'var(--text-muted)', textDecoration:'none' }} className="hover:text-[var(--text-secondary)]">Sign up</Link>}
+          </div>
         </div>
       </footer>
     </div>
