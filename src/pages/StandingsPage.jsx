@@ -28,31 +28,22 @@ export function StandingsPage() {
       const { data: div } = await supabase
         .from('divisions')
         .select('id, name, teams_advance_per_pool, tiebreaker_order, tournament:tournaments(id, name, slug, primary_color, tiebreaker_order)')
-        .eq('id', divisionId)
-        .single()
+        .eq('id', divisionId).single()
       setDivision(div)
-
       const { data: poolData } = await supabase
-        .from('pools')
-        .select('id, name, short_name')
-        .eq('division_id', divisionId)
-        .order('sort_order')
+        .from('pools').select('id, name, short_name')
+        .eq('division_id', divisionId).order('sort_order')
       setPools(poolData ?? [])
-
       await loadStandings()
       setLoading(false)
     }
     load()
   }, [divisionId])
 
-  // Realtime
   useEffect(() => {
     if (!divisionId) return
-    const channel = supabase
-      .channel('standings-' + divisionId)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pool_standings' }, () => {
-        loadStandings()
-      })
+    const channel = supabase.channel('standings-' + divisionId)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pool_standings' }, loadStandings)
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [divisionId])
@@ -61,169 +52,123 @@ export function StandingsPage() {
 
   const tournament = division?.tournament
   const tiebreakerOrder = division?.tiebreaker_order ?? tournament?.tiebreaker_order ?? []
-
-  // Group standings by pool
+  const advancesPerPool = division?.teams_advance_per_pool ?? 2
   const byPool = {}
   for (const row of standings) {
     if (!byPool[row.pool_id]) byPool[row.pool_id] = []
     byPool[row.pool_id].push(row)
   }
-
-  const advancesPerPool = division?.teams_advance_per_pool ?? 2
+  const brandColor = tournament?.primary_color ?? '#8b5cf6'
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
-
+    <div style={{ maxWidth:720, margin:'0 auto', padding:'32px 20px 80px' }}>
       {/* Header */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:28 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
           {tournament && (
-            <Link to={'/t/' + tournament.slug} className="text-gray-400 hover:text-gray-600">
+            <Link to={'/t/' + tournament.slug} style={{ color:'var(--text-muted)', display:'flex', alignItems:'center' }}>
               <ChevronLeft size={20} />
             </Link>
           )}
           <div>
-            <h1 className="text-xl font-bold text-gray-900">{division?.name} Standings</h1>
-            {tournament && <p className="text-sm text-gray-400">{tournament.name}</p>}
+            <h1 style={{ fontSize:22, fontWeight:700, letterSpacing:'-0.03em', color:'var(--text-primary)' }}>{division?.name} Standings</h1>
+            {tournament && <p style={{ fontSize:13, color:'var(--text-muted)', marginTop:2 }}>{tournament.name}</p>}
           </div>
         </div>
-        <button onClick={loadStandings} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100" title="Refresh">
-          <RefreshCw size={15} />
+        <button onClick={loadStandings} style={{ padding:8, borderRadius:8, background:'transparent', border:'1px solid var(--border)', cursor:'pointer', color:'var(--text-muted)' }}>
+          <RefreshCw size={14} />
         </button>
       </div>
 
+      {/* Pools */}
       {pools.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">
-          <p className="font-medium text-gray-600">No pools yet</p>
-          <p className="text-sm mt-1">Standings appear once pool play begins.</p>
+        <div style={{ textAlign:'center', padding:'48px 0', color:'var(--text-muted)' }}>
+          <p style={{ fontSize:15, fontWeight:600, color:'var(--text-secondary)' }}>No pools yet</p>
         </div>
-      ) : (
-        pools.map(pool => {
-          const poolRows = byPool[pool.id] ?? []
-          return (
-            <div key={pool.id} className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
-              {/* Pool header */}
-              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between"
-                style={{ backgroundColor: (tournament?.primary_color ?? '#1a56db') + '12' }}>
-                <h2 className="font-bold text-gray-900">{pool.name}</h2>
-                <span className="text-xs text-gray-400">{poolRows.length} team{poolRows.length !== 1 ? 's' : ''}</span>
-              </div>
+      ) : pools.map(pool => {
+        const poolRows = byPool[pool.id] ?? []
+        return (
+          <div key={pool.id} style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, overflow:'hidden', marginBottom:16 }}>
+            {/* Pool header */}
+            <div style={{ padding:'12px 18px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between', background: brandColor + '12' }}>
+              <h2 style={{ fontSize:15, fontWeight:700, color:'var(--text-primary)' }}>{pool.name}</h2>
+              <span style={{ fontSize:11, color:'var(--text-muted)' }}>{poolRows.length} teams</span>
+            </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-max">
-                  <thead>
-                    <tr className="border-b border-gray-100 bg-gray-50/50">
-                      <th className="text-left pl-4 pr-2 py-2.5 text-xs font-semibold text-gray-400 w-7">#</th>
-                      <th className="text-left px-2 py-2.5 text-xs font-semibold text-gray-400">Team</th>
-                      <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-400 w-10">W</th>
-                      <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-400 w-10">L</th>
-                      <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-400 w-12">+/-</th>
-                      <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-400 w-10">PF</th>
-                      <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-400 w-10">PA</th>
-                      <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-400 w-10">GP</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {poolRows.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="px-4 py-8 text-center text-gray-400 text-xs italic">
-                          No results yet
+            {/* Table */}
+            <div style={{ overflowX:'auto' }}>
+              <table style={{ width:'100%', borderCollapse:'collapse', minWidth:480 }}>
+                <thead>
+                  <tr style={{ borderBottom:'1px solid var(--border)' }}>
+                    {['#','Team','W','L','+/-','PF','PA','GP'].map((h, i) => (
+                      <th key={h} style={{ padding:'10px 14px', fontSize:10, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', textAlign: i < 2 ? 'left' : 'center' }}>{h}</th>
+                    ))}
+                    <th style={{ width:32 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {poolRows.length === 0 ? (
+                    <tr><td colSpan={9} style={{ padding:'24px', textAlign:'center', color:'var(--text-muted)', fontSize:13, fontStyle:'italic' }}>No results yet</td></tr>
+                  ) : poolRows.map((row, idx) => {
+                    const advances = idx < advancesPerPool
+                    const diff = row.point_diff ?? 0
+                    return (
+                      <tr key={row.team_id} style={{ borderBottom:'1px solid rgba(42,42,50,0.5)', background: advances ? brandColor + '08' : 'transparent' }}>
+                        <td style={{ padding:'11px 14px', fontSize:12, color:'var(--text-muted)', fontFamily:'DM Mono, monospace' }}>{idx + 1}</td>
+                        <td style={{ padding:'11px 14px' }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                            <div style={{ width:8, height:8, borderRadius:'50%', background:row.primary_color ?? '#8a8a9a', flexShrink:0 }} />
+                            <Link to={'/t/' + slug + '/team/' + row.team_id}
+                              style={{ fontSize:14, fontWeight: advances ? 600 : 500, color:'var(--text-primary)', textDecoration:'none' }}
+                              className="hover:text-[var(--accent)]">
+                              {row.team_short_name ?? row.team_name}
+                            </Link>
+                            {advances && idx === advancesPerPool - 1 && (
+                              <ChevronRight size={11} style={{ color: brandColor, marginLeft:2 }} />
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ padding:'11px 14px', textAlign:'center', fontFamily:'DM Mono, monospace', fontSize:13, fontWeight:700, color:'var(--text-primary)' }}>{row.wins ?? 0}</td>
+                        <td style={{ padding:'11px 14px', textAlign:'center', fontFamily:'DM Mono, monospace', fontSize:13, color:'var(--text-secondary)' }}>{row.losses ?? 0}</td>
+                        <td style={{ padding:'11px 14px', textAlign:'center', fontFamily:'DM Mono, monospace', fontSize:13, fontWeight:600, color: diff > 0 ? '#4ade80' : diff < 0 ? '#f87171' : 'var(--text-muted)' }}>
+                          {diff > 0 ? '+' + diff : diff}
+                        </td>
+                        <td style={{ padding:'11px 14px', textAlign:'center', fontFamily:'DM Mono, monospace', fontSize:13, color:'var(--text-secondary)' }}>{row.points_scored ?? 0}</td>
+                        <td style={{ padding:'11px 14px', textAlign:'center', fontFamily:'DM Mono, monospace', fontSize:13, color:'var(--text-secondary)' }}>{row.points_against ?? 0}</td>
+                        <td style={{ padding:'11px 14px', textAlign:'center', fontFamily:'DM Mono, monospace', fontSize:13, color:'var(--text-muted)' }}>{row.games_played ?? 0}</td>
+                        <td style={{ padding:'11px 14px' }}>
+                          <FavButton teamId={row.team_id} />
                         </td>
                       </tr>
-                    ) : (
-                      poolRows.map((row, idx) => (
-                        <StandingsRow
-                          key={row.team_id}
-                          row={row}
-                          rank={idx + 1}
-                          advances={idx < advancesPerPool}
-                          primaryColor={tournament?.primary_color ?? '#1a56db'}
-                          slug={slug}
-                        />
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {poolRows.length > 0 && (
-                <div className="px-4 py-2 border-t border-gray-100 text-xs text-gray-400 flex items-center gap-1">
-                  <ChevronRight size={11} className="text-blue-400" />
-                  Top {advancesPerPool} advance to bracket
-                </div>
-              )}
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
-          )
-        })
-      )}
 
-      {/* Last updated */}
+            {poolRows.length > 0 && (
+              <div style={{ padding:'8px 18px', borderTop:'1px solid var(--border)', fontSize:11, color:'var(--text-muted)', display:'flex', alignItems:'center', gap:5 }}>
+                <ChevronRight size={11} style={{ color: brandColor }} />
+                Top {advancesPerPool} advance to bracket
+              </div>
+            )}
+          </div>
+        )
+      })}
+
       {lastUpdated && (
-        <p className="text-xs text-gray-400 text-right">
-          Updated {lastUpdated.toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
+        <p style={{ fontSize:11, color:'var(--text-muted)', textAlign:'right', marginTop:8 }}>
+          Updated {lastUpdated.toLocaleTimeString('en-CA', { hour:'numeric', minute:'2-digit', second:'2-digit' })}
         </p>
       )}
 
-      {/* Tiebreaker legend */}
       {tiebreakerOrder.length > 0 && (
-        <div className="text-xs text-gray-400">
-          <span className="font-semibold text-gray-500">Tiebreakers: </span>
+        <p style={{ fontSize:12, color:'var(--text-muted)', marginTop:12 }}>
+          <span style={{ fontWeight:600, color:'var(--text-secondary)' }}>Tiebreakers: </span>
           {tiebreakerOrder.map(t => TIEBREAKER_LABELS[t] ?? t).join(' > ')}
-        </div>
+        </p>
       )}
     </div>
-  )
-}
-
-function StandingsRow({ row, rank, advances, primaryColor, slug }) {
-  const diff = row.point_diff ?? 0
-  const w    = row.wins          ?? 0
-  const l    = row.losses        ?? 0
-  const pf   = row.points_scored ?? 0
-  const pa   = row.points_against ?? 0
-  const gp   = row.games_played  ?? 0
-
-  return (
-    <tr className={'hover:bg-gray-50/50 transition-colors ' + (advances ? 'bg-blue-50/30' : '')}>
-      {/* Rank */}
-      <td className="pl-4 pr-2 py-3 text-xs font-semibold text-gray-400">{rank}</td>
-
-      {/* Team name */}
-      <td className="px-2 py-3">
-        <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-            style={{ backgroundColor: row.primary_color ?? '#94a3b8' }} />
-          <Link
-            to={'/t/' + slug + '/team/' + row.team_id}
-            className="font-semibold text-gray-900 hover:text-blue-600 hover:underline whitespace-nowrap"
-          >
-            {row.team_short_name ?? row.team_name}
-          </Link>
-          <FavButton teamId={row.team_id} />
-          {advances && gp > 0 && (
-            <span className="hidden sm:inline text-xs text-blue-500 font-medium whitespace-nowrap">
-              Advances
-            </span>
-          )}
-        </div>
-      </td>
-
-      {/* W */}
-      <td className="px-3 py-3 text-center font-bold text-gray-900">{w}</td>
-      {/* L */}
-      <td className="px-3 py-3 text-center text-gray-600">{l}</td>
-      {/* +/- */}
-      <td className={'px-3 py-3 text-center font-semibold tabular-nums ' +
-        (diff > 0 ? 'text-green-600' : diff < 0 ? 'text-red-500' : 'text-gray-400')}>
-        {diff > 0 ? '+' + diff : diff === 0 ? '0' : diff}
-      </td>
-      {/* PF */}
-      <td className="px-3 py-3 text-center text-gray-500 tabular-nums">{pf}</td>
-      {/* PA */}
-      <td className="px-3 py-3 text-center text-gray-500 tabular-nums">{pa}</td>
-      {/* GP */}
-      <td className="px-3 py-3 text-center text-gray-400 tabular-nums">{gp}</td>
-    </tr>
   )
 }
 
@@ -231,17 +176,14 @@ function FavButton({ teamId }) {
   const [faved, setFaved] = useState(isFavorite(teamId))
   return (
     <button onClick={e => { e.preventDefault(); setFaved(toggleFavorite(teamId).includes(teamId)) }}
-      className={'p-0.5 rounded transition-colors flex-shrink-0 ' + (faved ? 'text-red-400' : 'text-gray-200 hover:text-red-300')}>
+      style={{ padding:4, borderRadius:6, background:'transparent', border:'none', cursor:'pointer', color: faved ? '#f87171' : 'var(--text-muted)' }}>
       <Heart size={12} fill={faved ? 'currentColor' : 'none'} />
     </button>
   )
 }
 
 const TIEBREAKER_LABELS = {
-  head_to_head:   'Head-to-head',
-  point_diff:     'Point diff',
-  points_scored:  'Points scored',
-  points_against: 'Points against',
-  sotg:           'SOTG',
-  director:       'Director',
+  head_to_head:'Head-to-head', point_diff:'Point diff',
+  points_scored:'Points scored', points_against:'Points against',
+  sotg:'SOTG', director:'Director',
 }
