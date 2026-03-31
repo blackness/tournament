@@ -183,15 +183,13 @@ export function WizardStep5Teams({ onNext, onBack }) {
           } else {
             // New team -- check if it was already inserted (retry scenario)
             // by looking for matching name+division in DB before inserting
-            const { data: existing } = await import('../../../lib/supabase').then(m =>
-              m.supabase
+            const { data: existing } = await supabase
                 .from('tournament_teams')
                 .select('id')
                 .eq('tournament_id', tournamentId)
                 .eq('division_id', div.dbId)
                 .eq('name', team.name.trim())
                 .maybeSingle()
-            )
             if (existing) {
               updateTeam(team.id, { dbId: existing.id })
               await db.teams.update(existing.id, payload)

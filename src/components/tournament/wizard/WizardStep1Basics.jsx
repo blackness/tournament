@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useWizardStore } from '../../../store/wizardStore'
-import { db } from '../../../lib/supabase'
+import { db, supabase } from '../../../lib/supabase'
 import { useAuth } from '../../../lib/AuthContext'
 import { TIMEZONES, BRAND_COLORS } from '../../../lib/constants'
 import { WizardNavButtons } from './WizardNavButtons'
@@ -74,9 +74,7 @@ export function WizardStep1Basics({ onNext, isFirst }) {
         if (error) throw error
       } else {
         // Check if slug already exists (handles 409 / duplicate key)
-        const { data: existing } = await import('../../../lib/supabase').then(m =>
-          m.supabase.from('tournaments').select('id').eq('slug', slug.trim()).maybeSingle()
-        )
+        const { data: existing } = await supabase.from('tournaments').select('id').eq('slug', slug.trim()).maybeSingle()
 
         if (existing) {
           // Resume -- this is our own tournament from a previous attempt
