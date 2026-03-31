@@ -30,9 +30,7 @@ import { QRManager }          from './pages/director/QRManager'
 
 // Scorekeeper
 import { ScorekeeperPage } from './pages/ScorekeeperPage'
-import { LoginPage }       from './pages/LoginPage'
 import { SignupPage }      from './pages/SignupPage'
-import { SOTGEntryPage }    from './pages/SOTGEntryPage'
 import { SOTGEntryPage }    from './pages/SOTGEntryPage'
 
 // Auth
