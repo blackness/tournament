@@ -24,7 +24,8 @@ export function SignupPage() {
 
   function update(field, val) { setForm(p => ({ ...p, [field]: val })); setError(null) }
 
-  async function handleSubmit() {
+  async function handleSubmit(e) {
+    if (e?.preventDefault) e.preventDefault()
     if (form.password !== form.confirmPw) { setError('Passwords do not match'); return }
     if (form.password.length < 8) { setError('Password must be at least 8 characters'); return }
     setLoading(true); setError(null)
@@ -76,7 +77,7 @@ export function SignupPage() {
           {error && (
             <div style={{ marginBottom:16, padding:'10px 14px', background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.2)', borderRadius:9, fontSize:13, color:'#f87171' }}>{error}</div>
           )}
-          <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+          <form onSubmit={handleSubmit} style={{ display:'flex', flexDirection:'column', gap:16 }}>
             <div>
               <label style={{ fontSize:13, fontWeight:500, color:'var(--text-secondary)', display:'block', marginBottom:6 }}>Your name *</label>
               <input type="text" className="field-input" placeholder="Jane Smith" autoFocus
@@ -119,10 +120,10 @@ export function SignupPage() {
               <input type="text" className="field-input" placeholder="Kingston Ultimate"
                 value={form.clubName} onChange={e => update('clubName', e.target.value)} />
             </div>
-            <button onClick={handleSubmit} disabled={loading || !form.displayName || !form.email || !form.password} className="btn btn-primary btn-lg" style={{ width:'100%', marginTop:4 }}>
+            <button type="submit" disabled={loading || !form.displayName || !form.email || !form.password} className="btn btn-primary btn-lg" style={{ width:'100%', marginTop:4 }}>
               {loading ? 'Creating account...' : 'Create account'}
             </button>
-          </div>
+          </form>
         </div>
         <p style={{ textAlign:'center', marginTop:20, fontSize:13, color:'var(--text-muted)' }}>
           Already have an account?{' '}

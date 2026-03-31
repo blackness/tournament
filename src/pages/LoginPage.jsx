@@ -24,7 +24,8 @@ export function LoginPage() {
   const [error, setError]     = useState(null)
   const [loading, setLoading] = useState(false)
 
-  async function handleSubmit() {
+  async function handleSubmit(e) {
+    if (e?.preventDefault) e.preventDefault()
     setLoading(true); setError(null)
     const { error } = await signIn(email, password)
     if (error) { setError(error.message); setLoading(false) }
@@ -46,7 +47,7 @@ export function LoginPage() {
               {error}
             </div>
           )}
-          <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+          <form onSubmit={handleSubmit} style={{ display:'flex', flexDirection:'column', gap:16 }}>
             <div>
               <label style={{ fontSize:13, fontWeight:500, color:'var(--text-secondary)', display:'block', marginBottom:6 }}>Email</label>
               <input type="email" className="field-input" autoFocus
@@ -63,10 +64,10 @@ export function LoginPage() {
                 </button>
               </div>
             </div>
-            <button onClick={handleSubmit} disabled={loading} className="btn btn-primary btn-lg" style={{ width:'100%', marginTop:4 }}>
+            <button type="submit" disabled={loading} className="btn btn-primary btn-lg" style={{ width:'100%', marginTop:4 }}>
               {loading ? 'Signing in...' : 'Sign in'}
             </button>
-          </div>
+          </form>
         </div>
 
         <p style={{ textAlign:'center', marginTop:20, fontSize:13, color:'var(--text-muted)' }}>

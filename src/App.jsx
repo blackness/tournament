@@ -33,8 +33,10 @@ import { ScorekeeperPage } from './pages/ScorekeeperPage'
 import { LoginPage }       from './pages/LoginPage'
 import { SignupPage }      from './pages/SignupPage'
 import { SOTGEntryPage }    from './pages/SOTGEntryPage'
+import { SOTGEntryPage }    from './pages/SOTGEntryPage'
 
 // Auth
+import { LoginPage }        from './pages/LoginPage'
 import { RequireAuth }      from './components/ui/RequireAuth'
 
 export default function App() {
