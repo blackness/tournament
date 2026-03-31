@@ -691,9 +691,9 @@ function PlayerPicker({ label, isSecondary, teamName, players, teamId, onPick, o
   }
 
   return (
-    <div className="absolute inset-0 flex flex-col justify-end z-50">
+    <div style={{ position:"fixed", inset:0, display:"flex", flexDirection:"column", justifyContent:"flex-end", zIndex:9999 }}>
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60" onClick={onSkip} />
+      <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.7)" }} onClick={onSkip} />
 
       {/* Sheet */}
       <div className="relative bg-gray-900 border-t border-gray-700 rounded-t-2xl px-4 pt-4 pb-8 max-h-[70vh] flex flex-col">
@@ -770,7 +770,7 @@ function QuickAddPlayer({ teamId, teamName, onAdd, onClose }) {
   const [name, setName] = useState('')
   const [num, setNum]   = useState('')
   return (
-    <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9999, padding:"0 16px" }}>
       <div className="bg-gray-900 border border-gray-700 rounded-2xl p-5 w-full max-w-sm space-y-4">
         <h3 className="font-semibold text-white">Add player to {teamName}</h3>
         <input type="text" placeholder="Player name" value={name}

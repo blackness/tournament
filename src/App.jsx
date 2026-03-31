@@ -30,15 +30,18 @@ import { QRManager }          from './pages/director/QRManager'
 
 // Scorekeeper
 import { ScorekeeperPage } from './pages/ScorekeeperPage'
+import { LoginPage }       from './pages/LoginPage'
+import { AdminDashboard }  from './pages/admin/AdminDashboard'
+import { AdminProvider }   from './lib/AdminContext'
 import { SignupPage }      from './pages/SignupPage'
 import { SOTGEntryPage }    from './pages/SOTGEntryPage'
 
 // Auth
-import { LoginPage }        from './pages/LoginPage'
 import { RequireAuth }      from './components/ui/RequireAuth'
 
 export default function App() {
   return (
+    <AdminProvider>
     <AuthProvider>
       <BrowserRouter>
         <Routes>
@@ -88,5 +91,6 @@ export default function App() {
         </Routes>
       </BrowserRouter>
     </AuthProvider>
+    </AdminProvider>
   )
 }

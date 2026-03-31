@@ -1,6 +1,7 @@
 import { Outlet, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../lib/AuthContext'
-import { LayoutDashboard, LogOut, Menu, X, User, ChevronDown } from 'lucide-react'
+import { LayoutDashboard, LogOut, Menu, X, User, ChevronDown, Shield, Eye } from 'lucide-react'
+import { useAdmin } from '../../lib/AdminContext'
 import { useState, useRef, useEffect } from 'react'
 
 function LogoMark() {
@@ -16,6 +17,7 @@ function LogoMark() {
 export function PublicLayout() {
   const { user, profile, signOut } = useAuth()
   const navigate = useNavigate()
+  const { isSimulating, simulatedUser, stopSimulation } = useAdmin()
   const [menuOpen, setMenuOpen]       = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const profileRef = useRef(null)
@@ -61,6 +63,12 @@ export function PublicLayout() {
                   <Link to="/director" style={{ fontSize:13, color:'var(--text-secondary)', padding:'5px 10px', borderRadius:7, textDecoration:'none', display:'flex', alignItems:'center', gap:5 }}
                     className="hover:text-[var(--text-primary)] transition-colors">
                     <LayoutDashboard size={13} /> Director
+                  </Link>
+                )}
+                {profile?.role === 'admin' && (
+                  <Link to="/admin" style={{ fontSize:13, color:'var(--accent)', padding:'5px 10px', borderRadius:7, textDecoration:'none', display:'flex', alignItems:'center', gap:5, border:'1px solid rgba(232,255,71,0.2)', background:'var(--accent-dim)' }}
+                    className="hover:opacity-80 transition-opacity">
+                    <Shield size={13} /> Admin
                   </Link>
                 )}
                 {/* Profile dropdown */}
@@ -154,6 +162,18 @@ export function PublicLayout() {
         )}
       </header>
 
+      {/* Simulation banner */}
+      {isSimulating && (
+        <div style={{ background:'rgba(234,179,8,0.1)', borderBottom:'1px solid rgba(234,179,8,0.2)', padding:'8px 20px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <span style={{ fontSize:12, color:'#fde047', fontWeight:500, display:'flex', alignItems:'center', gap:6 }}>
+            <Eye size={13} /> Viewing as: <strong>{simulatedUser?.display_name ?? 'Anonymous'}</strong> ({simulatedUser?.role ?? 'public'})
+          </span>
+          <button onClick={() => { stopSimulation(); navigate('/admin') }}
+            style={{ fontSize:11, fontWeight:600, color:'#fde047', background:'transparent', border:'1px solid rgba(234,179,8,0.3)', borderRadius:6, padding:'3px 9px', cursor:'pointer', fontFamily:'inherit' }}>
+            Exit simulation
+          </button>
+        </div>
+      )}
       <main className="flex-1"><Outlet /></main>
 
       <footer style={{ borderTop:'1px solid var(--border)', padding:'20px 24px' }}>
