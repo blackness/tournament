@@ -133,14 +133,14 @@ export function RosterManager() {
   const activeTeamData = teams.find(t => t.id === activeTeam)
 
   return (
-    <div className="space-y-5 max-w-3xl">
+    <div style={{maxWidth:720}}>
       <div className="flex items-center gap-3">
-        <Link to={'/director/' + tournamentId} className="text-gray-400 hover:text-gray-600">
+        <Link to={'/director/' + tournamentId} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
           <ChevronLeft size={20} />
         </Link>
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Roster Manager</h1>
-          <p className="text-sm text-gray-400">{tournament?.name}</p>
+          <h1 className="text-xl font-bold text-[var(--text-primary)]">Roster Manager</h1>
+          <p className="text-sm text-[var(--text-muted)]">{tournament?.name}</p>
         </div>
       </div>
 
@@ -153,7 +153,7 @@ export function RosterManager() {
       <div className="flex gap-5">
         {/* Team list sidebar */}
         <div className="w-48 flex-shrink-0 space-y-1">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-2 mb-2">Teams</p>
+          <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide px-2 mb-2">Teams</p>
           {teams.map(t => (
             <button key={t.id} onClick={() => handleTeamSelect(t.id)}
               className={'w-full text-left px-3 py-2 rounded-xl text-sm transition-colors flex items-center gap-2 ' + (
@@ -161,7 +161,7 @@ export function RosterManager() {
               )}>
               <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: t.primary_color ?? '#6b7280' }} />
               <span className="truncate">{t.name}</span>
-              <span className="ml-auto text-xs text-gray-400">{players[t.id]?.length ?? '?'}</span>
+              <span className="ml-auto text-xs text-[var(--text-muted)]">{players[t.id]?.length ?? '?'}</span>
             </button>
           ))}
         </div>
@@ -169,13 +169,13 @@ export function RosterManager() {
         {/* Player roster */}
         <div className="flex-1 min-w-0">
           {activeTeam && (
-            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+            <div className=" border border-[var(--border)] rounded-2xl overflow-hidden">
               {/* Roster header */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] /50">
                 <div className="flex items-center gap-2">
-                  <Users size={15} className="text-gray-400" />
-                  <span className="text-sm font-semibold text-gray-800">{activeTeamData?.name}</span>
-                  <span className="text-xs text-gray-400">{activeRoster.length} players</span>
+                  <Users size={15} className="text-[var(--text-muted)]" />
+                  <span className="text-sm font-semibold text-[var(--text-primary)]">{activeTeamData?.name}</span>
+                  <span className="text-xs text-[var(--text-muted)]">{activeRoster.length} players</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => fileRef.current?.click()}
@@ -192,17 +192,17 @@ export function RosterManager() {
               </div>
 
               {/* Column headers */}
-              <div className="grid grid-cols-12 gap-2 px-4 py-2 border-b border-gray-100 bg-gray-50/30">
-                <span className="col-span-1 text-xs font-semibold text-gray-400">#</span>
-                <span className="col-span-7 text-xs font-semibold text-gray-400">Name</span>
-                <span className="col-span-2 text-xs font-semibold text-gray-400">Eligible</span>
-                <span className="col-span-2 text-xs font-semibold text-gray-400 text-right">Actions</span>
+              <div className="grid grid-cols-12 gap-2 px-4 py-2 border-b border-[var(--border)] /30">
+                <span className="col-span-1 text-xs font-semibold text-[var(--text-muted)]">#</span>
+                <span className="col-span-7 text-xs font-semibold text-[var(--text-muted)]">Name</span>
+                <span className="col-span-2 text-xs font-semibold text-[var(--text-muted)]">Eligible</span>
+                <span className="col-span-2 text-xs font-semibold text-[var(--text-muted)] text-right">Actions</span>
               </div>
 
               {/* Players */}
               <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto">
                 {activeRoster.length === 0 ? (
-                  <div className="text-center py-10 text-gray-400">
+                  <div className="text-center py-10 text-[var(--text-muted)]">
                     <Users size={28} className="mx-auto mb-2 opacity-30" />
                     <p className="text-sm">No players yet</p>
                     <p className="text-xs mt-1">Add manually or import a CSV</p>
@@ -222,8 +222,8 @@ export function RosterManager() {
               </div>
 
               {/* CSV hint */}
-              <div className="px-4 py-2 border-t border-gray-100 bg-gray-50/30">
-                <p className="text-xs text-gray-400">
+              <div className="px-4 py-2 border-t border-[var(--border)] /30">
+                <p className="text-xs text-[var(--text-muted)]">
                   CSV columns: <span className="font-mono">Name, Number</span>
                 </p>
               </div>
@@ -244,7 +244,7 @@ function PlayerRow({ player, onChange, onSave, onDelete, saving }) {
   }
 
   return (
-    <div className="grid grid-cols-12 gap-2 px-4 py-2 items-center hover:bg-gray-50/50 group">
+    <div className="grid grid-cols-12 gap-2 px-4 py-2 items-center hover:/50 group">
       {/* Number */}
       <div className="col-span-1">
         <input
@@ -252,7 +252,7 @@ function PlayerRow({ player, onChange, onSave, onDelete, saving }) {
           value={player.number ?? ''}
           onChange={e => handleChange('number', e.target.value)}
           placeholder="#"
-          className="w-full text-xs font-mono text-center border-0 bg-transparent outline-none focus:bg-gray-100 rounded px-1 py-0.5 text-gray-600"
+          className="w-full text-xs font-mono text-center border-0 bg-transparent outline-none focus: rounded px-1 py-0.5 text-[var(--text-secondary)]"
           maxLength={4}
         />
       </div>
@@ -264,7 +264,7 @@ function PlayerRow({ player, onChange, onSave, onDelete, saving }) {
           value={player.name}
           onChange={e => handleChange('name', e.target.value)}
           placeholder="Player name"
-          className="w-full text-sm border-0 bg-transparent outline-none focus:bg-gray-100 rounded px-1 py-0.5 text-gray-900"
+          className="w-full text-sm border-0 bg-transparent outline-none focus: rounded px-1 py-0.5 text-[var(--text-primary)]"
           autoFocus={player._new}
         />
       </div>
@@ -288,7 +288,7 @@ function PlayerRow({ player, onChange, onSave, onDelete, saving }) {
           </button>
         )}
         <button onClick={onDelete}
-          className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Delete">
+          className="p-1 text-[var(--text-muted)] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Delete">
           <Trash2 size={13} />
         </button>
       </div>

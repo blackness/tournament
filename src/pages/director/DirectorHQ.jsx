@@ -102,18 +102,18 @@ export function DirectorHQ() {
   }[tournament.status] ?? 'badge-gray'
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div style={{maxWidth:800}}>
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold text-gray-900 truncate">{tournament.name}</h1>
+            <h1 className="text-2xl font-bold text-[var(--text-primary)] truncate">{tournament.name}</h1>
             <span className={'badge ' + statusBadge}>
               {TOURNAMENT_STATUS_LABELS[tournament.status] ?? tournament.status}
             </span>
           </div>
-          <div className="flex items-center gap-3 text-sm text-gray-500 mt-1 flex-wrap">
+          <div className="flex items-center gap-3 text-sm text-[var(--text-muted)] mt-1 flex-wrap">
             <span className="flex items-center gap-1">
               <Calendar size={13} />
               {formatDate(tournament.start_date)}
@@ -146,15 +146,15 @@ export function DirectorHQ() {
 
       {/* Status transition */}
       {flow?.next && (
-        <div className="bg-white border border-gray-200 rounded-xl p-4 flex items-center justify-between gap-4">
+        <div className=" border border-[var(--border)] rounded-xl p-4 flex items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold text-gray-800">
+            <p className="text-sm font-semibold text-[var(--text-primary)]">
               {tournament.status === 'draft' && 'Ready to publish? Teams and spectators will be able to see this tournament.'}
               {tournament.status === 'published' && 'Ready to start? Mark the tournament as live when games begin.'}
               {tournament.status === 'live' && 'Finished for the day? Move to review to confirm final scores.'}
               {tournament.status === 'review' && 'All done? Archive this tournament to finalize results.'}
             </p>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p className="text-xs text-[var(--text-muted)] mt-0.5">
               {'Current status: ' + (TOURNAMENT_STATUS_LABELS[tournament.status] ?? tournament.status)}
             </p>
           </div>
@@ -181,7 +181,7 @@ export function DirectorHQ() {
 
       {/* Quick links */}
       <div>
-        <h2 className="text-sm font-semibold text-gray-700 mb-3">Manage</h2>
+        <h2 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">Manage</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <QuickLink to={'/director/' + tournamentId + '/schedule'} label="Schedule editor" sub="Drag to adjust game times" />
           <QuickLink to={'/director/' + tournamentId + '/bracket'} label="Generate brackets" sub="Seed teams from pool standings" />
@@ -211,25 +211,25 @@ export function DirectorHQ() {
       {/* Delete modal */}
       {showDelete && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+          <div className=" rounded-2xl  w-full max-w-md p-6 space-y-4">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
                   <AlertTriangle size={18} className="text-red-600" />
                 </div>
                 <div>
-                  <h2 className="text-base font-semibold text-gray-900">Delete tournament?</h2>
-                  <p className="text-sm text-gray-500 mt-0.5">This cannot be undone.</p>
+                  <h2 className="text-base font-semibold text-[var(--text-primary)]">Delete tournament?</h2>
+                  <p className="text-sm text-[var(--text-muted)] mt-0.5">This cannot be undone.</p>
                 </div>
               </div>
-              <button onClick={() => setShowDelete(false)} className="p-1 text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowDelete(false)} className="p-1 text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
                 <X size={18} />
               </button>
             </div>
 
-            <div className="bg-gray-50 rounded-xl px-4 py-3">
-              <p className="text-sm font-semibold text-gray-800">{tournament.name}</p>
-              <p className="text-xs text-gray-500 mt-0.5">{formatDate(tournament.start_date)}</p>
+            <div className=" rounded-xl px-4 py-3">
+              <p className="text-sm font-semibold text-[var(--text-primary)]">{tournament.name}</p>
+              <p className="text-xs text-[var(--text-muted)] mt-0.5">{formatDate(tournament.start_date)}</p>
             </div>
 
             {tournament.status !== 'draft' && (
@@ -268,10 +268,10 @@ function QuickLink({ to, label, sub, external }) {
   const inner = (
     <>
       <div>
-        <p className="text-sm font-medium text-gray-800">{label}</p>
-        {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+        <p className="text-sm font-medium text-[var(--text-primary)]">{label}</p>
+        {sub && <p className="text-xs text-[var(--text-muted)] mt-0.5">{sub}</p>}
       </div>
-      <ChevronRight size={16} className="text-gray-300 flex-shrink-0" />
+      <ChevronRight size={16} className="text-[var(--text-muted)] flex-shrink-0" />
     </>
   )
   if (external) return <a href={to} target="_blank" rel="noreferrer" className={cls}>{inner}</a>
@@ -304,16 +304,16 @@ function PinManager({ tournamentId, matches, onPinsUpdated }) {
   const samplePin = matches.find(m => m.scorekeeper_pin)?.scorekeeper_pin
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4">
+    <div className=" border border-[var(--border)] rounded-xl p-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <p className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+          <p className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
             Scorekeeper PIN
             {hasAnyPin && (
               <span className="badge badge-green">Active: {samplePin}</span>
             )}
           </p>
-          <p className="text-xs text-gray-400 mt-0.5">
+          <p className="text-xs text-[var(--text-muted)] mt-0.5">
             {hasAnyPin
               ? 'Scorekeepers use this PIN to access the console'
               : unpinnedCount + ' games have no PIN set'}
@@ -325,7 +325,7 @@ function PinManager({ tournamentId, matches, onPinsUpdated }) {
       </div>
 
       {open && (
-        <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-3 flex-wrap">
+        <div className="mt-3 pt-3 border-t border-[var(--border)] flex items-center gap-3 flex-wrap">
           <input
             type="text"
             className="field-input w-32"
@@ -337,7 +337,7 @@ function PinManager({ tournamentId, matches, onPinsUpdated }) {
           <button onClick={generatePins} disabled={saving} className="btn-primary btn btn-sm">
             {saving ? 'Setting...' : pin ? 'Set PIN: ' + pin : 'Generate random PIN'}
           </button>
-          <p className="text-xs text-gray-400">Applies to all unstarted games</p>
+          <p className="text-xs text-[var(--text-muted)]">Applies to all unstarted games</p>
         </div>
       )}
 
@@ -370,8 +370,8 @@ function MatchList({ matches, tournamentId }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <h2 className="text-sm font-semibold text-gray-700">Games ({matches.length})</h2>
-        <div className="flex bg-gray-100 rounded-lg p-0.5 gap-0.5">
+        <h2 className="text-sm font-semibold text-[var(--text-secondary)]">Games ({matches.length})</h2>
+        <div className="flex  rounded-lg p-0.5 gap-0.5">
           {[
             ['unplayed', 'Unplayed', counts.unplayed],
             ['live',     'Live',     counts.live],
@@ -389,7 +389,7 @@ function MatchList({ matches, tournamentId }) {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-sm text-gray-400 text-center py-6">No {filter} games</p>
+        <p className="text-sm text-[var(--text-muted)] text-center py-6">No {filter} games</p>
       ) : (
         <div className="space-y-1.5">
           {filtered.map(m => (
@@ -433,12 +433,12 @@ function ScoreEditor({ match: m, onClose, onSaved }) {
   const teamB = m.team_b?.name ?? 'Team B'
 
   return (
-    <div className="px-3 pb-3 pt-1 border-t border-gray-100 bg-gray-50/50 space-y-3">
+    <div className="px-3 pb-3 pt-1 border-t border-[var(--border)] /50 space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-gray-700">
+        <p className="text-xs font-semibold text-[var(--text-secondary)]">
           {m.status === 'complete' || m.status === 'forfeit' ? 'Correct score' : 'Record result'}
         </p>
-        <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+        <label className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] cursor-pointer">
           <input type="checkbox" checked={isForfeit} onChange={e => setIsForfeit(e.target.checked)} className="rounded" />
           Forfeit
         </label>
@@ -446,7 +446,7 @@ function ScoreEditor({ match: m, onClose, onSaved }) {
 
       {isForfeit ? (
         <div>
-          <p className="text-xs text-gray-500 mb-1.5">Which team forfeited?</p>
+          <p className="text-xs text-[var(--text-muted)] mb-1.5">Which team forfeited?</p>
           <div className="grid grid-cols-2 gap-2">
             {[['a', teamA], ['b', teamB]].map(([side, name]) => (
               <button key={side} onClick={() => setForfeitTeam(side)}
@@ -459,21 +459,21 @@ function ScoreEditor({ match: m, onClose, onSaved }) {
               </button>
             ))}
           </div>
-          <p className="text-xs text-gray-400 mt-1.5 text-center">
+          <p className="text-xs text-[var(--text-muted)] mt-1.5 text-center">
             Winner gets 15-0. Score recorded as forfeit.
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-3 items-center gap-2">
           <div className="text-center">
-            <p className="text-xs text-gray-500 mb-1 truncate">{teamA}</p>
+            <p className="text-xs text-[var(--text-muted)] mb-1 truncate">{teamA}</p>
             <input type="number" min="0" max="99" value={scoreA}
               onChange={e => setScoreA(e.target.value)}
               className="field-input text-center text-xl font-black w-full" />
           </div>
-          <div className="text-center text-gray-400 text-sm font-bold">vs</div>
+          <div className="text-center text-[var(--text-muted)] text-sm font-bold">vs</div>
           <div className="text-center">
-            <p className="text-xs text-gray-500 mb-1 truncate">{teamB}</p>
+            <p className="text-xs text-[var(--text-muted)] mb-1 truncate">{teamB}</p>
             <input type="number" min="0" max="99" value={scoreB}
               onChange={e => setScoreB(e.target.value)}
               className="field-input text-center text-xl font-black w-full" />
@@ -557,16 +557,16 @@ function MatchRow({ match: m, tournamentId }) {
         {isLive && <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />}
         {hasTBD && !isLive && <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />}
 
-        <span className="flex-1 truncate text-gray-700">
+        <span className="flex-1 truncate text-[var(--text-secondary)]">
           <span className={!m.team_a?.id ? 'text-amber-500 italic' : ''}>{m.team_a?.name ?? 'TBD'}</span>
-          <span className="text-gray-400 mx-1">vs</span>
+          <span className="text-[var(--text-muted)] mx-1">vs</span>
           <span className={!m.team_b?.id ? 'text-amber-500 italic' : ''}>{m.team_b?.name ?? 'TBD'}</span>
         </span>
 
-        {isDone && <span className="text-xs font-bold text-gray-500 tabular-nums flex-shrink-0">{m.score_a} - {m.score_b}</span>}
+        {isDone && <span className="text-xs font-bold text-[var(--text-muted)] tabular-nums flex-shrink-0">{m.score_a} - {m.score_b}</span>}
         {isLive && <span className="text-xs font-bold text-green-700 tabular-nums flex-shrink-0">{m.score_a} - {m.score_b}</span>}
         {m.time_slot?.scheduled_start && !isLive && !isDone && (
-          <span className="text-xs text-gray-400 flex-shrink-0">{formatTime(m.time_slot.scheduled_start)}</span>
+          <span className="text-xs text-[var(--text-muted)] flex-shrink-0">{formatTime(m.time_slot.scheduled_start)}</span>
         )}
 
         {/* Fix TBD button */}
@@ -580,7 +580,7 @@ function MatchRow({ match: m, tournamentId }) {
         {/* Score correction / forfeit */}
         {!hasTBD && (
           <button onClick={e => { e.stopPropagation(); setScoreEdit(s => !s) }}
-            className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded px-1.5 py-0.5 flex-shrink-0">
+            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] border border-[var(--border)] rounded px-1.5 py-0.5 flex-shrink-0">
             {isDone ? 'Correct' : 'Forfeit'}
           </button>
         )}
@@ -597,12 +597,12 @@ function MatchRow({ match: m, tournamentId }) {
           </Link>
         ) : !isDone ? (
           <Link to={'/scorekeeper/' + m.id}
-            className="flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">
+            className="flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-lg  text-[var(--text-secondary)] hover:bg-gray-200">
             Start
           </Link>
         ) : (
           <Link to={'/score/' + m.id}
-            className="flex-shrink-0 text-xs text-gray-400 hover:text-gray-600">
+            className="flex-shrink-0 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
             <ChevronRight size={13} />
           </Link>
         )}
@@ -611,17 +611,17 @@ function MatchRow({ match: m, tournamentId }) {
       {/* Inline team editor */}
       {editing && (
         <div className="px-3 pb-3 pt-1 border-t border-amber-100 space-y-2 bg-amber-50/50">
-          <p className="text-xs font-semibold text-gray-600">Assign teams</p>
+          <p className="text-xs font-semibold text-[var(--text-secondary)]">Assign teams</p>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-xs text-gray-500 mb-1 block">Team A</label>
+              <label className="text-xs text-[var(--text-muted)] mb-1 block">Team A</label>
               <select className="field-input text-xs" value={teamA} onChange={e => setTeamA(e.target.value)}>
                 <option value="">TBD</option>
                 {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-xs text-gray-500 mb-1 block">Team B</label>
+              <label className="text-xs text-[var(--text-muted)] mb-1 block">Team B</label>
               <select className="field-input text-xs" value={teamB} onChange={e => setTeamB(e.target.value)}>
                 <option value="">TBD</option>
                 {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}

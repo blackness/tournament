@@ -188,18 +188,18 @@ export function ScheduleEditor() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <Link to={'/director/' + tournamentId} className="text-gray-400 hover:text-gray-600">
+          <Link to={'/director/' + tournamentId} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
             <ChevronLeft size={20} />
           </Link>
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Schedule Editor</h1>
-            <p className="text-sm text-gray-400">{tournament?.name} - {matches.length} games</p>
+            <h1 className="text-xl font-bold text-[var(--text-primary)]">Schedule Editor</h1>
+            <p className="text-sm text-[var(--text-muted)]">{tournament?.name} - {matches.length} games</p>
           </div>
         </div>
 
         {/* Venue filter */}
         <select
-          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 text-gray-600 bg-white"
+          className="text-sm border border-[var(--border)] rounded-lg px-3 py-1.5 text-[var(--text-secondary)] "
           value={filter}
           onChange={e => setFilter(e.target.value)}
         >
@@ -218,19 +218,19 @@ export function ScheduleEditor() {
       )}
 
       {/* Global delay controls */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-4 flex-wrap">
+      <div className=" border border-[var(--border)] rounded-xl p-4 flex items-center gap-4 flex-wrap">
         <div>
-          <p className="text-sm font-semibold text-gray-700">Global delay</p>
-          <p className="text-xs text-gray-400">Push all future games forward or back</p>
+          <p className="text-sm font-semibold text-[var(--text-secondary)]">Global delay</p>
+          <p className="text-xs text-[var(--text-muted)]">Push all future games forward or back</p>
         </div>
         <div className="flex items-center gap-2 ml-auto">
-          <button onClick={() => setGlobalDelay(d => d - 5)} className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600">
+          <button onClick={() => setGlobalDelay(d => d - 5)} className="p-1.5 rounded-lg  hover:bg-gray-200 text-[var(--text-secondary)]">
             <Minus size={14} />
           </button>
-          <span className={`text-sm font-bold tabular-nums w-16 text-center ${globalDelay > 0 ? 'text-orange-600' : globalDelay < 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+          <span className={`text-sm font-bold tabular-nums w-16 text-center ${globalDelay > 0 ? 'text-orange-600' : globalDelay < 0 ? 'text-blue-600' : 'text-[var(--text-muted)]'}`}>
             {globalDelay > 0 ? '+' + globalDelay : globalDelay} min
           </span>
-          <button onClick={() => setGlobalDelay(d => d + 5)} className="p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600">
+          <button onClick={() => setGlobalDelay(d => d + 5)} className="p-1.5 rounded-lg  hover:bg-gray-200 text-[var(--text-secondary)]">
             <Plus size={14} />
           </button>
           <button
@@ -241,7 +241,7 @@ export function ScheduleEditor() {
             {applyingDelay ? 'Applying...' : 'Apply to all future games'}
           </button>
           {globalDelay !== 0 && (
-            <button onClick={() => setGlobalDelay(0)} className="p-1.5 text-gray-400 hover:text-gray-600">
+            <button onClick={() => setGlobalDelay(0)} className="p-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
               <RotateCcw size={14} />
             </button>
           )}
@@ -250,9 +250,9 @@ export function ScheduleEditor() {
 
       {/* Schedule grid */}
       {grouped.length === 0 ? (
-        <div className="text-center py-12 text-gray-400 border-2 border-dashed border-gray-200 rounded-2xl">
+        <div className="text-center py-12 text-[var(--text-muted)] border-2 border-dashed border-[var(--border)] rounded-2xl">
           <Clock size={32} className="mx-auto mb-2 opacity-30" />
-          <p className="font-medium text-gray-600">No games scheduled</p>
+          <p className="font-medium text-[var(--text-secondary)]">No games scheduled</p>
         </div>
       ) : (
         <div className="space-y-6">
@@ -261,7 +261,7 @@ export function ScheduleEditor() {
               {/* Time group header */}
               <div className="flex items-center gap-3 mb-2">
                 <div className="h-px flex-1 bg-gray-200" />
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                <span className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide flex items-center gap-1.5">
                   <Clock size={11} /> {group.label}
                 </span>
                 <div className="h-px flex-1 bg-gray-200" />
@@ -302,7 +302,7 @@ export function ScheduleEditor() {
         </div>
       )}
 
-      <p className="text-xs text-gray-400 text-center pb-4">
+      <p className="text-xs text-[var(--text-muted)] text-center pb-4">
         Drag game cards to swap time slots. Changes save immediately.
       </p>
     </div>
@@ -331,7 +331,7 @@ function MatchEditorCard({ match: m, slots, venues, isSaving, isDragOver, onDrag
     >
       {/* Drag handle */}
       {canEdit && (
-        <GripVertical size={16} className="text-gray-300 flex-shrink-0" />
+        <GripVertical size={16} className="text-[var(--text-muted)] flex-shrink-0" />
       )}
 
       {/* Status dot */}
@@ -342,19 +342,19 @@ function MatchEditorCard({ match: m, slots, venues, isSaving, isDragOver, onDrag
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <TeamDot team={m.team_a} />
-          <span className="text-xs text-gray-400">vs</span>
+          <span className="text-xs text-[var(--text-muted)]">vs</span>
           <TeamDot team={m.team_b} />
         </div>
         <div className="flex items-center gap-2 mt-0.5">
-          {m.pool && <span className="text-xs text-gray-400">{m.pool.name}</span>}
-          {m.division && <span className="text-xs text-gray-300">{m.division.name}</span>}
-          {m.round_label && <span className="text-xs text-gray-300">{m.round_label}</span>}
+          {m.pool && <span className="text-xs text-[var(--text-muted)]">{m.pool.name}</span>}
+          {m.division && <span className="text-xs text-[var(--text-muted)]">{m.division.name}</span>}
+          {m.round_label && <span className="text-xs text-[var(--text-muted)]">{m.round_label}</span>}
         </div>
       </div>
 
       {/* Score if done */}
       {isDone && (
-        <span className="text-xs font-bold text-gray-500 tabular-nums flex-shrink-0">
+        <span className="text-xs font-bold text-[var(--text-muted)] tabular-nums flex-shrink-0">
           {m.score_a}-{m.score_b}
         </span>
       )}
@@ -362,7 +362,7 @@ function MatchEditorCard({ match: m, slots, venues, isSaving, isDragOver, onDrag
       {/* Time selector */}
       {canEdit ? (
         <select
-          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white flex-shrink-0 max-w-32"
+          className="text-xs border border-[var(--border)] rounded-lg px-2 py-1.5 text-[var(--text-secondary)]  flex-shrink-0 max-w-32"
           value={m.time_slot?.id ?? ''}
           onChange={e => onTimeChange(e.target.value)}
           onClick={e => e.stopPropagation()}
@@ -379,7 +379,7 @@ function MatchEditorCard({ match: m, slots, venues, isSaving, isDragOver, onDrag
           }
         </select>
       ) : (
-        <span className="text-xs text-gray-500 flex-shrink-0">
+        <span className="text-xs text-[var(--text-muted)] flex-shrink-0">
           {m.time_slot?.scheduled_start ? formatTime(m.time_slot.scheduled_start) : 'TBD'}
         </span>
       )}
@@ -387,7 +387,7 @@ function MatchEditorCard({ match: m, slots, venues, isSaving, isDragOver, onDrag
       {/* Venue selector */}
       {canEdit ? (
         <select
-          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 bg-white flex-shrink-0 max-w-28"
+          className="text-xs border border-[var(--border)] rounded-lg px-2 py-1.5 text-[var(--text-secondary)]  flex-shrink-0 max-w-28"
           value={m.venue?.id ?? ''}
           onChange={e => onVenueChange(e.target.value)}
           onClick={e => e.stopPropagation()}
@@ -398,7 +398,7 @@ function MatchEditorCard({ match: m, slots, venues, isSaving, isDragOver, onDrag
           ))}
         </select>
       ) : (
-        <span className="text-xs text-gray-400 flex items-center gap-1 flex-shrink-0">
+        <span className="text-xs text-[var(--text-muted)] flex items-center gap-1 flex-shrink-0">
           <MapPin size={10} /> {m.venue?.short_name ?? m.venue?.name ?? 'TBD'}
         </span>
       )}
@@ -414,7 +414,7 @@ function TeamDot({ team }) {
   return (
     <div className="flex items-center gap-1.5 min-w-0">
       <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: team?.primary_color ?? '#e5e7eb' }} />
-      <span className="text-sm font-medium text-gray-800 truncate max-w-24">{team?.short_name ?? team?.name ?? 'TBD'}</span>
+      <span className="text-sm font-medium text-[var(--text-primary)] truncate max-w-24">{team?.short_name ?? team?.name ?? 'TBD'}</span>
     </div>
   )
 }

@@ -242,14 +242,14 @@ export function BracketGenerator() {
   if (loading) return <PageLoader />
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div style={{maxWidth:720}}>
       <div className="flex items-center gap-3">
-        <Link to={'/director/' + tournamentId} className="text-gray-400 hover:text-gray-600">
+        <Link to={'/director/' + tournamentId} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
           <ChevronLeft size={20} />
         </Link>
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Generate Brackets</h1>
-          <p className="text-sm text-gray-400">{tournament?.name}</p>
+          <h1 className="text-xl font-bold text-[var(--text-primary)]">Generate Brackets</h1>
+          <p className="text-sm text-[var(--text-muted)]">{tournament?.name}</p>
         </div>
       </div>
 
@@ -268,7 +268,7 @@ export function BracketGenerator() {
       </div>
 
       {divisions.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">
+        <div className="text-center py-12 text-[var(--text-muted)]">
           <p>No divisions found</p>
         </div>
       ) : (
@@ -290,11 +290,11 @@ export function BracketGenerator() {
             )
 
             return (
-              <div key={div.id} className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
+              <div key={div.id} className=" border border-[var(--border)] rounded-2xl overflow-hidden">
+                <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between gap-4">
                   <div>
-                    <h2 className="font-bold text-gray-900">{div.name}</h2>
-                    <p className="text-xs text-gray-400 mt-0.5 capitalize">
+                    <h2 className="font-bold text-[var(--text-primary)]">{div.name}</h2>
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5 capitalize">
                       {div.format_type?.replace(/_/g, ' ')} - {numPools} pool{numPools !== 1 ? 's' : ''}, top {advance} advance
                     </p>
                   </div>
@@ -334,15 +334,15 @@ export function BracketGenerator() {
                       <div className="grid grid-cols-2 gap-3">
                         {Object.entries(byPool).map(([poolId, teams]) => (
                           <div key={poolId}>
-                            <p className="text-xs font-semibold text-gray-500 mb-1">{teams[0]?.pool_name}</p>
+                            <p className="text-xs font-semibold text-[var(--text-muted)] mb-1">{teams[0]?.pool_name}</p>
                             {teams.slice(0, advance + 1).map((t, idx) => (
-                              <div key={t.team_id} className={`flex items-center gap-2 py-1 text-xs ${idx < advance ? 'text-gray-800' : 'text-gray-400'}`}>
-                                <span className="w-4 text-right text-gray-400">{idx + 1}</span>
+                              <div key={t.team_id} className={`flex items-center gap-2 py-1 text-xs ${idx < advance ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}>
+                                <span className="w-4 text-right text-[var(--text-muted)]">{idx + 1}</span>
                                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: t.primary_color ?? '#e5e7eb' }} />
                                 <span className={idx < advance ? 'font-semibold' : ''}>{t.team_short_name ?? t.team_name}</span>
-                                <span className="text-gray-400 ml-auto">{t.wins}-{t.losses}</span>
+                                <span className="text-[var(--text-muted)] ml-auto">{t.wins}-{t.losses}</span>
                                 {idx === advance - 1 && (
-                                  <div className="w-full border-t border-dashed border-gray-200 absolute" />
+                                  <div className="w-full border-t border-dashed border-[var(--border)] absolute" />
                                 )}
                               </div>
                             ))}
@@ -352,9 +352,9 @@ export function BracketGenerator() {
 
                       {/* Slot picker */}
                       <div className="mt-3 flex items-center gap-2">
-                        <p className="text-xs text-gray-500">Start bracket from slot:</p>
+                        <p className="text-xs text-[var(--text-muted)]">Start bracket from slot:</p>
                         <select
-                          className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-600"
+                          className="text-xs border border-[var(--border)] rounded-lg px-2 py-1 text-[var(--text-secondary)]"
                           value={bracketConfig[div.id]?.startSlotIdx ?? 0}
                           onChange={e => setBracketConfig(prev => ({ ...prev, [div.id]: { startSlotIdx: Number(e.target.value) } }))}
                         >
@@ -372,7 +372,7 @@ export function BracketGenerator() {
 
                 {/* Link to bracket view */}
                 {result && (
-                  <div className="px-5 py-3 border-t border-gray-100 bg-gray-50">
+                  <div className="px-5 py-3 border-t border-[var(--border)] ">
                     <Link
                       to={'/t/' + tournament?.slug + '/bracket/' + div.id}
                       className="text-sm text-blue-600 hover:underline flex items-center gap-1"
