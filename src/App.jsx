@@ -30,10 +30,11 @@ import { QRManager }          from './pages/director/QRManager'
 
 // Scorekeeper
 import { ScorekeeperPage } from './pages/ScorekeeperPage'
+import { LoginPage }       from './pages/LoginPage'
+import { SignupPage }      from './pages/SignupPage'
 import { SOTGEntryPage }    from './pages/SOTGEntryPage'
 
 // Auth
-import { LoginPage }        from './pages/LoginPage'
 import { RequireAuth }      from './components/ui/RequireAuth'
 
 export default function App() {
@@ -78,6 +79,7 @@ export default function App() {
           </Route>
 
           {/* ── Auth ──────────────────────────────────────────────────── */}
+          <Route path="/signup"                              element={<SignupPage />} />
           <Route path="/login" element={<LoginPage />} />
 
           {/* ── 404 ───────────────────────────────────────────────────── */}

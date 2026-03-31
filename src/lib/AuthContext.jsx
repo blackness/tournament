@@ -27,12 +27,22 @@ export function AuthProvider({ children }) {
   }, [])
 
   async function loadProfile(userId) {
-    const { data } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle()
-    setProfile(data)
+    try {
+      const { data, error, status } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle()
+      if (status === 404 || status === 400) {
+        // Table not ready or RLS issue -- treat as no profile
+        setProfile(null)
+        return
+      }
+      if (!error) setProfile(data ?? null)
+    } catch (err) {
+      console.warn('Could not load profile (non-fatal):', err.message)
+      setProfile(null)
+    }
   }
 
   const signIn = async (email, password) => {
@@ -81,7 +91,9 @@ export function AuthProvider({ children }) {
     return { data, error }
   }
 
-  const isDirector = profile?.role === 'director' || profile?.role === 'admin'
+  // If logged in but no profile row yet, default to director access
+  // (they created an account so they're a director until proven otherwise)
+  const isDirector = profile?.role === 'director' || profile?.role === 'admin' || (user && !profile)
   const isAdmin    = profile?.role === 'admin'
 
   return (
