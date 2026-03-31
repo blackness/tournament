@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { supabase } from './supabase'
 import { PageLoader } from '../components/ui/LoadingSpinner'
 import { Lock, ChevronLeft, Eye, EyeOff } from 'lucide-react'
 
