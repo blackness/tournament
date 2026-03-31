@@ -531,8 +531,7 @@ function MatchRow({ match: m, tournamentId }) {
   const [teamB, setTeamB]     = useState(m.team_b?.id ?? '')
 
   async function loadTeams() {
-    const { supabase } = await import('../../lib/supabase')
-    const { data } = await supabase
+        const { data } = await supabase
       .from('tournament_teams')
       .select('id, name, short_name, primary_color')
       .eq('tournament_id', m.tournament_id ?? tournamentId)
@@ -543,8 +542,7 @@ function MatchRow({ match: m, tournamentId }) {
 
   async function saveTeams() {
     setSaving(true)
-    const { supabase } = await import('../../lib/supabase')
-    await supabase.from('matches').update({
+        await supabase.from('matches').update({
       team_a_id: teamA || null,
       team_b_id: teamB || null,
     }).eq('id', m.id)
