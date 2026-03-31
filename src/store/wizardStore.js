@@ -12,6 +12,7 @@ const INITIAL_STATE = {
   // ── Step 1: Basics ────────────────────────────────────────────────────────────
   name: '',
   description: '',
+  rulesText: '',
   slug: '',
   startDate: null,
   endDate: null,
@@ -291,6 +292,7 @@ export const useWizardStore = create(
         // Step 1
         name:                 s.name,
         description:          s.description,
+        rules_text:           s.rulesText || null,
         slug:                 s.slug,
         startDate:            s.startDate,
         endDate:              s.endDate,

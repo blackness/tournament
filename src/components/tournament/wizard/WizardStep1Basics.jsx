@@ -20,7 +20,7 @@ function toSlug(name) {
 export function WizardStep1Basics({ onNext, isFirst }) {
   const { user } = useAuth()
   const {
-    name, description, slug, startDate, endDate, timezone,
+    name, description, rulesText, slug, startDate, endDate, timezone,
     venueName, venueAddress, isPublic, primaryColor, logoUrl,
     tournamentId,
     setField, setFields,
