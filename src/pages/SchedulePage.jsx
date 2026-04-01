@@ -255,7 +255,7 @@ function TeamScore({ team, score, winner, right }) {
     <div style={{ display:'flex', alignItems:'center', gap:8, flexDirection: right ? 'row-reverse' : 'row' }}>
       <div style={{ width:9, height:9, borderRadius:'50%', flexShrink:0, background:team?.primary_color ?? 'var(--border-mid)' }} />
       <span style={{ fontSize:14, fontWeight: winner ? 700 : 400, color: winner ? 'var(--text-primary)' : 'var(--text-secondary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, textAlign: right ? 'right' : 'left' }}>
-        {team?.short_name ?? team?.name ?? 'TBD'}
+        {team?.name ?? 'TBD'}
       </span>
       <span style={{ fontFamily:'DM Mono, monospace', fontSize:20, fontWeight:700, color: winner ? 'var(--text-primary)' : 'var(--text-muted)', flexShrink:0 }}>
         {score ?? 0}
@@ -270,7 +270,7 @@ function TeamPill({ team }) {
     <div style={{ display:'flex', alignItems:'center', gap:7, flex:1, minWidth:0 }}>
       <div style={{ width:8, height:8, borderRadius:'50%', flexShrink:0, background:team.primary_color ?? 'var(--border-mid)' }} />
       <span style={{ fontSize:14, fontWeight:500, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-        {team.short_name ?? team.name}
+        {team.name}
       </span>
     </div>
   )

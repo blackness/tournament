@@ -129,7 +129,11 @@ export function TournamentHome() {
           {/* Tabs */}
           <div style={{ display:'flex', gap:0, marginTop:4, borderTop:'1px solid var(--border)', overflowX:'auto' }}>
             {TABS.map(([tab, label, href]) => (
-              <button key={tab} onClick={() => href ? navigate(href) : setActiveTab(tab)}
+              <button key={tab} onClick={() => {
+                if (href) { navigate(href); return }
+                if (tab === 'bracket' && divisions.length === 1) { navigate('/t/' + slug + '/bracket/' + divisions[0].id); return }
+                setActiveTab(tab)
+              }}
                 style={{ padding:'10px 16px', fontSize:13, fontWeight:500, fontFamily:'inherit', background:'transparent', border:'none', cursor:'pointer', whiteSpace:'nowrap',
                   borderBottom: activeTab === tab ? '2px solid var(--accent)' : '2px solid transparent',
                   color: activeTab === tab ? 'var(--accent)' : 'var(--text-muted)', transition:'color 0.15s' }}>
@@ -178,41 +182,7 @@ export function TournamentHome() {
               </div>
             ) : null}
 
-            {/* Format overview */}
-            {divisions.length > 0 && (
-              <div style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, padding:'20px 22px' }}>
-                <h2 style={{ fontSize:13, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:14 }}>Divisions</h2>
-                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  {divisions.map(div => {
-                    const divPools = pools.filter(p => p.division_id === div.id)
-                    const divStandings = standings.filter(s => s.division_id === div.id)
-                    const teamCount = [...new Set(divStandings.map(s => s.team_id))].length
-                    return (
-                      <div key={div.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:16, padding:'14px 16px', background:'var(--bg-raised)', borderRadius:12 }}>
-                        <div>
-                          <p style={{ fontSize:15, fontWeight:600, color:'var(--text-primary)', marginBottom:4 }}>{div.name}</p>
-                          <div style={{ display:'flex', gap:12, fontSize:12, color:'var(--text-muted)', flexWrap:'wrap' }}>
-                            {teamCount > 0 && <span style={{ display:'flex', alignItems:'center', gap:3 }}><Users size={11} /> {teamCount} teams</span>}
-                            {divPools.length > 0 && <span>{divPools.length} pool{divPools.length !== 1 ? 's' : ''}</span>}
-                            <span style={{ textTransform:'capitalize' }}>{(div.format_type ?? 'pool-bracket').replace(/_/g, ' ')}</span>
-                          </div>
-                        </div>
-                        <div style={{ display:'flex', gap:8, flexShrink:0 }}>
-                          <button onClick={() => setActiveTab('standings')}
-                            style={{ fontSize:12, fontWeight:600, color:'#a78bfa', background:'rgba(139,92,246,0.1)', border:'1px solid rgba(139,92,246,0.2)', padding:'5px 12px', borderRadius:8, cursor:'pointer', fontFamily:'inherit' }}>
-                            Standings
-                          </button>
-                          <button onClick={() => setActiveTab('bracket')}
-                            style={{ fontSize:12, fontWeight:600, color:'var(--text-secondary)', background:'var(--bg-hover)', border:'1px solid var(--border)', padding:'5px 12px', borderRadius:8, cursor:'pointer', fontFamily:'inherit' }}>
-                            Bracket
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
+
 
             {/* Up next */}
             {upcomingMatches.length > 0 && (

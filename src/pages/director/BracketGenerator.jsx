@@ -78,6 +78,22 @@ export function BracketGenerator() {
       const size = Math.pow(2, Math.ceil(Math.log2(n)))
       const numRounds = Math.log2(size)
 
+      // Check for completed bracket matches before overwriting
+      const { data: completedBracketMatches } = await supabase
+        .from('matches')
+        .select('id')
+        .eq('division_id', division.id)
+        .eq('phase', 2)
+        .eq('status', 'complete')
+
+      if (completedBracketMatches?.length > 0) {
+        const confirmed = window.confirm(
+          'This division already has ' + completedBracketMatches.length + ' completed bracket game(s). ' +
+          'Regenerating will delete all bracket results. Continue?'
+        )
+        if (!confirmed) return
+      }
+
       // Delete existing bracket slots for this division
       await supabase.from('bracket_slots').delete().eq('division_id', division.id)
 
