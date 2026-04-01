@@ -204,10 +204,21 @@ export function WizardStep6Schedule({ onNext, onBack }) {
       }))
       await db.matches.createMany(matchRows)
 
-      // Initialize pool standings
-      const allTeamIds = matchRows.map(r => r.team_a_id).concat(matchRows.map(r => r.team_b_id)).filter(Boolean)
-      const uniqueTeamIds = [...new Set(allTeamIds)]
-      // pool standings init handled by DB trigger / initialize_standings migration
+      // Initialize pool_standings rows for all pool-assigned teams
+      // Safe to run multiple times -- ON CONFLICT DO NOTHING
+      const { data: poolTeams } = await supabase
+        .from('tournament_teams')
+        .select('id, pool_id')
+        .eq('tournament_id', tournamentId)
+        .not('pool_id', 'is', null)
+
+      if (poolTeams && poolTeams.length > 0) {
+        const standingRows = poolTeams.map(t => ({
+          pool_id: t.pool_id,
+          team_id: t.id,
+        }))
+        await supabase.from('pool_standings').upsert(standingRows, { onConflict: 'pool_id,team_id', ignoreDuplicates: true })
+      }
 
       freshState.markSaved()
       onNext()
