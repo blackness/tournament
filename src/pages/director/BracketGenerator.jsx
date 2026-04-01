@@ -66,17 +66,35 @@ export function BracketGenerator() {
         byPool[s.pool_id].push(s)
       }
 
-      // Serpentine seed: Pool A 1st, Pool B 1st, Pool B 2nd, Pool A 2nd...
       const poolList = Object.values(byPool)
+      const numPools = poolList.length
       const seeds = []
-      for (let i = 0; i < advance; i++) {
-        for (let j = 0; j < poolList.length; j++) {
-          const team = poolList[i % 2 === 0 ? j : poolList.length - 1 - j]?.[i]
-          if (team) seeds.push(team)
+
+      if (numPools === 1) {
+        // Single pool (round robin) -- rank all teams in order, or use teams_advance_per_pool if set < pool size
+        const poolTeams = poolList[0].slice().sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99))
+        const advanceCount = division.teams_advance_per_pool && division.teams_advance_per_pool < poolTeams.length
+          ? division.teams_advance_per_pool
+          : poolTeams.length
+        for (let i = 0; i < advanceCount; i++) {
+          if (poolTeams[i]) seeds.push(poolTeams[i])
+        }
+      } else {
+        // Multi-pool: serpentine seed (Pool A 1st, Pool B 1st, Pool B 2nd, Pool A 2nd...)
+        for (let i = 0; i < advance; i++) {
+          for (let j = 0; j < numPools; j++) {
+            const team = poolList[i % 2 === 0 ? j : numPools - 1 - j]?.[i]
+            if (team) seeds.push(team)
+          }
         }
       }
 
-      const n    = seeds.length
+      const n = seeds.length
+      if (n < 2) {
+        setError('Not enough teams in standings for ' + division.name + '. Make sure pool play is complete and standings are updated.')
+        setGenerating(null)
+        return
+      }
       const size = Math.pow(2, Math.ceil(Math.log2(n)))
       const numRounds = Math.log2(size)
 
