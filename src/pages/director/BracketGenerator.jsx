@@ -17,6 +17,8 @@ export function BracketGenerator() {
   const [generated, setGenerated]     = useState({})  // divisionId -> true
   const [error, setError]             = useState(null)
   const [bracketConfig, setBracketConfig] = useState({}) // divisionId -> { startSlotIdx }
+  const [confirmModal, setConfirmModal]   = useState(null) // { division, completedCount, scheduledCount }
+  const [resultModal, setResultModal]     = useState(null) // { division, rounds, teams, matches }
 
   useEffect(() => {
     async function load() {
@@ -86,21 +88,46 @@ export function BracketGenerator() {
         .eq('phase', 2)
         .eq('status', 'complete')
 
-      if (completedBracketMatches?.length > 0) {
-        const confirmed = window.confirm(
-          'This division already has ' + completedBracketMatches.length + ' completed bracket game(s). ' +
-          'Regenerating will delete all bracket results. Continue?'
-        )
-        if (!confirmed) return
+      // Check for any existing bracket matches
+      const { data: existingBracket } = await supabase.from('matches').select('id, status').eq('division_id', division.id).eq('phase', 2)
+      const completedCount = (completedBracketMatches?.length ?? 0)
+      const scheduledCount = (existingBracket ?? []).filter(m => m.status === 'scheduled').length
+
+      if (existingBracket?.length > 0) {
+        // Show confirm modal and wait for user
+        setGenerating(null)
+        setConfirmModal({
+          division,
+          completedCount,
+          scheduledCount,
+          seeds,
+          numRounds,
+          size,
+          availableSlots,
+          bracketSlots: [],
+          matchRows: [],
+        })
+        return
       }
 
-      // Delete existing bracket slots for this division
-      await supabase.from('bracket_slots').delete().eq('division_id', division.id)
+      // Safe delete order:
+      // 1. Null out bracket_slots match references (FK constraint)
+      const { data: existingSlots } = await supabase.from('bracket_slots').select('id').eq('division_id', division.id)
+      if (existingSlots?.length > 0) {
+        await supabase.from('bracket_slots').update({ match_id: null }).eq('division_id', division.id)
+      }
 
-      // Delete existing phase-2 matches for this division
-      await supabase.from('matches').delete()
-        .eq('division_id', division.id)
-        .eq('phase', 2)
+      // 2. Clear winner/loser next references on existing bracket matches
+      const { data: existingMatches } = await supabase.from('matches').select('id').eq('division_id', division.id).eq('phase', 2)
+      if (existingMatches?.length > 0) {
+        const ids = existingMatches.map(m => m.id)
+        await supabase.from('matches').update({ winner_next_match_id: null, winner_next_slot: null, loser_next_match_id: null, loser_next_slot: null }).in('id', ids)
+        // 3. Delete the matches
+        await supabase.from('matches').delete().eq('division_id', division.id).eq('phase', 2)
+      }
+
+      // 4. Delete bracket slots
+      await supabase.from('bracket_slots').delete().eq('division_id', division.id)
 
       const crypto = globalThis.crypto
       const bracketSlots = []
@@ -262,6 +289,7 @@ export function BracketGenerator() {
       }
 
       setGenerated(prev => ({ ...prev, [division.id]: { rounds: numRounds, teams: seeds.length, matches: matchRows.length } }))
+      setResultModal({ division, rounds: numRounds, teams: seeds.length, matches: matchRows.length })
     } catch (err) {
       setError('Failed to generate bracket for ' + division.name + ': ' + err.message)
       console.error(err)
@@ -285,7 +313,7 @@ export function BracketGenerator() {
       </div>
 
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex gap-2">
+        <div className="p-3 bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] rounded-lg text-sm text-[#f87171] flex gap-2">
           <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" /> {error}
         </div>
       )}
@@ -406,7 +434,7 @@ export function BracketGenerator() {
                   <div className="px-5 py-3 border-t border-[var(--border)] ">
                     <Link
                       to={'/t/' + tournament?.slug + '/bracket/' + div.id}
-                      className="text-sm text-blue-600 hover:underline flex items-center gap-1"
+                      className="text-sm text-[var(--accent)] hover:underline flex items-center gap-1"
                     >
                       <Trophy size={13} /> View bracket
                     </Link>
@@ -415,6 +443,88 @@ export function BracketGenerator() {
               </div>
             )
           })}
+        </div>
+      )}
+      {/* Confirm regenerate modal */}
+      {confirmModal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:50, padding:20 }}>
+          <div style={{ background:'var(--bg-raised)', border:'1px solid var(--border-mid)', borderRadius:16, width:'100%', maxWidth:440, padding:24 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16 }}>
+              <div style={{ width:40, height:40, borderRadius:'50%', background:'rgba(234,179,8,0.12)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <AlertTriangle size={18} style={{ color:'#fde047' }} />
+              </div>
+              <div>
+                <h2 style={{ fontSize:15, fontWeight:700, color:'var(--text-primary)' }}>Regenerate bracket?</h2>
+                <p style={{ fontSize:13, color:'var(--text-muted)', marginTop:2 }}>{confirmModal.division.name}</p>
+              </div>
+            </div>
+
+            {confirmModal.completedCount > 0 ? (
+              <div style={{ padding:'12px 14px', background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.2)', borderRadius:10, marginBottom:16 }}>
+                <p style={{ fontSize:13, fontWeight:600, color:'#f87171', marginBottom:4 }}>Warning: {confirmModal.completedCount} completed game{confirmModal.completedCount !== 1 ? 's' : ''} will be deleted</p>
+                <p style={{ fontSize:12, color:'var(--text-muted)' }}>All scores and results for this bracket will be permanently lost.</p>
+              </div>
+            ) : (
+              <div style={{ padding:'12px 14px', background:'var(--bg-hover)', border:'1px solid var(--border)', borderRadius:10, marginBottom:16 }}>
+                <p style={{ fontSize:13, color:'var(--text-secondary)' }}>
+                  {confirmModal.scheduledCount} scheduled game{confirmModal.scheduledCount !== 1 ? 's' : ''} will be replaced with a fresh bracket seeded from current standings.
+                </p>
+              </div>
+            )}
+
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={() => setConfirmModal(null)}
+                className="btn btn-ghost" style={{ flex:1 }}>Cancel</button>
+              <button
+                onClick={async () => {
+                  const d = confirmModal.division
+                  setConfirmModal(null)
+                  await generateBracket(d)
+                }}
+                className={confirmModal.completedCount > 0 ? "btn btn-danger" : "btn btn-primary"}
+                style={{ flex:1 }}>
+                {confirmModal.completedCount > 0 ? 'Delete & regenerate' : 'Regenerate bracket'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Result summary modal */}
+      {resultModal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:50, padding:20 }}>
+          <div style={{ background:'var(--bg-raised)', border:'1px solid var(--border-mid)', borderRadius:16, width:'100%', maxWidth:400, padding:24 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20 }}>
+              <div style={{ width:40, height:40, borderRadius:'50%', background:'rgba(34,197,94,0.12)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <Check size={20} style={{ color:'#4ade80' }} />
+              </div>
+              <div>
+                <h2 style={{ fontSize:15, fontWeight:700, color:'var(--text-primary)' }}>Bracket created!</h2>
+                <p style={{ fontSize:13, color:'var(--text-muted)', marginTop:2 }}>{resultModal.division.name}</p>
+              </div>
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:20 }}>
+              {[['Teams', resultModal.teams], ['Rounds', resultModal.rounds], ['Games', resultModal.matches]].map(([label, val]) => (
+                <div key={label} style={{ background:'var(--bg-hover)', borderRadius:10, padding:'12px 8px', textAlign:'center' }}>
+                  <p style={{ fontFamily:'DM Mono, monospace', fontSize:22, fontWeight:500, color:'var(--text-primary)', lineHeight:1 }}>{val}</p>
+                  <p style={{ fontSize:11, fontWeight:600, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--text-muted)', marginTop:5 }}>{label}</p>
+                </div>
+              ))}
+            </div>
+
+            <p style={{ fontSize:13, color:'var(--text-muted)', marginBottom:16, textAlign:'center' }}>
+              Scorekeeper links are ready. Games will appear in the Game Day view.
+            </p>
+
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={() => setResultModal(null)} className="btn btn-ghost" style={{ flex:1 }}>Done</button>
+              <button onClick={() => { setResultModal(null); navigate('/t/' + tournament?.slug + '/bracket/' + resultModal.division.id) }}
+                className="btn btn-primary" style={{ flex:1 }}>
+                <Trophy size={14} /> View bracket
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -19,6 +19,7 @@ export function WizardStep6Schedule({ onNext, onBack }) {
   const [localMatches, setLocalMatches] = useState([]) // editable copy
   const [localSlots, setLocalSlots]     = useState([])
   const [dragging, setDragging]         = useState(null)
+  const [confirmRegen, setConfirmRegen]   = useState(false)
   const [dragOver, setDragOver]         = useState(null)
 
   // Pre-fill start/end time from tournament start date
@@ -40,6 +41,15 @@ export function WizardStep6Schedule({ onNext, onBack }) {
   }, [generatedMatches, generatedSlots])
 
   function handleGenerate() {
+    // If matches exist, confirm before regenerating
+    if (localMatches.length > 0) {
+      setConfirmRegen(true)
+      return
+    }
+    doGenerate()
+  }
+
+  function doGenerate() {
     const s = useWizardStore.getState()
     const liveVenues  = s.venues
     const livePools   = s.pools
@@ -463,6 +473,36 @@ export function WizardStep6Schedule({ onNext, onBack }) {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Confirm regenerate */}
+      {confirmRegen && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:50, padding:20 }}>
+          <div style={{ background:'var(--bg-raised)', border:'1px solid var(--border-mid)', borderRadius:16, width:'100%', maxWidth:400, padding:24 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16 }}>
+              <div style={{ width:40, height:40, borderRadius:'50%', background:'rgba(234,179,8,0.12)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <RefreshCw size={18} style={{ color:'#fde047' }} />
+              </div>
+              <div>
+                <h2 style={{ fontSize:15, fontWeight:700, color:'var(--text-primary)' }}>Regenerate schedule?</h2>
+                <p style={{ fontSize:13, color:'var(--text-muted)', marginTop:2 }}>{localMatches.length} existing games will be replaced.</p>
+              </div>
+            </div>
+            <div style={{ padding:'12px 14px', background:'var(--bg-hover)', borderRadius:10, marginBottom:16, fontSize:13, color:'var(--text-secondary)' }}>
+              Only regenerate if no games have been scored yet. Completed games cannot be recovered.
+            </div>
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={() => setConfirmRegen(false)}
+                style={{ flex:1, padding:'9px', fontSize:13, fontWeight:600, background:'transparent', border:'1px solid var(--border-mid)', borderRadius:9, cursor:'pointer', color:'var(--text-secondary)', fontFamily:'inherit' }}>
+                Cancel
+              </button>
+              <button onClick={() => { setConfirmRegen(false); doGenerate() }}
+                style={{ flex:1, padding:'9px', fontSize:13, fontWeight:600, background:'rgba(234,179,8,0.15)', border:'1px solid rgba(234,179,8,0.3)', borderRadius:9, cursor:'pointer', color:'#fde047', fontFamily:'inherit' }}>
+                Regenerate
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
