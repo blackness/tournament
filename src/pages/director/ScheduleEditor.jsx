@@ -199,7 +199,7 @@ export function ScheduleEditor() {
 
         {/* Venue filter */}
         <select
-          className="text-sm border border-[var(--border)] rounded-lg px-3 py-1.5 text-[var(--text-secondary)] "
+          className="field-input text-sm"
           value={filter}
           onChange={e => setFilter(e.target.value)}
         >
@@ -211,7 +211,7 @@ export function ScheduleEditor() {
       {/* Toast message */}
       {message && (
         <div className={`px-4 py-2 rounded-lg text-sm font-medium ${
-          message.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'
+          message.type === 'error' ? 'bg-[rgba(239,68,68,0.1)] text-[#f87171] border border-[rgba(239,68,68,0.2)]' : 'bg-[rgba(34,197,94,0.1)] text-[#4ade80] border border-[rgba(34,197,94,0.2)]'
         }`}>
           {message.text}
         </div>
@@ -224,13 +224,13 @@ export function ScheduleEditor() {
           <p className="text-xs text-[var(--text-muted)]">Push all future games forward or back</p>
         </div>
         <div className="flex items-center gap-2 ml-auto">
-          <button onClick={() => setGlobalDelay(d => d - 5)} className="p-1.5 rounded-lg  hover:bg-gray-200 text-[var(--text-secondary)]">
+          <button onClick={() => setGlobalDelay(d => d - 5)} className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]">
             <Minus size={14} />
           </button>
-          <span className={`text-sm font-bold tabular-nums w-16 text-center ${globalDelay > 0 ? 'text-orange-600' : globalDelay < 0 ? 'text-blue-600' : 'text-[var(--text-muted)]'}`}>
+          <span className={`text-sm font-bold tabular-nums w-16 text-center ${globalDelay > 0 ? 'text-[#fb923c]' : globalDelay < 0 ? 'text-[#60a5fa]' : 'text-[var(--text-muted)]'}`}>
             {globalDelay > 0 ? '+' + globalDelay : globalDelay} min
           </span>
-          <button onClick={() => setGlobalDelay(d => d + 5)} className="p-1.5 rounded-lg  hover:bg-gray-200 text-[var(--text-secondary)]">
+          <button onClick={() => setGlobalDelay(d => d + 5)} className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]">
             <Plus size={14} />
           </button>
           <button
@@ -260,11 +260,11 @@ export function ScheduleEditor() {
             <div key={group.key}>
               {/* Time group header */}
               <div className="flex items-center gap-3 mb-2">
-                <div className="h-px flex-1 bg-gray-200" />
+                <div className="h-px flex-1 bg-[var(--border)]" />
                 <span className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide flex items-center gap-1.5">
                   <Clock size={11} /> {group.label}
                 </span>
-                <div className="h-px flex-1 bg-gray-200" />
+                <div className="h-px flex-1 bg-[var(--border)]" />
               </div>
 
               {/* Match cards in this time block */}
@@ -322,11 +322,11 @@ function MatchEditorCard({ match: m, slots, venues, isSaving, isDragOver, onDrag
       onDragLeave={onDragLeave}
       onDrop={canEdit ? (e) => onDrop(e, m.time_slot?.id, m.venue?.id) : undefined}
       className={[
-        'flex items-center gap-3 px-3 py-2.5 bg-white border rounded-xl transition-all',
+        'flex items-center gap-3 px-3 py-2.5 bg-[var(--bg-surface)] border rounded-xl transition-all',
         canEdit ? 'cursor-grab active:cursor-grabbing' : 'opacity-70',
-        isDragOver ? 'border-blue-400 bg-blue-50 shadow-md' : 'border-gray-200',
+        isDragOver ? 'border-[var(--accent)] bg-[var(--accent-dim)]' : 'border-[var(--border)]',
         isSaving ? 'opacity-50' : '',
-        isLive ? 'border-green-200 bg-green-50/30' : '',
+        isLive ? 'border-[rgba(34,197,94,0.25)] bg-[rgba(34,197,94,0.06)]' : '',
       ].join(' ')}
     >
       {/* Drag handle */}
@@ -335,8 +335,8 @@ function MatchEditorCard({ match: m, slots, venues, isSaving, isDragOver, onDrag
       )}
 
       {/* Status dot */}
-      {isLive && <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />}
-      {isDone && <span className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />}
+      {isLive && <span className="live-dot flex-shrink-0" />}
+      {isDone && <span className="w-2 h-2 rounded-full bg-[var(--border-mid)] flex-shrink-0" />}
 
       {/* Teams */}
       <div className="flex-1 min-w-0">
@@ -362,7 +362,7 @@ function MatchEditorCard({ match: m, slots, venues, isSaving, isDragOver, onDrag
       {/* Time selector */}
       {canEdit ? (
         <select
-          className="text-xs border border-[var(--border)] rounded-lg px-2 py-1.5 text-[var(--text-secondary)]  flex-shrink-0 max-w-32"
+          className="field-input text-xs flex-shrink-0 max-w-32 py-1"
           value={m.time_slot?.id ?? ''}
           onChange={e => onTimeChange(e.target.value)}
           onClick={e => e.stopPropagation()}
@@ -387,7 +387,7 @@ function MatchEditorCard({ match: m, slots, venues, isSaving, isDragOver, onDrag
       {/* Venue selector */}
       {canEdit ? (
         <select
-          className="text-xs border border-[var(--border)] rounded-lg px-2 py-1.5 text-[var(--text-secondary)]  flex-shrink-0 max-w-28"
+          className="field-input text-xs flex-shrink-0 max-w-28 py-1"
           value={m.venue?.id ?? ''}
           onChange={e => onVenueChange(e.target.value)}
           onClick={e => e.stopPropagation()}
@@ -404,7 +404,7 @@ function MatchEditorCard({ match: m, slots, venues, isSaving, isDragOver, onDrag
       )}
 
       {isSaving && (
-        <div className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+        <div className="w-3 h-3 border border-[var(--accent)] border-t-transparent rounded-full animate-spin flex-shrink-0" />
       )}
     </div>
   )
@@ -413,7 +413,7 @@ function MatchEditorCard({ match: m, slots, venues, isSaving, isDragOver, onDrag
 function TeamDot({ team }) {
   return (
     <div className="flex items-center gap-1.5 min-w-0">
-      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: team?.primary_color ?? '#e5e7eb' }} />
+      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: team?.primary_color ?? 'var(--border-mid)' }} />
       <span className="text-sm font-medium text-[var(--text-primary)] truncate max-w-24">{team?.short_name ?? team?.name ?? 'TBD'}</span>
     </div>
   )

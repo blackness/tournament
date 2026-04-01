@@ -41,12 +41,12 @@ export function QRManager() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <Link to={'/director/' + tournamentId} className="text-gray-400 hover:text-gray-600">
+          <Link to={'/director/' + tournamentId} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
             <ChevronLeft size={20} />
           </Link>
           <div>
-            <h1 className="text-xl font-bold text-gray-900">QR Codes</h1>
-            <p className="text-sm text-gray-400">{tournament?.name}</p>
+            <h1 className="text-xl font-bold text-[var(--text-primary)]">QR Codes</h1>
+            <p className="text-sm text-[var(--text-muted)]">{tournament?.name}</p>
           </div>
         </div>
         <button onClick={handlePrint} className="btn-primary btn no-print">
@@ -55,15 +55,15 @@ export function QRManager() {
       </div>
 
       {/* Tournament master QR */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-5 no-print">
-        <h2 className="text-sm font-semibold text-gray-700 mb-4">Tournament QR (spectators)</h2>
+      <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-2xl p-5 no-print">
+        <h2 className="text-sm font-semibold text-[var(--text-secondary)] mb-4">Tournament QR (spectators)</h2>
         <div className="flex items-center gap-6">
           <QRCodeDisplay url={tournamentUrl} size={120} />
           <div className="space-y-2">
-            <p className="text-sm text-gray-600">Share this with spectators to follow the tournament.</p>
-            <p className="text-xs font-mono text-gray-400 break-all">{tournamentUrl}</p>
+            <p className="text-sm text-[var(--text-secondary)]">Share this with spectators to follow the tournament.</p>
+            <p className="text-xs font-mono text-[var(--text-muted)] break-all">{tournamentUrl}</p>
             <a href={tournamentUrl} target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
+              className="inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline">
               <ExternalLink size={11} /> Open
             </a>
           </div>
@@ -72,12 +72,12 @@ export function QRManager() {
 
       {/* Field QR cards */}
       <div>
-        <h2 className="text-sm font-semibold text-gray-700 mb-4 no-print">
+        <h2 className="text-sm font-semibold text-[var(--text-secondary)] mb-4 no-print">
           Field QR Codes ({venues.length} fields)
         </h2>
 
         {venues.length === 0 ? (
-          <div className="text-center py-8 text-gray-400 border-2 border-dashed border-gray-200 rounded-xl">
+          <div className="text-center py-8 text-[var(--text-muted)] border-2 border-dashed border-[var(--border)] rounded-xl">
             <QrCode size={32} className="mx-auto mb-2 opacity-30" />
             <p className="text-sm">No fields added yet</p>
           </div>
@@ -111,7 +111,7 @@ export function QRManager() {
 
 function QRCard({ venue, url, tournament }) {
   return (
-    <div className="qr-card bg-white border-2 border-gray-200 rounded-2xl p-5 flex flex-col items-center gap-3 text-center">
+    <div className="qr-card bg-[var(--bg-surface)] border-2 border-[var(--border)] rounded-2xl p-5 flex flex-col items-center gap-3 text-center">
       {/* Brand header */}
       <div className="w-full py-2 rounded-xl text-white text-xs font-bold tracking-wide"
         style={{ backgroundColor: tournament?.primary_color ?? '#1a56db' }}>
@@ -119,18 +119,18 @@ function QRCard({ venue, url, tournament }) {
       </div>
 
       {/* Field name */}
-      <h3 className="text-2xl font-black text-gray-900">{venue.name}</h3>
+      <h3 className="text-2xl font-black text-[var(--text-primary)]">{venue.name}</h3>
       {venue.short_name && venue.short_name !== venue.name && (
-        <p className="text-sm text-gray-400 -mt-2">{venue.short_name}</p>
+        <p className="text-sm text-[var(--text-muted)] -mt-2">{venue.short_name}</p>
       )}
 
       {/* QR code */}
       <QRCodeDisplay url={url} size={160} />
 
       {/* URL hint */}
-      <p className="text-xs text-gray-400 font-mono break-all leading-tight">{url}</p>
+      <p className="text-xs text-[var(--text-muted)] font-mono break-all leading-tight">{url}</p>
 
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-[var(--text-muted)]">
         Scan to open scorekeeper
       </p>
     </div>
@@ -143,7 +143,7 @@ function QRCodeDisplay({ url, size = 150 }) {
   const src = 'https://api.qrserver.com/v1/create-qr-code/?size=' + size + 'x' + size + '&data=' + encoded + '&margin=1&format=png'
 
   return (
-    <div className="bg-white p-1 rounded-lg border border-gray-100">
+    <div className="bg-white p-2 rounded-lg">
       <img
         src={src}
         alt={'QR code for ' + url}
