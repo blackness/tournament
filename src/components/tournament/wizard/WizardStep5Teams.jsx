@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useWizardStore } from '../../../store/wizardStore'
-import { db } from '../../../lib/supabase'
+import { db, supabase } from '../../../lib/supabase'
 import { WizardNavButtons } from './WizardNavButtons'
 import { evaluatePoolConstraints, autoDetect } from '../../../lib/constraintEngine'
 import { ConstraintEditor } from '../teams/ConstraintEditor'
