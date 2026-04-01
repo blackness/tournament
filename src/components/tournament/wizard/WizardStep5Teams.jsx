@@ -246,7 +246,7 @@ export function WizardStep5Teams({ onNext, onBack }) {
 
       {/* Division tabs */}
       {divisions.length > 1 && (
-        <div className="flex gap-0 border-b border-gray-200">
+        <div className="flex gap-0 border-b border-[var(--border)]">
           {divisions.map(div => (
             <button key={div.id} onClick={() => setActiveDivision(div.id)}
               className={'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ' + (
@@ -255,7 +255,7 @@ export function WizardStep5Teams({ onNext, onBack }) {
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               )}>
               {div.name || ('Division ' + (divisions.indexOf(div) + 1))}
-              <span className="ml-1.5 text-xs text-gray-400">({teams.filter(t => t.divisionId === div.id).length})</span>
+              <span className="ml-1.5 text-xs text-[var(--text-muted)]">({teams.filter(t => t.divisionId === div.id).length})</span>
             </button>
           ))}
         </div>
@@ -271,7 +271,7 @@ export function WizardStep5Teams({ onNext, onBack }) {
         </button>
         <input ref={fileRef} type="file" accept=".csv" className="hidden"
           onChange={e => handleCSV(e.target.files?.[0])} />
-        <a href="/team_import_template.csv" download className="btn-ghost btn btn-sm text-xs text-gray-400">
+        <a href="/team_import_template.csv" download className="btn-ghost btn btn-sm text-xs text-[var(--text-muted)]">
           Download template
         </a>
         {divTeams.length >= 4 && (
@@ -282,7 +282,7 @@ export function WizardStep5Teams({ onNext, onBack }) {
       </div>
 
       {divTeams.length === 0 ? (
-        <div className="text-center py-8 text-gray-400 border-2 border-dashed border-gray-200 rounded-xl">
+        <div className="text-center py-8 text-[var(--text-muted)] border-2 border-dashed border-[var(--border)] rounded-xl">
           <Users size={28} className="mx-auto mb-2 opacity-40" />
           <p className="text-sm">No teams yet. Add manually or import a CSV.</p>
           <p className="text-xs mt-1">CSV columns: Team Name, Short Name, Club, Coach, Email, Color</p>
@@ -313,7 +313,7 @@ export function WizardStep5Teams({ onNext, onBack }) {
       )}
 
       {teams.length > 0 && (
-        <p className="text-xs text-gray-400 text-right">{teams.length} team{teams.length !== 1 ? 's' : ''} total</p>
+        <p className="text-xs text-[var(--text-muted)] text-right">{teams.length} team{teams.length !== 1 ? 's' : ''} total</p>
       )}
 
       <WizardNavButtons onNext={handleNext} onBack={onBack} saving={saving} nextDisabled={teams.length === 0} />
@@ -329,12 +329,12 @@ function TeamRow({ team, idx, pools, allTeams, venues, assignment, violations, e
   const hasErrors     = violations.some(v => v.severity === 'error')
 
   return (
-    <div className={'border rounded-lg overflow-hidden ' + (hasErrors ? 'border-red-300' : hasViolations ? 'border-amber-300' : 'border-gray-200')}>
-      <div className="flex items-center gap-2 px-3 py-2.5 bg-white">
-        <span className="text-xs text-gray-400 w-5 text-right flex-shrink-0">{idx + 1}</span>
+    <div className={'border rounded-xl overflow-hidden ' + (hasErrors ? 'border-red-300' : hasViolations ? 'border-amber-300' : 'border-gray-200')}>
+      <div className="flex items-center gap-2 px-3 py-2.5 ">
+        <span className="text-xs text-[var(--text-muted)] w-5 text-right flex-shrink-0">{idx + 1}</span>
         <input type="color" value={team.primaryColor}
           onChange={e => onUpdate({ primaryColor: e.target.value })}
-          className="w-6 h-6 rounded-full border border-gray-200 cursor-pointer flex-shrink-0 p-0" />
+          className="w-6 h-6 rounded-full border border-[var(--border)] cursor-pointer flex-shrink-0 p-0" />
         <input type="text"
           className={'flex-1 text-sm font-medium bg-transparent border-b border-transparent focus:border-blue-400 outline-none py-0.5 min-w-0 ' + (errors[team.id + '_name'] ? 'border-red-400 text-red-700' : '')}
           placeholder="Team name" value={team.name}
@@ -347,7 +347,7 @@ function TeamRow({ team, idx, pools, allTeams, venues, assignment, violations, e
         )}
 
         {pools.length > 0 && (
-          <select className="text-xs border border-gray-200 rounded px-1.5 py-1 text-gray-700 focus:ring-1 focus:ring-blue-400 flex-shrink-0"
+          <select className="text-xs border border-[var(--border)] rounded px-1.5 py-1 text-[var(--text-secondary)] focus:ring-1 focus:ring-blue-400 flex-shrink-0"
             value={assignment ?? ''} onChange={e => onAssign(e.target.value || null)}>
             <option value="">Pool</option>
             {pools.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -355,22 +355,22 @@ function TeamRow({ team, idx, pools, allTeams, venues, assignment, violations, e
         )}
 
         <button onClick={() => setShowConstraints(c => !c)}
-          className={'p-1 flex-shrink-0 rounded transition-colors ' + (showConstraints ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-blue-600')}
+          className={'p-1 flex-shrink-0 rounded-lg transition-colors ' + (showConstraints ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-blue-600')}
           title="Constraints">
           <Settings size={14} />
         </button>
-        <button onClick={() => setExpanded(e => !e)} className="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0">
+        <button onClick={() => setExpanded(e => !e)} className="p-1 text-[var(--text-muted)] hover:text-[var(--text-secondary)] flex-shrink-0">
           {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </button>
-        <button onClick={onRemove} className="p-1 text-gray-300 hover:text-red-500 flex-shrink-0">
+        <button onClick={onRemove} className="p-1 text-[var(--text-muted)] hover:text-red-500 flex-shrink-0">
           <Trash2 size={14} />
         </button>
       </div>
 
       {/* Constraint editor */}
       {showConstraints && (
-        <div className="border-t border-blue-100 bg-blue-50/30 px-4 py-4">
-          <p className="text-xs font-semibold text-blue-700 mb-3">Constraints for {team.name || 'this team'}</p>
+        <div className="border-t border-blue-100 bg-[var(--accent-dim)]/30 px-4 py-4">
+          <p className="text-xs font-semibold text-[var(--accent)] mb-3">Constraints for {team.name || 'this team'}</p>
           <ConstraintEditor
             team={team}
             allTeams={allTeams}
@@ -383,7 +383,7 @@ function TeamRow({ team, idx, pools, allTeams, venues, assignment, violations, e
 
       {/* Basic details */}
       {expanded && (
-        <div className="px-3 pb-3 pt-2 border-t border-gray-100 grid grid-cols-2 sm:grid-cols-3 gap-3 bg-gray-50">
+        <div className="px-3 pb-3 pt-2 border-t border-[var(--border)] grid grid-cols-2 sm:grid-cols-3 gap-3 ">
           <div className="field-group">
             <label className="field-label text-xs">Short name</label>
             <input type="text" className="field-input text-sm" value={team.shortName ?? ''}
@@ -418,20 +418,20 @@ function TeamRow({ team, idx, pools, allTeams, venues, assignment, violations, e
 function PoolSummary({ pools, teams, assignments, violations }) {
   return (
     <div className="mt-2">
-      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Pool summary</h4>
+      <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2">Pool summary</h4>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {pools.map(pool => {
           const poolTeams    = teams.filter(t => assignments[t.id] === pool.id)
           const poolViolations = violations.filter(v => v.poolId === pool.id)
           return (
-            <div key={pool.id} className={'bg-gray-50 border rounded-lg p-2 ' + (poolViolations.length > 0 ? 'border-red-300 bg-red-50' : 'border-gray-200')}>
+            <div key={pool.id} className={'bg-[var(--bg-raised)] border rounded-lg p-2 ' + (poolViolations.length > 0 ? 'border-red-300 bg-red-50' : 'border-gray-200')}>
               <div className="flex items-center justify-between mb-1">
-                <p className="text-xs font-semibold text-gray-700">{pool.name}</p>
+                <p className="text-xs font-semibold text-[var(--text-secondary)]">{pool.name}</p>
                 {poolViolations.length > 0 && <AlertTriangle size={11} className="text-red-500" />}
               </div>
               {poolTeams.length === 0
-                ? <p className="text-xs text-gray-400 italic">Empty</p>
-                : poolTeams.map(t => <p key={t.id} className="text-xs text-gray-600 truncate">{t.name}</p>)
+                ? <p className="text-xs text-[var(--text-muted)] italic">Empty</p>
+                : poolTeams.map(t => <p key={t.id} className="text-xs text-[var(--text-secondary)] truncate">{t.name}</p>)
               }
             </div>
           )

@@ -111,7 +111,7 @@ export function WizardStep4Venues({ onNext, onBack }) {
       {/* Quick add */}
       {venues.length === 0 && (
         <div>
-          <p className="text-xs text-gray-500 mb-2">Quick add numbered fields:</p>
+          <p className="text-xs text-[var(--text-muted)] mb-2">Quick add numbered fields:</p>
           <div className="flex gap-2">
             {[2, 3, 4, 6, 8].map(n => (
               <button key={n} onClick={() => handleQuickAdd(n)} className="btn-secondary btn btn-sm">
@@ -143,11 +143,11 @@ export function WizardStep4Venues({ onNext, onBack }) {
 
       {/* QR info callout */}
       {venues.length > 0 && (
-        <div className="flex gap-3 p-3 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-800">
+        <div className="flex gap-3 p-3 bg-[var(--accent-dim)] border border-blue-100 rounded-lg text-sm text-blue-800">
           <QrCode size={16} className="flex-shrink-0 mt-0.5" />
           <div>
             QR codes are generated after publishing. Each field's QR links to
-            <code className="mx-1 text-xs bg-blue-100 px-1 rounded">/court/[tournament]/[slug]</code>
+            <code className="mx-1 text-xs bg-[var(--accent-dim)] px-1 rounded">/court/[tournament]/[slug]</code>
             and auto-redirects to the active game.
           </div>
         </div>
@@ -165,8 +165,8 @@ export function WizardStep4Venues({ onNext, onBack }) {
 
 function VenueRow({ venue, idx, errors, onUpdate, onRemove }) {
   return (
-    <div className="flex gap-3 items-start p-3 bg-gray-50 rounded-xl border border-gray-200">
-      <div className="flex items-center justify-center w-7 h-7 bg-white border border-gray-200 rounded-lg text-xs font-bold text-gray-500 flex-shrink-0 mt-1">
+    <div className="flex gap-3 items-start p-3 rounded-xl border border-[var(--border)]">
+      <div className="flex items-center justify-center w-7 h-7 border border-[var(--border)] rounded-lg text-xs font-bold text-[var(--text-muted)] flex-shrink-0 mt-1">
         {idx + 1}
       </div>
 
@@ -222,7 +222,7 @@ function VenueRow({ venue, idx, errors, onUpdate, onRemove }) {
         </div>
       </div>
 
-      <button onClick={onRemove} className="p-1 text-gray-300 hover:text-red-500 mt-1 flex-shrink-0">
+      <button onClick={onRemove} className="p-1 text-[var(--text-muted)] hover:text-red-500 mt-1 flex-shrink-0">
         <Trash2 size={15} />
       </button>
     </div>

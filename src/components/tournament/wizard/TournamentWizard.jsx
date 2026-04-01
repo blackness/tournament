@@ -203,10 +203,10 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">
+        <h1 className="text-2xl font-bold text-[var(--text-primary)]">
           {mode === 'create' ? 'Create Tournament' : 'Edit Tournament'}
         </h1>
-        <p className="text-sm text-gray-500 mt-1">
+        <p className="text-sm text-[var(--text-muted)] mt-1">
           {mode === 'create'
             ? 'Fill out each step to set up your tournament.'
             : 'Update your tournament settings. All fields are prefilled from the current saved data.'}
@@ -240,7 +240,7 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
         <div className="mt-4 text-center">
           <button
             onClick={() => reset()}
-            className="text-xs text-gray-400 hover:text-gray-600 underline"
+            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline"
           >
             Clear draft and start over
           </button>

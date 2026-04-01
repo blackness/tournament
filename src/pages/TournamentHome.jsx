@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/LoadingSpinner'
@@ -7,6 +7,7 @@ import { ChevronRight, MapPin, Calendar, ChevronLeft, Users, Clock, Trophy } fro
 
 export function TournamentHome() {
   const { slug }    = useParams()
+  const navigate    = useNavigate()
   const { user }    = useAuth()
   const [tournament, setTournament]           = useState(null)
   const [divisions, setDivisions]             = useState([])
@@ -88,7 +89,7 @@ export function TournamentHome() {
 
   const TABS = [
     ['overview', 'Overview'],
-    ['schedule', 'Schedule'],
+    ['schedule', 'Schedule', '/t/' + slug + '/schedule'],
     ['standings', 'Standings'],
     ['bracket', 'Bracket'],
     ...(hasRules ? [['rules', 'Rules']] : []),
@@ -127,8 +128,8 @@ export function TournamentHome() {
 
           {/* Tabs */}
           <div style={{ display:'flex', gap:0, marginTop:4, borderTop:'1px solid var(--border)', overflowX:'auto' }}>
-            {TABS.map(([tab, label]) => (
-              <button key={tab} onClick={() => setActiveTab(tab)}
+            {TABS.map(([tab, label, href]) => (
+              <button key={tab} onClick={() => href ? navigate(href) : setActiveTab(tab)}
                 style={{ padding:'10px 16px', fontSize:13, fontWeight:500, fontFamily:'inherit', background:'transparent', border:'none', cursor:'pointer', whiteSpace:'nowrap',
                   borderBottom: activeTab === tab ? '2px solid var(--accent)' : '2px solid transparent',
                   color: activeTab === tab ? 'var(--accent)' : 'var(--text-muted)', transition:'color 0.15s' }}>
@@ -245,7 +246,7 @@ export function TournamentHome() {
 
         {/* - SCHEDULE - */}
         {activeTab === 'schedule' && (
-          <ScheduleTab tournamentId={tournament.id} slug={slug} />
+          <ScheduleRedirect slug={slug} />
         )}
 
         {/* - STANDINGS - */}
@@ -334,57 +335,17 @@ function UpcomingCard({ match: m }) {
   )
 }
 
-function ScheduleTab({ tournamentId, slug }) {
-  const [matches, setMatches] = useState([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    supabase.from('matches').select(`
-      id, status, score_a, score_b,
-      team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
-      team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
-      venue:venues(name, short_name), pool:pools(name),
-      time_slot:time_slots(scheduled_start)
-    `).eq('tournament_id', tournamentId).neq('status','cancelled').order('time_slot(scheduled_start)')
-    .then(({ data }) => { setMatches(data ?? []); setLoading(false) })
-  }, [tournamentId])
-
-  if (loading) return <PageLoader />
-  if (matches.length === 0) return (
-    <div style={{ textAlign:'center', padding:'48px 0', color:'var(--text-muted)' }}>
-      <Clock size={28} style={{ margin:'0 auto 12px', opacity:0.3 }} />
-      <p style={{ fontSize:14, color:'var(--text-secondary)' }}>No games scheduled yet</p>
-    </div>
-  )
-
-  // Group by time
-  const groups = {}
-  for (const m of matches) {
-    const key = m.time_slot?.scheduled_start ?? 'unscheduled'
-    if (!groups[key]) groups[key] = []
-    groups[key].push(m)
-  }
-  const sorted = Object.entries(groups).sort(([a],[b]) => {
-    if (a === 'unscheduled') return 1
-    if (b === 'unscheduled') return -1
-    return a.localeCompare(b)
-  })
-
+function ScheduleRedirect({ slug }) {
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:24 }}>
-      {sorted.map(([timeKey, grpMatches]) => (
-        <div key={timeKey}>
-          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-            <span style={{ fontSize:10, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', flexShrink:0 }}>
-              {timeKey === 'unscheduled' ? 'Unscheduled' : new Date(timeKey).toLocaleTimeString('en-CA', { hour:'numeric', minute:'2-digit', hour12:true })}
-            </span>
-            <div style={{ flex:1, height:1, background:'var(--border)' }} />
-          </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-            {grpMatches.map(m => <UpcomingCard key={m.id} match={m} />)}
-          </div>
-        </div>
-      ))}
+    <div style={{ textAlign:'center', padding:'48px 20px' }}>
+      <p style={{ fontSize:14, color:'var(--text-secondary)', marginBottom:16 }}>
+        View the full schedule with live scores, filters, and game results.
+      </p>
+      <Link to={'/t/' + slug + '/schedule'}
+        className="btn btn-primary"
+        style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+        Open full schedule <ChevronRight size={14} />
+      </Link>
     </div>
   )
 }

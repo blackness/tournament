@@ -142,7 +142,7 @@ export function WizardStep1Basics({ onNext, isFirst }) {
 
       {/* Description */}
       <div className="field-group">
-        <label className="field-label">Description <span className="text-gray-400">(optional)</span></label>
+        <label className="field-label">Description <span className="text-[var(--text-muted)]">(optional)</span></label>
         <textarea
           className="field-input resize-none"
           placeholder="Add any info spectators and teams should know upfront..."
@@ -156,8 +156,8 @@ export function WizardStep1Basics({ onNext, isFirst }) {
       {/* Slug */}
       <div className="field-group">
         <label className="field-label">URL slug *</label>
-        <div className="flex rounded-lg border border-gray-300 overflow-hidden focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
-          <span className="px-3 py-2 bg-gray-50 text-gray-500 text-sm border-r border-gray-300 whitespace-nowrap">
+        <div className="flex rounded-lg border border-[var(--border)] overflow-hidden focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-[var(--accent)]">
+          <span className="px-3 py-2 text-[var(--text-muted)] text-sm border-r border-[var(--border)] whitespace-nowrap">
             /t/
           </span>
           <input
@@ -174,7 +174,7 @@ export function WizardStep1Basics({ onNext, isFirst }) {
         </div>
         {errors.slug
           ? <p className="field-error">{errors.slug}</p>
-          : <p className="text-xs text-gray-400 mt-1">Public URL -- lowercase letters, numbers, and hyphens only</p>
+          : <p className="text-xs text-[var(--text-muted)] mt-1">Public URL -- lowercase letters, numbers, and hyphens only</p>
         }
       </div>
 
@@ -224,7 +224,7 @@ export function WizardStep1Basics({ onNext, isFirst }) {
 
       {/* Venue */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-1.5">
+        <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3 flex items-center gap-1.5">
           <MapPin size={14} /> Location
         </h3>
         <div className="space-y-4">
@@ -240,7 +240,7 @@ export function WizardStep1Basics({ onNext, isFirst }) {
             {errors.venueName && <p className="field-error">{errors.venueName}</p>}
           </div>
           <div className="field-group">
-            <label className="field-label">Address <span className="text-gray-400">(optional)</span></label>
+            <label className="field-label">Address <span className="text-[var(--text-muted)]">(optional)</span></label>
             <input
               type="text"
               className="field-input"
@@ -256,7 +256,7 @@ export function WizardStep1Basics({ onNext, isFirst }) {
 
       {/* Branding */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Branding</h3>
+        <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">Branding</h3>
         <div className="field-group">
           <label className="field-label">Primary colour</label>
           <div className="flex items-center gap-3 flex-wrap mt-1">
@@ -265,8 +265,8 @@ export function WizardStep1Basics({ onNext, isFirst }) {
                 key={color}
                 onClick={() => setField('primaryColor', color)}
                 className={`w-7 h-7 rounded-full border-2 transition-transform ${
-                  primaryColor === color ? 'border-gray-900 scale-110' : 'border-transparent'
-                }`}
+ primaryColor === color ? 'border-gray-900 scale-110' : 'border-transparent'
+ }`}
                 style={{ backgroundColor: color }}
                 title={color}
               />
@@ -277,10 +277,10 @@ export function WizardStep1Basics({ onNext, isFirst }) {
                 type="color"
                 value={primaryColor}
                 onChange={e => setField('primaryColor', e.target.value)}
-                className="w-7 h-7 rounded cursor-pointer border border-gray-300"
+                className="w-7 h-7 rounded cursor-pointer border border-[var(--border)]"
                 title="Custom colour"
               />
-              <span className="text-xs text-gray-400 font-mono">{primaryColor}</span>
+              <span className="text-xs text-[var(--text-muted)] font-mono">{primaryColor}</span>
             </div>
           </div>
         </div>
@@ -293,7 +293,7 @@ export function WizardStep1Basics({ onNext, isFirst }) {
         <div className="mt-0.5">
           {isPublic
             ? <Globe size={16} className="text-green-600" />
-            : <Lock size={16} className="text-gray-500" />
+            : <Lock size={16} className="text-[var(--text-muted)]" />
           }
         </div>
         <div className="flex-1">
@@ -302,11 +302,11 @@ export function WizardStep1Basics({ onNext, isFirst }) {
               type="checkbox"
               checked={isPublic}
               onChange={e => setField('isPublic', e.target.checked)}
-              className="rounded border-gray-300 text-blue-600"
+              className="rounded border-[var(--border)] text-[var(--accent)]"
             />
-            <span className="text-sm font-medium text-gray-700">Public tournament</span>
+            <span className="text-sm font-medium text-[var(--text-secondary)]">Public tournament</span>
           </label>
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-[var(--text-muted)] mt-1">
             Public tournaments appear on the browse page and spectators can view scores without logging in.
           </p>
         </div>

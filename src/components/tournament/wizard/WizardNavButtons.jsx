@@ -11,7 +11,7 @@ export function WizardNavButtons({
   nextDisabled = false,
 }) {
   return (
-    <div className="flex items-center justify-between pt-4 border-t border-gray-100 mt-6">
+    <div className="flex items-center justify-between pt-4 border-t border-[var(--border)] mt-6">
       {/* Back */}
       <button
         type="button"

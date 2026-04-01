@@ -48,8 +48,8 @@ export function WizardStep8Preview({ onBack, isLast }) {
           <Check size={28} className="text-green-600" />
         </div>
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Tournament published!</h2>
-          <p className="text-gray-500 mt-2">
+          <h2 className="text-2xl font-bold text-[var(--text-primary)]">Tournament published!</h2>
+          <p className="text-[var(--text-muted)] mt-2">
             <strong>{name}</strong> is now live and visible to spectators.
           </p>
         </div>
@@ -80,10 +80,10 @@ export function WizardStep8Preview({ onBack, isLast }) {
       )}
 
       {/* Tournament header preview */}
-      <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <div className="rounded-xl border border-[var(--border)] overflow-hidden">
         <div className="h-12 flex items-center px-5 gap-3" style={{ backgroundColor: primaryColor }}>
-          <Trophy size={18} className="text-white" />
-          <h3 className="text-white font-bold text-lg">{name || 'Untitled Tournament'}</h3>
+          <Trophy size={18} className="text-[var(--bg-base)]" />
+          <h3 className="text-[var(--bg-base)] font-bold text-lg">{name || 'Untitled Tournament'}</h3>
         </div>
         <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
           <SummaryItem
@@ -102,7 +102,7 @@ export function WizardStep8Preview({ onBack, isLast }) {
 
       {/* Divisions breakdown */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Divisions</h3>
+        <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-2">Divisions</h3>
         <div className="space-y-2">
           {divisions.map(div => {
             const divTeams  = teams.filter(t => t.divisionId === div.id)
@@ -111,26 +111,26 @@ export function WizardStep8Preview({ onBack, isLast }) {
               pools.some(p => p.id === m.pool_id && p.divisionId === div.id)
             )
             return (
-              <div key={div.id} className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-xl border border-gray-100">
+              <div key={div.id} className="flex items-center justify-between px-4 py-3 rounded-xl border border-[var(--border)]">
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">{div.name}</p>
-                  <p className="text-xs text-gray-500">{FORMAT_LABELS[div.formatType] ?? div.formatType}</p>
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">{div.name}</p>
+                  <p className="text-xs text-[var(--text-muted)]">{FORMAT_LABELS[div.formatType] ?? div.formatType}</p>
                 </div>
                 <div className="flex gap-4 text-right">
                   <div>
-                    <p className="text-sm font-bold text-gray-700">{divTeams.length}</p>
-                    <p className="text-xs text-gray-400">teams</p>
+                    <p className="text-sm font-bold text-[var(--text-secondary)]">{divTeams.length}</p>
+                    <p className="text-xs text-[var(--text-muted)]">teams</p>
                   </div>
                   {divPools.length > 0 && (
                     <div>
-                      <p className="text-sm font-bold text-gray-700">{divPools.length}</p>
-                      <p className="text-xs text-gray-400">pools</p>
+                      <p className="text-sm font-bold text-[var(--text-secondary)]">{divPools.length}</p>
+                      <p className="text-xs text-[var(--text-muted)]">pools</p>
                     </div>
                   )}
                   {divGames.length > 0 && (
                     <div>
-                      <p className="text-sm font-bold text-gray-700">{divGames.length}</p>
-                      <p className="text-xs text-gray-400">games</p>
+                      <p className="text-sm font-bold text-[var(--text-secondary)]">{divGames.length}</p>
+                      <p className="text-xs text-[var(--text-muted)]">games</p>
                     </div>
                   )}
                 </div>
@@ -142,7 +142,7 @@ export function WizardStep8Preview({ onBack, isLast }) {
 
       {/* Venues */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-2">Fields / Courts</h3>
+        <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-2">Fields / Courts</h3>
         <div className="flex flex-wrap gap-2">
           {venues.map(v => (
             <span key={v.id} className="badge badge-blue text-xs">{v.name}</span>
@@ -151,7 +151,7 @@ export function WizardStep8Preview({ onBack, isLast }) {
       </div>
 
       {/* Public URL */}
-      <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 text-sm text-gray-700 font-mono break-all">
+      <div className="p-3 rounded-xl border border-[var(--border)] text-sm text-[var(--text-secondary)] font-mono break-all">
         /t/<strong>{slug}</strong>
       </div>
 
@@ -178,19 +178,19 @@ export function WizardStep8Preview({ onBack, isLast }) {
 function SummaryItem({ icon, label, value }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs text-gray-400 flex items-center gap-1">{icon}{label}</span>
-      <span className="text-sm font-semibold text-gray-800">{value}</span>
+      <span className="text-xs text-[var(--text-muted)] flex items-center gap-1">{icon}{label}</span>
+      <span className="text-sm font-semibold text-[var(--text-primary)]">{value}</span>
     </div>
   )
 }
 
 function ChecklistItem({ ok, label, warn = false }) {
   return (
-    <div className={`flex items-center gap-2 text-sm ${ok ? 'text-gray-700' : warn ? 'text-amber-600' : 'text-gray-400'}`}>
-      <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${ok ? 'bg-green-100' : warn ? 'bg-amber-100' : 'bg-gray-100'}`}>
+    <div className={`flex items-center gap-2 text-sm ${ok ? 'text-[var(--text-secondary)]' : warn ? 'text-amber-600' : 'text-[var(--text-muted)]'}`}>
+      <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${ok ? 'bg-green-100' : warn ? 'bg-amber-100' : ''}`}>
         {ok
           ? <Check size={12} className="text-green-600" />
-          : <span className="text-gray-400 text-xs">–</span>
+          : <span className="text-[var(--text-muted)] text-xs">–</span>
         }
       </div>
       {label}

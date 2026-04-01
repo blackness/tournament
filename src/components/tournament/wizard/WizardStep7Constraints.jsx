@@ -42,9 +42,9 @@ export function WizardStep7Constraints({ onNext, onBack }) {
           <p className={`text-2xl font-bold ${warnings.length > 0 ? 'text-yellow-700' : 'text-green-700'}`}>{warnings.length}</p>
           <p className={`text-xs mt-0.5 ${warnings.length > 0 ? 'text-yellow-600' : 'text-green-600'}`}>Warnings</p>
         </div>
-        <div className="bg-gray-50 rounded-xl p-4 text-center">
-          <p className="text-2xl font-bold text-gray-700">{teams.length}</p>
-          <p className="text-xs text-gray-500 mt-0.5">Teams</p>
+        <div className=" rounded-xl p-4 text-center">
+          <p className="text-2xl font-bold text-[var(--text-secondary)]">{teams.length}</p>
+          <p className="text-xs text-[var(--text-muted)] mt-0.5">Teams</p>
         </div>
       </div>
 
@@ -54,7 +54,7 @@ export function WizardStep7Constraints({ onNext, onBack }) {
             <Check size={22} />
           </div>
           <p className="font-medium">No scheduling conflicts found!</p>
-          <p className="text-sm text-gray-500">Your schedule looks good. Continue to publish.</p>
+          <p className="text-sm text-[var(--text-muted)]">Your schedule looks good. Continue to publish.</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -113,11 +113,11 @@ function ConflictRow({ conflict, acknowledged, onAcknowledge }) {
 
   return (
     <div className={`flex gap-3 p-3 rounded-xl border transition-opacity ${
-      acknowledged ? 'opacity-50' : ''
-    } ${isError
-        ? 'bg-red-50 border-red-200'
-        : 'bg-yellow-50 border-yellow-200'
-    }`}>
+ acknowledged ? 'opacity-50' : ''
+ } ${isError
+ ? 'bg-red-50 border-red-200'
+ : 'bg-yellow-50 border-yellow-200'
+ }`}>
       <div className={`flex-shrink-0 mt-0.5 ${isError ? 'text-red-500' : 'text-yellow-600'}`}>
         {CONFLICT_ICONS[conflict.type] ?? CONFLICT_ICONS.default}
       </div>
@@ -126,7 +126,7 @@ function ConflictRow({ conflict, acknowledged, onAcknowledge }) {
           {conflict.message}
         </p>
         {conflict.matchIds?.length > 0 && (
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-xs text-[var(--text-muted)] mt-0.5">
             Affects {conflict.matchIds.length} game{conflict.matchIds.length !== 1 ? 's' : ''}
           </p>
         )}
@@ -135,15 +135,15 @@ function ConflictRow({ conflict, acknowledged, onAcknowledge }) {
         <button
           onClick={onAcknowledge}
           className={`flex-shrink-0 text-xs px-2 py-1 rounded-lg font-medium ${
-            isError
-              ? 'bg-red-100 text-red-700 hover:bg-red-200'
-              : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
-          }`}
+ isError
+ ? 'bg-red-100 text-red-700 hover:bg-red-200'
+ : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+ }`}
         >
           Acknowledge
         </button>
       ) : (
-        <span className="flex-shrink-0 text-xs text-gray-400 flex items-center gap-1">
+        <span className="flex-shrink-0 text-xs text-[var(--text-muted)] flex items-center gap-1">
           <Check size={12} /> OK
         </span>
       )}

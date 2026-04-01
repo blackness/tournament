@@ -317,8 +317,8 @@ export function WizardStep6Schedule({ onNext, onBack }) {
               lunchBreakStart: e.target.checked ? (startDate ? startDate + 'T12:00' : '') : null,
               lunchBreakEnd:   e.target.checked ? (startDate ? startDate + 'T13:00' : '') : null,
             })}
-            className="rounded border-gray-300 text-blue-600" />
-          <span className="text-sm font-medium text-gray-700">Lunch break</span>
+            className="rounded border-[var(--border)] text-[var(--accent)]" />
+          <span className="text-sm font-medium text-[var(--text-secondary)]">Lunch break</span>
         </label>
         {scheduleConfig.lunchBreakStart && (
           <div className="grid grid-cols-2 gap-4 ml-6">
@@ -348,7 +348,7 @@ export function WizardStep6Schedule({ onNext, onBack }) {
           {hasSchedule ? 'Regenerate' : 'Generate schedule'}
         </button>
         {hasSchedule && (
-          <span className="text-sm text-gray-500">
+          <span className="text-sm text-[var(--text-muted)]">
             {localMatches.length} games across {allVenues.length} field{allVenues.length !== 1 ? 's' : ''}
           </span>
         )}
@@ -366,7 +366,7 @@ export function WizardStep6Schedule({ onNext, onBack }) {
             </div>
           ))}
           {scheduleConflicts.length > 3 && (
-            <p className="text-xs text-gray-400 ml-5">+{scheduleConflicts.length - 3} more conflicts</p>
+            <p className="text-xs text-[var(--text-muted)] ml-5">+{scheduleConflicts.length - 3} more conflicts</p>
           )}
         </div>
       )}
@@ -375,8 +375,8 @@ export function WizardStep6Schedule({ onNext, onBack }) {
       {hasSchedule && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-700">Schedule preview</h3>
-            <p className="text-xs text-gray-400">Drag rows to swap game times</p>
+            <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Schedule preview</h3>
+            <p className="text-xs text-[var(--text-muted)]">Drag rows to swap game times</p>
           </div>
 
           {timeGroups.map(([timeKey, groupMatches]) => {
@@ -385,11 +385,11 @@ export function WizardStep6Schedule({ onNext, onBack }) {
               <div key={timeKey}>
                 {/* Time block header */}
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  <span className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">
                     {timeKey === 'unscheduled' ? 'Unscheduled' : formatTime(timeKey)}
                   </span>
-                  <div className="flex-1 h-px bg-gray-100" />
-                  <span className="text-xs text-gray-400">{groupMatches.length} game{groupMatches.length !== 1 ? 's' : ''}</span>
+                  <div className="flex-1 h-px " />
+                  <span className="text-xs text-[var(--text-muted)]">{groupMatches.length} game{groupMatches.length !== 1 ? 's' : ''}</span>
                 </div>
 
                 {/* Match rows */}
@@ -409,36 +409,36 @@ export function WizardStep6Schedule({ onNext, onBack }) {
                         onDragOver={e => handleDragOver(e, m.id)}
                         onDragLeave={handleDragLeave}
                         onDrop={() => handleDrop(m.id)}
-                        className={'flex items-center gap-2 px-3 py-2 bg-white border rounded-xl cursor-grab active:cursor-grabbing select-none transition-all ' + (
-                          isDragOver ? 'border-blue-400 bg-blue-50 shadow-md' : 'border-gray-200 hover:border-gray-300'
+                        className={'flex items-center gap-2 px-3 py-2 bg-[var(--bg-raised)] border rounded-xl cursor-grab active:cursor-grabbing select-none transition-all ' + (
+                          isDragOver ? 'border-[var(--accent)] bg-[var(--accent-dim)]' : 'border-[var(--border)] hover:border-[var(--border-mid)]'
                         )}
                       >
-                        <GripVertical size={14} className="text-gray-300 flex-shrink-0" />
+                        <GripVertical size={14} className="text-[var(--text-muted)] flex-shrink-0" />
 
                         {/* Teams */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <div className="w-2 h-2 rounded-full flex-shrink-0"
                               style={{ backgroundColor: teamA?.primaryColor ?? '#e5e7eb' }} />
-                            <span className="text-sm font-medium text-gray-800 truncate">
+                            <span className="text-sm font-medium text-[var(--text-primary)] truncate">
                               {teamA?.shortName ?? teamA?.name ?? 'TBD'}
                             </span>
-                            <span className="text-gray-400 text-xs">vs</span>
+                            <span className="text-[var(--text-muted)] text-xs">vs</span>
                             <div className="w-2 h-2 rounded-full flex-shrink-0"
                               style={{ backgroundColor: teamB?.primaryColor ?? '#e5e7eb' }} />
-                            <span className="text-sm font-medium text-gray-800 truncate">
+                            <span className="text-sm font-medium text-[var(--text-primary)] truncate">
                               {teamB?.shortName ?? teamB?.name ?? 'TBD'}
                             </span>
                           </div>
                           {pool && (
-                            <p className="text-xs text-gray-400 mt-0.5">{pool.name}</p>
+                            <p className="text-xs text-[var(--text-muted)] mt-0.5">{pool.name}</p>
                           )}
                         </div>
 
                         {/* Venue selector */}
                         {allVenues.length > 1 ? (
                           <select
-                            className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-600 bg-white flex-shrink-0 max-w-28"
+                            className="text-xs border border-[var(--border)] rounded-lg px-2 py-1 text-[var(--text-secondary)] flex-shrink-0 max-w-28"
                             value={m.venue_id ?? ''}
                             onChange={e => handleVenueChange(m.id, e.target.value)}
                             onClick={e => e.stopPropagation()}
@@ -451,7 +451,7 @@ export function WizardStep6Schedule({ onNext, onBack }) {
                           </select>
                         ) : (
                           venue && (
-                            <span className="text-xs text-gray-400 flex items-center gap-1 flex-shrink-0">
+                            <span className="text-xs text-[var(--text-muted)] flex items-center gap-1 flex-shrink-0">
                               <MapPin size={10} /> {venue.shortName ?? venue.name}
                             </span>
                           )

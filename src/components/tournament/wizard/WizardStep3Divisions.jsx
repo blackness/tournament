@@ -117,7 +117,7 @@ export function WizardStep3Divisions({ onNext, onBack }) {
       {/* Quick presets */}
       {divisions.length === 0 && (
         <div>
-          <p className="text-xs text-gray-500 mb-2">Quick add a common division:</p>
+          <p className="text-xs text-[var(--text-muted)] mb-2">Quick add a common division:</p>
           <div className="flex flex-wrap gap-2">
             {QUICK_PRESETS.map(p => (
               <button
@@ -178,15 +178,15 @@ function DivisionCard({ div, idx, errors, onUpdate, onRemove }) {
   ].includes(div.formatType)
 
   return (
-    <div className="border border-gray-200 rounded-xl overflow-hidden">
+    <div className="border border-[var(--border)] rounded-xl overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 bg-gray-50">
-        <GripVertical size={16} className="text-gray-300 cursor-grab" />
+      <div className="flex items-center gap-3 px-4 py-3 ">
+        <GripVertical size={16} className="text-[var(--text-muted)] cursor-grab" />
         <div className="flex-1 min-w-0">
           <input
             type="text"
             className={`w-full text-sm font-semibold bg-transparent border-b border-transparent focus:border-blue-400 outline-none pb-0.5 ${
-              errors[`${div.id}_name`] ? 'border-red-400 text-red-700' : 'text-gray-900'
+              errors[`${div.id}_name`] ? 'border-red-400 text-red-400' : 'text-[var(--text-primary)]'
             }`}
             placeholder={`Division ${idx + 1} name (e.g. Open, Mixed, Women's)`}
             value={div.name}
@@ -197,7 +197,7 @@ function DivisionCard({ div, idx, errors, onUpdate, onRemove }) {
           )}
         </div>
         <select
-          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-700 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+          className="text-xs border border-[var(--border)] rounded-lg px-2 py-1.5 text-[var(--text-secondary)] focus:ring-1 focus:ring-blue-500 focus:border-[var(--accent)]"
           value={div.formatType}
           onChange={e => onUpdate({ formatType: e.target.value })}
         >
@@ -207,19 +207,19 @@ function DivisionCard({ div, idx, errors, onUpdate, onRemove }) {
         </select>
         <button
           onClick={() => setExpanded(e => !e)}
-          className="p-1 text-gray-400 hover:text-gray-600"
+          className="p-1 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
           title="Expand settings"
         >
           {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </button>
-        <button onClick={onRemove} className="p-1 text-gray-300 hover:text-red-500" title="Remove">
+        <button onClick={onRemove} className="p-1 text-[var(--text-muted)] hover:text-red-500" title="Remove">
           <Trash2 size={15} />
         </button>
       </div>
 
       {/* Expanded settings */}
       {expanded && (
-        <div className="px-4 py-4 space-y-4 border-t border-gray-100">
+        <div className="px-4 py-4 space-y-4 border-t border-[var(--border)]">
           <div className="grid grid-cols-2 gap-4">
             <div className="field-group">
               <label className="field-label">Game duration (min)</label>
@@ -263,18 +263,18 @@ function DivisionCard({ div, idx, errors, onUpdate, onRemove }) {
                   type="checkbox"
                   checked={div.thirdPlaceGame}
                   onChange={e => onUpdate({ thirdPlaceGame: e.target.checked })}
-                  className="rounded border-gray-300 text-blue-600"
+                  className="rounded border-[var(--border)] text-[var(--accent)]"
                 />
-                <span className="text-sm text-gray-700">3rd place game</span>
+                <span className="text-sm text-[var(--text-secondary)]">3rd place game</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={div.consolationBracket}
                   onChange={e => onUpdate({ consolationBracket: e.target.checked })}
-                  className="rounded border-gray-300 text-blue-600"
+                  className="rounded border-[var(--border)] text-[var(--accent)]"
                 />
-                <span className="text-sm text-gray-700">Consolation bracket</span>
+                <span className="text-sm text-[var(--text-secondary)]">Consolation bracket</span>
               </label>
             </div>
           )}

@@ -214,7 +214,7 @@ export function DirectorHQ() {
           <div className=" rounded-2xl  w-full max-w-md p-6 space-y-4">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+                <div className="w-10 h-10 bg-[rgba(239,68,68,0.12)] rounded-full flex items-center justify-center flex-shrink-0">
                   <AlertTriangle size={18} className="text-red-600" />
                 </div>
                 <div>
@@ -222,7 +222,7 @@ export function DirectorHQ() {
                   <p className="text-sm text-[var(--text-muted)] mt-0.5">This cannot be undone.</p>
                 </div>
               </div>
-              <button onClick={() => setShowDelete(false)} className="p-1 text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
+              <button onClick={() => setShowDelete(false)} className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)]">
                 <X size={18} />
               </button>
             </div>
@@ -233,7 +233,7 @@ export function DirectorHQ() {
             </div>
 
             {tournament.status !== 'draft' && (
-              <div className="flex gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+              <div className="flex gap-2 p-3 bg-[rgba(234,179,8,0.08)] border border-[rgba(234,179,8,0.2)] rounded-lg text-xs text-[#fde047]">
                 <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
                 This tournament has teams, games, and scores attached. All data will be soft-deleted.
               </div>
@@ -256,15 +256,15 @@ export function DirectorHQ() {
 
 function StatCard({ label, value, highlight }) {
   return (
-    <div className={'bg-white border rounded-xl p-4 text-center ' + (highlight ? 'border-green-200 bg-green-50' : 'border-gray-200')}>
-      <p className={'text-2xl font-bold ' + (highlight ? 'text-green-700' : 'text-gray-900')}>{value}</p>
-      <p className={'text-xs mt-0.5 ' + (highlight ? 'text-green-600' : 'text-gray-500')}>{label}</p>
+    <div className={'border rounded-xl p-4 text-center' + (highlight ? ' border-[rgba(34,197,94,0.3)] bg-[rgba(34,197,94,0.08)]' : ' border-[var(--border)]')}>
+      <p className={'text-2xl font-bold font-mono ' + (highlight ? 'text-[#4ade80]' : 'text-[var(--text-primary)]')}>{value}</p>
+      <p className={'text-xs mt-0.5 ' + (highlight ? 'text-[#4ade80]' : 'text-[var(--text-muted)]')}>{label}</p>
     </div>
   )
 }
 
 function QuickLink({ to, label, sub, external }) {
-  const cls = 'flex items-center justify-between gap-3 bg-white border border-gray-200 rounded-xl px-4 py-3 hover:border-gray-300 hover:shadow-sm transition-all'
+  const cls = 'flex items-center justify-between gap-3 border border-[var(--border)] rounded-xl px-4 py-3 hover:border-[var(--border-mid)] hover:bg-[var(--bg-raised)] transition-all'
   const inner = (
     <>
       <div>
@@ -342,7 +342,7 @@ function PinManager({ tournamentId, matches, onPinsUpdated }) {
       )}
 
       {message && (
-        <p className="mt-2 text-sm font-semibold text-green-700 bg-green-50 px-3 py-1.5 rounded-lg">
+        <p className="mt-2 text-sm font-semibold text-[#4ade80] bg-[rgba(34,197,94,0.1)] px-3 py-1.5 rounded-lg">
           {message}
         </p>
       )}
@@ -380,7 +380,7 @@ function MatchList({ matches, tournamentId }) {
           ].map(([val, label, count]) => (
             <button key={val} onClick={() => setFilter(val)}
               className={'px-2.5 py-1 rounded-md text-xs font-medium transition-colors ' + (
-                filter === val ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                filter === val ? 'bg-[var(--bg-surface)] text-[var(--text-primary)]' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
               )}>
               {label} {count > 0 && <span className="ml-0.5 opacity-60">{count}</span>}
             </button>
@@ -453,7 +453,7 @@ function ScoreEditor({ match: m, onClose, onSaved }) {
                 className={'py-2 rounded-lg text-xs font-semibold border-2 transition-colors ' + (
                   forfeitTeam === side
                     ? 'border-red-400 bg-red-50 text-red-700'
-                    : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                    : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--border-mid)]'
                 )}>
                 {name}
               </button>
@@ -510,8 +510,8 @@ function CopyLinkButton({ matchId, pin }) {
       title={pin ? 'Copy scorekeeper link + PIN' : 'Copy scorekeeper link'}
       className={'flex-shrink-0 p-1.5 rounded-lg transition-colors ' + (
         copied
-          ? 'text-green-600 bg-green-50'
-          : 'text-gray-300 hover:text-gray-500 hover:bg-gray-100'
+          ? 'text-[#4ade80] bg-[rgba(34,197,94,0.08)]'
+          : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
       )}
     >
       {copied ? <Check size={13} /> : <Copy size={13} />}
@@ -552,19 +552,19 @@ function MatchRow({ match: m, tournamentId }) {
   }
 
   return (
-    <div className={'rounded-lg border text-sm transition-all ' + (isLive ? 'border-green-200 bg-green-50/50' : hasTBD ? 'border-amber-200 bg-amber-50/30' : 'border-gray-100 bg-white')}>
+    <div className={'rounded-xl border text-sm transition-all ' + (isLive ? 'border-[rgba(34,197,94,0.25)] bg-[rgba(34,197,94,0.06)]' : hasTBD ? 'border-[rgba(234,179,8,0.2)] bg-[rgba(234,179,8,0.04)]' : 'border-[var(--border)] bg-[var(--bg-surface)]')}>
       <div className="flex items-center gap-3 px-3 py-2">
-        {isLive && <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />}
-        {hasTBD && !isLive && <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />}
+        {isLive && <span className="live-dot flex-shrink-0" />}
+        {hasTBD && !isLive && <span className="w-2 h-2 rounded-full bg-[#fde047] flex-shrink-0" />}
 
         <span className="flex-1 truncate text-[var(--text-secondary)]">
-          <span className={!m.team_a?.id ? 'text-amber-500 italic' : ''}>{m.team_a?.name ?? 'TBD'}</span>
+          <span className={!m.team_a?.id ? 'text-[#fde047] italic' : ''}>{m.team_a?.name ?? 'TBD'}</span>
           <span className="text-[var(--text-muted)] mx-1">vs</span>
-          <span className={!m.team_b?.id ? 'text-amber-500 italic' : ''}>{m.team_b?.name ?? 'TBD'}</span>
+          <span className={!m.team_b?.id ? 'text-[#fde047] italic' : ''}>{m.team_b?.name ?? 'TBD'}</span>
         </span>
 
         {isDone && <span className="text-xs font-bold text-[var(--text-muted)] tabular-nums flex-shrink-0">{m.score_a} - {m.score_b}</span>}
-        {isLive && <span className="text-xs font-bold text-green-700 tabular-nums flex-shrink-0">{m.score_a} - {m.score_b}</span>}
+        {isLive && <span className="text-xs font-bold text-[var(--live)] tabular-nums flex-shrink-0 font-mono">{m.score_a} - {m.score_b}</span>}
         {m.time_slot?.scheduled_start && !isLive && !isDone && (
           <span className="text-xs text-[var(--text-muted)] flex-shrink-0">{formatTime(m.time_slot.scheduled_start)}</span>
         )}
@@ -572,7 +572,7 @@ function MatchRow({ match: m, tournamentId }) {
         {/* Fix TBD button */}
         {hasTBD && !isDone && (
           <button onClick={e => { e.stopPropagation(); loadTeams() }}
-            className="text-xs text-amber-600 hover:text-amber-800 border border-amber-300 rounded px-1.5 py-0.5 flex-shrink-0">
+            className="text-xs text-[#fde047] hover:text-[#fbbf24] border border-[rgba(234,179,8,0.3)] rounded px-1.5 py-0.5 flex-shrink-0">
             Fix teams
           </button>
         )}
@@ -592,12 +592,12 @@ function MatchRow({ match: m, tournamentId }) {
 
         {isLive ? (
           <Link to={'/scorekeeper/' + m.id}
-            className="flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-lg bg-green-500 text-white hover:bg-green-400">
+            className="flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-lg bg-[var(--live)] text-[var(--bg-base)] hover:opacity-90">
             Score
           </Link>
         ) : !isDone ? (
           <Link to={'/scorekeeper/' + m.id}
-            className="flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-lg  text-[var(--text-secondary)] hover:bg-gray-200">
+            className="flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">
             Start
           </Link>
         ) : (
@@ -610,7 +610,7 @@ function MatchRow({ match: m, tournamentId }) {
 
       {/* Inline team editor */}
       {editing && (
-        <div className="px-3 pb-3 pt-1 border-t border-amber-100 space-y-2 bg-amber-50/50">
+        <div className="px-3 pb-3 pt-1 border-t border-[var(--border)] space-y-2 bg-[rgba(234,179,8,0.04)]">
           <p className="text-xs font-semibold text-[var(--text-secondary)]">Assign teams</p>
           <div className="grid grid-cols-2 gap-2">
             <div>

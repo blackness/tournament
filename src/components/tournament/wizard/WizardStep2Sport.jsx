@@ -82,14 +82,14 @@ export function WizardStep2Sport({ onNext, onBack, isFirst }) {
               className={[
                 'flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all text-center',
                 sportTemplateId === t.id
-                  ? 'border-blue-600 bg-blue-50 shadow-sm'
-                  : 'border-gray-200 hover:border-gray-300 bg-white',
+                  ? 'border-[var(--accent)] bg-[var(--accent-dim)]'
+                  : 'border-[var(--border)] hover:border-[var(--border-mid)] bg-[var(--bg-raised)]',
               ].join(' ')}
             >
               <span className="text-3xl">{SPORT_ICONS[t.slug] ?? '🏆'}</span>
-              <span className="text-sm font-medium text-gray-800">{t.display_name}</span>
+              <span className="text-sm font-medium text-[var(--text-primary)]">{t.display_name}</span>
               {sportTemplateId === t.id && (
-                <span className="inline-flex items-center gap-1 text-xs text-blue-600 font-medium">
+                <span className="inline-flex items-center gap-1 text-xs text-[var(--accent)] font-medium">
                   <Check size={12} /> Selected
                 </span>
               )}
@@ -105,13 +105,13 @@ export function WizardStep2Sport({ onNext, onBack, isFirst }) {
 
           {/* Stats toggle */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-700 mb-1">Stats to track</h3>
-            <p className="text-xs text-gray-500 mb-3">
+            <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-1">Stats to track</h3>
+            <p className="text-xs text-[var(--text-muted)] mb-3">
               Toggle individual stats on or off. Scoring stats are always shown in scorecards.
             </p>
 
             {stats.length === 0 ? (
-              <p className="text-sm text-gray-400 italic">This sport has no configurable stats.</p>
+              <p className="text-sm text-[var(--text-muted)] italic">This sport has no configurable stats.</p>
             ) : (
               <div className="space-y-2">
                 {stats.map(stat => {
@@ -120,18 +120,18 @@ export function WizardStep2Sport({ onNext, onBack, isFirst }) {
                     <div
                       key={stat.id}
                       className={`flex items-center justify-between px-4 py-2.5 rounded-lg border transition-colors ${
-                        enabled ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-100'
-                      }`}
+ enabled ? ' border-[var(--border)]' : ' border-[var(--border)]'
+ }`}
                     >
                       <div className="flex items-center gap-3">
-                        <span className={`text-xs font-mono font-bold w-8 ${enabled ? 'text-gray-700' : 'text-gray-400'}`}>
+                        <span className={`text-xs font-mono font-bold w-8 ${enabled ? 'text-[var(--text-secondary)]' : 'text-[var(--text-muted)]'}`}>
                           {stat.short}
                         </span>
                         <div>
-                          <p className={`text-sm font-medium ${enabled ? 'text-gray-900' : 'text-gray-400'}`}>
+                          <p className={`text-sm font-medium ${enabled ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}>
                             {stat.label}
                           </p>
-                          <p className="text-xs text-gray-400 capitalize">{stat.category}</p>
+                          <p className="text-xs text-[var(--text-muted)] capitalize">{stat.category}</p>
                         </div>
                         {stat.adds_to_score && (
                           <span className="badge badge-green text-xs">Scoring</span>
@@ -142,11 +142,11 @@ export function WizardStep2Sport({ onNext, onBack, isFirst }) {
                       </div>
                       <button
                         onClick={() => toggleStat(stat.id)}
-                        className="text-gray-400 hover:text-blue-600 transition-colors"
+                        className="text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors"
                         title={enabled ? 'Disable stat' : 'Enable stat'}
                       >
                         {enabled
-                          ? <ToggleRight size={24} className="text-blue-600" />
+                          ? <ToggleRight size={24} className="text-[var(--accent)]" />
                           : <ToggleLeft size={24} />
                         }
                       </button>
@@ -168,14 +168,14 @@ export function WizardStep2Sport({ onNext, onBack, isFirst }) {
                       type="checkbox"
                       checked={sotgEnabled}
                       onChange={e => setField('sotgEnabled', e.target.checked)}
-                      className="rounded border-gray-300 text-blue-600"
+                      className="rounded border-[var(--border)] text-[var(--accent)]"
                     />
-                    <span className="text-sm font-medium text-gray-700">Enable Spirit of the Game (SOTG)</span>
+                    <span className="text-sm font-medium text-[var(--text-secondary)]">Enable Spirit of the Game (SOTG)</span>
                   </label>
                   {sotgEnabled && sportConfig.sotg_categories && (
                     <div className="mt-2 ml-6">
-                      <p className="text-xs text-gray-500 mb-1">Categories ({sportConfig.sotg_scale?.min ?? 0}–{sportConfig.sotg_scale?.max ?? 4} scale):</p>
-                      <ul className="text-xs text-gray-500 space-y-0.5">
+                      <p className="text-xs text-[var(--text-muted)] mb-1">Categories ({sportConfig.sotg_scale?.min ?? 0}–{sportConfig.sotg_scale?.max ?? 4} scale):</p>
+                      <ul className="text-xs text-[var(--text-muted)] space-y-0.5">
                         {sportConfig.sotg_categories.map((cat, i) => (
                           <li key={i} className="flex items-center gap-1">
                             <span className="w-1 h-1 bg-gray-400 rounded-full" />
