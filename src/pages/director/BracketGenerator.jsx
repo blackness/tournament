@@ -220,17 +220,32 @@ export function BracketGenerator() {
       }
 
       // Wire up winner_next_match_id on matches
-      // Each round-1 match winner goes to round-2 match ceil(position/2)
       for (let r = 1; r < numRounds; r++) {
-        const thisRoundMatches = matchRows.filter(m => m.round === r && m.phase === 2)
-        const nextRoundMatches = matchRows.filter(m => m.round === r + 1 && m.phase === 2)
+        const thisRoundMatches = matchRows.filter(m => m.round === r && m.phase === 2 && m.round_label !== '3rd Place')
+        const nextRoundMatches = matchRows.filter(m => m.round === r + 1 && m.phase === 2 && m.round_label !== '3rd Place')
         for (const m of thisRoundMatches) {
-          const nextIdx  = Math.ceil(m.match_number / 2) - 1
+          const nextIdx   = Math.ceil(m.match_number / 2) - 1
           const nextMatch = nextRoundMatches[nextIdx]
           if (nextMatch) {
             m.winner_next_match_id = nextMatch.id
             m.winner_next_slot     = m.match_number % 2 === 1 ? 'team_a' : 'team_b'
           }
+        }
+      }
+
+      // Wire up loser_next_match_id for semi-finalists -> 3rd place game
+      if (division.third_place_game && numRounds >= 2) {
+        const thirdPlaceMatch = matchRows.find(m => m.round_label === '3rd Place')
+        const semiFinalsRound = numRounds - 1
+        const semiMatches = matchRows
+          .filter(m => m.round === semiFinalsRound && m.phase === 2 && m.round_label !== '3rd Place')
+          .sort((a, b) => a.match_number - b.match_number)
+
+        if (thirdPlaceMatch && semiMatches.length >= 2) {
+          semiMatches[0].loser_next_match_id = thirdPlaceMatch.id
+          semiMatches[0].loser_next_slot     = 'team_a'
+          semiMatches[1].loser_next_match_id = thirdPlaceMatch.id
+          semiMatches[1].loser_next_slot     = 'team_b'
         }
       }
 
