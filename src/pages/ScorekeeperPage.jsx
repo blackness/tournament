@@ -72,12 +72,17 @@ export function ScorekeeperPage() {
 
   async function loadRosters(m) {
     const matchData = m ?? match
-    const [{ data: rA }, { data: rB }] = await Promise.all([
+    const teamAId = matchData?.team_a?.id
+    const teamBId = matchData?.team_b?.id
+    console.log('[Roster] loading for teams:', teamAId, teamBId)
+    const [{ data: rA, error: eA }, { data: rB, error: eB }] = await Promise.all([
       supabase.from('tournament_players').select('id, name, number')
-        .eq('tournament_team_id', matchData?.team_a?.id ?? 'x').order('number'),
+        .eq('tournament_team_id', teamAId ?? 'x').order('number'),
       supabase.from('tournament_players').select('id, name, number')
-        .eq('tournament_team_id', matchData?.team_b?.id ?? 'x').order('number'),
+        .eq('tournament_team_id', teamBId ?? 'x').order('number'),
     ])
+    console.log('[Roster] A:', rA?.length, 'error:', eA?.message)
+    console.log('[Roster] B:', rB?.length, 'error:', eB?.message)
     setRoster({ a: rA ?? [], b: rB ?? [] })
   }
 
@@ -92,16 +97,31 @@ export function ScorekeeperPage() {
     setScreen(SCREEN.LIVE)
   }
 
-  async function endGame() {
-    const scoreA = match.score_a ?? 0
-    const scoreB = match.score_b ?? 0
-    const winnerId = scoreA > scoreB ? match.team_a?.id
-                   : scoreB > scoreA ? match.team_b?.id : null
+  async function endGame(forceTie = false) {
+    const scoreA   = match.score_a ?? 0
+    const scoreB   = match.score_b ?? 0
+    const isTie    = forceTie || scoreA === scoreB
+    const winnerId = isTie ? null
+                   : scoreA > scoreB ? match.team_a?.id : match.team_b?.id
     const { error } = await supabase.from('matches').update({
       status: 'complete', winner_id: winnerId,
       completed_at: new Date().toISOString(),
     }).eq('id', matchId)
     if (error) { setError(error.message); return }
+
+    // Insert a game_end event so the standings trigger fires
+    const seq = (events[events.length - 1]?.sequence ?? 0) + 1
+    await supabase.from('game_events').insert({
+      match_id:        matchId,
+      stat_id:         'game_end',
+      team_id:         winnerId ?? match.team_a?.id,
+      score_a_after:   scoreA,
+      score_b_after:   scoreB,
+      event_timestamp: new Date().toISOString(),
+      sequence:        seq,
+      source:          'manual',
+    })
+
     setMatch(prev => ({ ...prev, status: 'complete', winner_id: winnerId }))
     setScreen(SCREEN.POST)
   }
@@ -294,6 +314,7 @@ export function ScorekeeperPage() {
   const pickerRoster = picker
     ? (picker.teamId === match.team_a?.id ? roster.a : roster.b)
     : []
+  if (picker) console.log('[Picker] teamId:', picker.teamId, 'team_a.id:', match.team_a?.id, 'match?', picker.teamId === match.team_a?.id, 'roster.a:', roster.a?.length, 'roster.b:', roster.b?.length, 'pickerRoster:', pickerRoster?.length)
 
   return (
     <div className="min-h-screen bg-gray-950 text-white flex flex-col max-w-lg mx-auto relative">
@@ -336,7 +357,7 @@ export function ScorekeeperPage() {
           onStat={handleStatTap}
           onUndo={undoLast}
           onSetCap={setCapStatus}
-          onConfirmEnd={endGame}
+          onConfirmEnd={(forceTie) => endGame(forceTie)}
         />
       )}
       {screen === SCREEN.POST && (
@@ -382,52 +403,68 @@ function PreGameScreen({ match, roster, onStart, onAddPlayer }) {
   const missingA = !match.team_a?.id
   const missingB = !match.team_b?.id
   const canStart = !missingA && !missingB
-  const [showAddA, setShowAddA] = useState(false)
-  const [showAddB, setShowAddB] = useState(false)
+  const [showRosters, setShowRosters] = useState(false)
 
   return (
-    <div className="flex-1 flex flex-col gap-6 p-5 overflow-y-auto">
-      <div className="text-center space-y-1 pt-4">
-        <p className="text-gray-400 text-sm uppercase tracking-wide">Pre-game</p>
-        <div className="flex items-center justify-center gap-4 text-lg font-bold flex-wrap">
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Match info */}
+      <div style={{ padding:'20px 16px 16px', textAlign:'center' }}>
+        <p style={{ fontSize:11, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:10 }}>Pre-game</p>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:12, fontSize:17, fontWeight:700, flexWrap:'wrap', marginBottom:8 }}>
           <TeamChip team={match.team_a} missing={missingA} />
-          <span className="text-gray-600">vs</span>
+          <span style={{ color:'var(--text-muted)', fontWeight:400 }}>vs</span>
           <TeamChip team={match.team_b} missing={missingB} />
         </div>
         {match.time_slot && (
-          <p className="text-gray-500 text-sm flex items-center justify-center gap-1">
+          <p style={{ fontSize:13, color:'var(--text-muted)', display:'flex', alignItems:'center', justifyContent:'center', gap:5 }}>
             <Clock size={13} /> {formatTime(match.time_slot.scheduled_start)}
           </p>
         )}
       </div>
 
       {!canStart && (
-        <div className="bg-amber-900/40 border border-amber-700/50 rounded-xl px-4 py-3 text-amber-300 text-sm text-center">
+        <div style={{ margin:'0 16px 16px', padding:'12px 14px', background:'rgba(234,179,8,0.1)', border:'1px solid rgba(234,179,8,0.2)', borderRadius:12, fontSize:13, color:'#fde047', textAlign:'center' }}>
           Teams are TBD -- assign teams in Director HQ before starting.
         </div>
       )}
 
-      {/* Roster management */}
+      {/* START GAME -- always visible at top */}
       {canStart && (
-        <div className="grid grid-cols-2 gap-3">
-          <RosterPanel
-            team={match.team_a} players={roster.a}
-            onAdd={(name, num) => onAddPlayer(match.team_a.id, name, num)}
-          />
-          <RosterPanel
-            team={match.team_b} players={roster.b}
-            onAdd={(name, num) => onAddPlayer(match.team_b.id, name, num)}
-          />
+        <div style={{ padding:'0 16px 16px' }}>
+          <button onClick={onStart}
+            style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'16px', fontSize:18, fontWeight:700, fontFamily:'inherit', background:'var(--live)', color:'var(--bg-base)', border:'none', borderRadius:16, cursor:'pointer', transition:'opacity 0.15s' }}
+            onMouseEnter={e => e.currentTarget.style.opacity='0.9'}
+            onMouseLeave={e => e.currentTarget.style.opacity='1'}>
+            <Play size={20} fill="currentColor" /> Start game
+          </button>
         </div>
       )}
 
-      <button
-        onClick={onStart}
-        disabled={!canStart}
-        className="flex items-center justify-center gap-2 bg-green-500 hover:bg-green-400 disabled:bg-gray-800 disabled:text-gray-600 text-white font-bold text-lg px-8 py-4 rounded-2xl transition-colors w-full mt-auto"
-      >
-        <Play size={20} fill="currentColor" /> Start game
-      </button>
+      {/* Roster section -- collapsible */}
+      {canStart && (
+        <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
+          <button onClick={() => setShowRosters(s => !s)}
+            style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 16px', background:'transparent', border:'none', borderTop:'1px solid var(--border)', cursor:'pointer', fontFamily:'inherit', width:'100%' }}>
+            <span style={{ fontSize:12, fontWeight:600, color:'var(--text-muted)', letterSpacing:'0.06em', textTransform:'uppercase' }}>
+              Rosters ({(roster.a?.length ?? 0) + (roster.b?.length ?? 0)} players)
+            </span>
+            <span style={{ fontSize:12, color:'var(--text-muted)' }}>{showRosters ? '▲' : '▼'}</span>
+          </button>
+
+          {showRosters && (
+            <div style={{ flex:1, overflowY:'auto', padding:'12px 16px 24px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+              <RosterPanel
+                team={match.team_a} players={roster.a}
+                onAdd={(name, num) => onAddPlayer(match.team_a.id, name, num)}
+              />
+              <RosterPanel
+                team={match.team_b} players={roster.b}
+                onAdd={(name, num) => onAddPlayer(match.team_b.id, name, num)}
+              />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -587,13 +624,23 @@ function LiveScoringScreen({ match, events, roster, sportConfig, onStat, onUndo,
             End game
           </button>
         ) : (
-          <div className="flex gap-2">
-            <button onClick={() => setPendingEnd(false)}
-              className="px-3 py-2.5 rounded-xl bg-gray-800 text-gray-400 text-sm">Cancel</button>
-            <button onClick={onConfirmEnd}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-green-600 hover:bg-green-500 text-white font-semibold text-sm">
-              <CheckCircle size={15} /> Confirm end
-            </button>
+          <div style={{ display:'flex', flexDirection:'column', gap:6, alignItems:'flex-end' }}>
+            <div style={{ display:'flex', gap:6 }}>
+              <button onClick={() => setPendingEnd(false)}
+                style={{ padding:'8px 14px', borderRadius:10, background:'transparent', border:'1px solid #374151', color:'#9ca3af', fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>
+                Cancel
+              </button>
+              {match.score_a === match.score_b && (
+                <button onClick={() => onConfirmEnd(true)}
+                  style={{ display:'flex', alignItems:'center', gap:5, padding:'8px 14px', borderRadius:10, background:'rgba(234,179,8,0.15)', border:'1px solid rgba(234,179,8,0.3)', color:'#fde047', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
+                  Tie
+                </button>
+              )}
+              <button onClick={() => onConfirmEnd(false)}
+                style={{ display:'flex', alignItems:'center', gap:5, padding:'8px 14px', borderRadius:10, background:'#16a34a', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                <CheckCircle size={14} /> End game
+              </button>
+            </div>
           </div>
         )}
       </div>

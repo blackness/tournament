@@ -17,7 +17,7 @@ export function TournamentHome() {
   const [pools, setPools]                     = useState([])
   const [loading, setLoading]                 = useState(true)
   const [notFound, setNotFound]               = useState(false)
-  const [activeTab, setActiveTab]             = useState('overview')
+  const [activeTab, setActiveTab]             = useState('overview') // will be overridden after load
 
   useEffect(() => {
     async function load() {
@@ -29,6 +29,13 @@ export function TournamentHome() {
         if (error || !t) { setNotFound(true); return }
         setTournament(t)
         setDivisions(t.divisions ?? [])
+
+        // Default tab based on tournament status
+        if (t.status === 'archived' || t.status === 'review') {
+          setActiveTab('bracket')
+        } else if (t.status === 'live') {
+          setActiveTab('overview')
+        }
 
         const { data: live } = await supabase.from('matches')
           .select('id, score_a, score_b, status, team_a:tournament_teams!team_a_id(id, name, short_name, primary_color), team_b:tournament_teams!team_b_id(id, name, short_name, primary_color), venue:venues(name, short_name), time_slot:time_slots(scheduled_start)')
@@ -132,6 +139,7 @@ export function TournamentHome() {
               <button key={tab} onClick={() => {
                 if (href) { navigate(href); return }
                 if (tab === 'bracket' && divisions.length === 1) { navigate('/t/' + slug + '/bracket/' + divisions[0].id); return }
+                if (tab === 'bracket' && divisions.length > 1) { setActiveTab('bracket'); return }
                 setActiveTab(tab)
               }}
                 style={{ padding:'10px 16px', fontSize:13, fontWeight:500, fontFamily:'inherit', background:'transparent', border:'none', cursor:'pointer', whiteSpace:'nowrap',
@@ -226,18 +234,7 @@ export function TournamentHome() {
 
         {/* - BRACKET - */}
         {activeTab === 'bracket' && (
-          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-            {divisions.map(div => (
-              <div key={div.id} style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, padding:'16px 20px' }}>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                  <p style={{ fontSize:15, fontWeight:600, color:'var(--text-primary)' }}>{div.name}</p>
-                  <Link to={'/t/' + slug + '/bracket/' + div.id} className="btn btn-secondary btn-sm">
-                    View bracket <ChevronRight size={12} />
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
+          <BracketTab divisions={divisions} slug={slug} />
         )}
 
         {/* - RULES - */}
@@ -318,6 +315,59 @@ function ScheduleRedirect({ slug }) {
       </Link>
     </div>
   )
+}
+
+function BracketTab({ divisions, slug }) {
+  const [activeDivId, setActiveDivId] = useState(divisions[0]?.id ?? null)
+  const [pickerOpen, setPickerOpen]   = useState(false)
+  const activeDiv = divisions.find(d => d.id === activeDivId)
+
+  // Set global slug for team links inside SVG
+  if (typeof window !== 'undefined') window._bracketSlug = slug
+
+  if (divisions.length === 0) return (
+    <div style={{ textAlign:'center', padding:'48px 0', color:'var(--text-muted)' }}>
+      <p style={{ fontSize:14, color:'var(--text-secondary)' }}>No divisions yet</p>
+    </div>
+  )
+
+  return (
+    <div>
+      {/* Division picker -- only shown for multiple divisions */}
+      {divisions.length > 1 && (
+        <div style={{ position:'relative', display:'inline-block', marginBottom:20 }}>
+          <button onClick={() => setPickerOpen(o => !o)}
+            style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 14px', fontSize:14, fontWeight:600, background:'var(--bg-surface)', border:'1px solid var(--border-mid)', borderRadius:10, cursor:'pointer', color:'var(--text-primary)', fontFamily:'inherit' }}>
+            {activeDiv?.name ?? 'Select division'}
+            <ChevronRight size={14} style={{ transform: pickerOpen ? 'rotate(90deg)' : 'rotate(0)', transition:'transform 0.15s', color:'var(--text-muted)' }} />
+          </button>
+          {pickerOpen && (
+            <>
+              <div style={{ position:'fixed', inset:0, zIndex:39 }} onClick={() => setPickerOpen(false)} />
+              <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, background:'var(--bg-raised)', border:'1px solid var(--border-mid)', borderRadius:12, boxShadow:'0 8px 24px rgba(0,0,0,0.4)', zIndex:40, minWidth:200, overflow:'hidden' }}>
+                {divisions.map(div => (
+                  <button key={div.id} onClick={() => { setActiveDivId(div.id); setPickerOpen(false) }}
+                    style={{ display:'block', width:'100%', padding:'11px 16px', fontSize:14, fontWeight: div.id === activeDivId ? 600 : 400, textAlign:'left', background: div.id === activeDivId ? 'var(--accent-dim)' : 'transparent', color: div.id === activeDivId ? 'var(--accent)' : 'var(--text-secondary)', border:'none', cursor:'pointer', fontFamily:'inherit', borderBottom:'1px solid var(--border)' }}>
+                    {div.name}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Inline bracket */}
+      {activeDivId && <InlineBracket divisionId={activeDivId} slug={slug} />}
+    </div>
+  )
+}
+
+function InlineBracket({ divisionId, slug }) {
+  // Navigate to bracket page immediately
+  const navigate = useNavigate()
+  useEffect(() => { navigate('/t/' + slug + '/bracket/' + divisionId) }, [divisionId, slug])
+  return <div style={{ padding:'32px 0', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>Loading bracket...</div>
 }
 
 function StandingsTab({ divisions, standings, pools, slug, advancesPerPool, brandColor }) {

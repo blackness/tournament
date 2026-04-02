@@ -252,6 +252,7 @@ function NodeTeamRow({ x, y, team, source, score, isWinner, isLoser, showScore, 
   const dotColor = team?.primary_color ?? (isBye ? '#3a3a44' : '#55556a')
   const opacity  = isLoser ? 0.35 : isBye ? 0.4 : 1
   const nameStr  = team ? (team.name ?? team.short_name ?? 'TBD') : (source ?? 'TBD')
+  const teamLink = team?.id ? ('/t/' + (window._bracketSlug ?? '') + '/team/' + team.id) : null
   const truncated = nameStr.length > 18 ? nameStr.slice(0, 17) + '..' : nameStr
   const textColor = isWinner ? primaryColor : isBye ? '#3a3a44' : '#f0f0f2'
   const fontWeight = isWinner ? '700' : '500'
@@ -272,7 +273,8 @@ function NodeTeamRow({ x, y, team, source, score, isWinner, isLoser, showScore, 
         fontSize={fontSize}
         fontWeight={fontWeight}
         fill={textColor}
-        style={{ fontFamily:'DM Sans, system-ui, sans-serif' }}>
+        style={{ fontFamily:'DM Sans, system-ui, sans-serif', cursor: teamLink ? 'pointer' : 'default', textDecoration: teamLink ? 'underline' : 'none', textDecorationColor: 'rgba(232,255,71,0.3)' }}
+        onClick={teamLink ? () => window.location.href = teamLink : undefined}>
         {truncated}
       </text>
       {/* Score */}
