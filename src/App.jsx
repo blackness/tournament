@@ -38,9 +38,11 @@ import { SOTGEntryPage }    from './pages/SOTGEntryPage'
 
 // Auth
 import { RequireAuth }      from './components/ui/RequireAuth'
-
+import { Analytics } from '@vercel/analytics/react';
 export default function App() {
   return (
+     <div>
+    
     <AdminProvider>
     <AuthProvider>
       <BrowserRouter>
@@ -92,5 +94,8 @@ export default function App() {
       </BrowserRouter>
     </AuthProvider>
     </AdminProvider>
-  )
+          <Analytics />
+</div>  
+
+)
 }

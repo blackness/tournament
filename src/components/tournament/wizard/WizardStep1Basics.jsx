@@ -73,16 +73,28 @@ export function WizardStep1Basics({ onNext, isFirst }) {
         const { error } = await db.tournaments.update(id, payload)
         if (error) throw error
       } else {
-        // Check if slug already exists (handles 409 / duplicate key)
-        const { data: existing } = await supabase.from('tournaments').select('id').eq('slug', slug.trim()).maybeSingle()
+        // Check if slug already exists among non-deleted tournaments
+        const { data: existing } = await supabase
+          .from('tournaments').select('id, director_id, deleted_at')
+          .eq('slug', slug.trim()).maybeSingle()
 
-        if (existing) {
-          // Resume -- this is our own tournament from a previous attempt
-          id = existing.id
-          useWizardStore.getState().setTournamentId(id)
-          const { error } = await db.tournaments.update(id, payload)
-          if (error) throw error
-        } else {
+        if (existing && !existing.deleted_at) {
+          // Active tournament with this slug exists
+          if (existing.director_id === tournamentId || existing.id === tournamentId) {
+            // Resume our own tournament
+            id = existing.id
+          } else {
+            // Someone else owns this slug
+            setErrors({ slug: 'This URL is already taken -- try adding your city or year (e.g. kss-open-2025)' })
+            setSaving(false)
+            return
+          }
+        } else if (existing && existing.deleted_at) {
+          // Slug exists but was deleted -- safe to create new with this slug
+          // Don't reuse the old ID, just proceed with new creation
+        }
+
+        {
           const { data, error } = await db.tournaments.create(payload)
           if (error) throw error
           id = data.id

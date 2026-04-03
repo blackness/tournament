@@ -99,7 +99,23 @@ export function BracketPage() {
               {tournament && <p style={{ fontSize:12, color:'var(--text-muted)', marginTop:1 }}>{tournament.name}</p>}
             </div>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
+            {/* Nav links */}
+            {tournament && (
+              <div style={{ display:'flex', gap:6, marginRight:8 }}>
+                <Link to={'/t/' + tournament.slug + '/schedule'}
+                  style={{ fontSize:12, fontWeight:500, color:'var(--text-muted)', textDecoration:'none', padding:'5px 10px', borderRadius:7, border:'1px solid var(--border)', background:'var(--bg-raised)' }}
+                  className="hover:text-[var(--text-secondary)] hover:border-[var(--border-mid)]">
+                  Schedule
+                </Link>
+                <Link to={'/t/' + tournament.slug + '/standings/' + divisionId}
+                  style={{ fontSize:12, fontWeight:500, color:'var(--text-muted)', textDecoration:'none', padding:'5px 10px', borderRadius:7, border:'1px solid var(--border)', background:'var(--bg-raised)' }}
+                  className="hover:text-[var(--text-secondary)] hover:border-[var(--border-mid)]">
+                  Standings
+                </Link>
+              </div>
+            )}
+            {/* Zoom controls */}
             <button onClick={() => setZoom(z => Math.max(0.3, +(z-0.15).toFixed(2)))}
               style={{ padding:6, borderRadius:8, background:'var(--bg-raised)', border:'1px solid var(--border)', cursor:'pointer', color:'var(--text-secondary)', display:'flex' }}>
               <ZoomOut size={15} />
@@ -116,33 +132,68 @@ export function BracketPage() {
       {/* Champion podium */}
       {champion && (
         <div style={{ background: color + '12', borderBottom:'1px solid ' + color + '25', padding:'16px 24px' }}>
-          <div style={{ maxWidth:1400, margin:'0 auto', display:'flex', alignItems:'center', gap:20, flexWrap:'wrap' }}>
-            {/* Champion */}
-            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-              <Trophy size={20} style={{ color:'#fbbf24', flexShrink:0 }} />
-              <div>
-                <p style={{ fontSize:10, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'#fbbf24' }}>Champion</p>
-                <p style={{ fontSize:16, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>{champion.name}</p>
+          <div style={{ maxWidth:1400, margin:'0 auto', display:'flex', alignItems:'center', justifyContent:'space-between', gap:20, flexWrap:'wrap' }}>
+            {/* Podium places */}
+            <div style={{ display:'flex', alignItems:'center', gap:20, flexWrap:'wrap' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <Trophy size={20} style={{ color:'#fbbf24', flexShrink:0 }} />
+                <div>
+                  <p style={{ fontSize:10, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'#fbbf24' }}>Champion</p>
+                  <Link to={'/t/' + tournament?.slug + '/team/' + champion.id}
+                    style={{ fontSize:16, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.02em', textDecoration:'none' }}
+                    className="hover:text-[var(--accent)]">
+                    {champion.name}
+                  </Link>
+                </div>
               </div>
+
+              {second && (
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <Medal size={18} style={{ color:'#94a3b8', flexShrink:0 }} />
+                  <div>
+                    <p style={{ fontSize:10, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)' }}>Runner-up</p>
+                    <Link to={'/t/' + tournament?.slug + '/team/' + second.id}
+                      style={{ fontSize:14, fontWeight:600, color:'var(--text-secondary)', textDecoration:'none' }}
+                      className="hover:text-[var(--text-primary)]">
+                      {second.name}
+                    </Link>
+                  </div>
+                </div>
+              )}
+
+              {third && (
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <Medal size={16} style={{ color:'#b45309', flexShrink:0 }} />
+                  <div>
+                    <p style={{ fontSize:10, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)' }}>3rd Place</p>
+                    <Link to={'/t/' + tournament?.slug + '/team/' + third.id}
+                      style={{ fontSize:14, fontWeight:600, color:'var(--text-secondary)', textDecoration:'none' }}
+                      className="hover:text-[var(--text-primary)]">
+                      {third.name}
+                    </Link>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {second && (
-              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <Medal size={18} style={{ color:'#94a3b8', flexShrink:0 }} />
-                <div>
-                  <p style={{ fontSize:10, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)' }}>Runner-up</p>
-                  <p style={{ fontSize:14, fontWeight:600, color:'var(--text-secondary)' }}>{second.name}</p>
-                </div>
-              </div>
-            )}
-
-            {third && (
-              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <Medal size={16} style={{ color:'#b45309', flexShrink:0 }} />
-                <div>
-                  <p style={{ fontSize:10, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)' }}>3rd Place</p>
-                  <p style={{ fontSize:14, fontWeight:600, color:'var(--text-secondary)' }}>{third.name}</p>
-                </div>
+            {/* Quick nav links */}
+            {tournament && (
+              <div style={{ display:'flex', gap:8, flexShrink:0 }}>
+                <Link to={'/t/' + tournament.slug}
+                  style={{ fontSize:12, fontWeight:500, color:'var(--text-muted)', textDecoration:'none', padding:'6px 12px', borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-raised)' }}
+                  className="hover:text-[var(--text-secondary)] hover:border-[var(--border-mid)]">
+                  Overview
+                </Link>
+                <Link to={'/t/' + tournament.slug + '/schedule'}
+                  style={{ fontSize:12, fontWeight:500, color:'var(--text-muted)', textDecoration:'none', padding:'6px 12px', borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-raised)' }}
+                  className="hover:text-[var(--text-secondary)] hover:border-[var(--border-mid)]">
+                  Schedule
+                </Link>
+                <Link to={'/t/' + tournament.slug + '/standings/' + divisionId}
+                  style={{ fontSize:12, fontWeight:500, color:'var(--text-muted)', textDecoration:'none', padding:'6px 12px', borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-raised)' }}
+                  className="hover:text-[var(--text-secondary)] hover:border-[var(--border-mid)]">
+                  Standings
+                </Link>
               </div>
             )}
           </div>
