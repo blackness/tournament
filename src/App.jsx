@@ -14,6 +14,7 @@ import { SchedulePage }      from './pages/SchedulePage'
 import { TeamPage }          from './pages/TeamPage'
 import { GameDayPage }       from './pages/GameDayPage'
 import { TeamComparePage }   from './pages/TeamComparePage'
+import { WatchPage }         from './pages/WatchPage'
 import { LiveScoreboard }    from './pages/LiveScoreboard'
 import { CourtLanding }      from './pages/CourtLanding'
 import { SpectatorDashboard} from './pages/SpectatorDashboard'
@@ -38,11 +39,9 @@ import { SOTGEntryPage }    from './pages/SOTGEntryPage'
 
 // Auth
 import { RequireAuth }      from './components/ui/RequireAuth'
-import { Analytics } from '@vercel/analytics/react';
+
 export default function App() {
   return (
-     <div>
-    
     <AdminProvider>
     <AuthProvider>
       <BrowserRouter>
@@ -59,7 +58,8 @@ export default function App() {
             <Route path="/t/:slug/team/:teamId"               element={<TeamPage />} />
           <Route path="/t/:slug/gameday"                     element={<GameDayPage />} />
           <Route path="/t/:slug/compare/:teamIdA/:teamIdB"     element={<TeamComparePage />} />
-            <Route path="/score/:matchId"                     element={<LiveScoreboard />} />
+            <Route path="/watch/:matchId"  element={<WatchPage />} />
+          <Route path="/score/:matchId"                     element={<LiveScoreboard />} />
             <Route path="/dashboard"                          element={<SpectatorDashboard />} />
           </Route>
 
@@ -94,8 +94,5 @@ export default function App() {
       </BrowserRouter>
     </AuthProvider>
     </AdminProvider>
-          <Analytics />
-</div>  
-
-)
+  )
 }

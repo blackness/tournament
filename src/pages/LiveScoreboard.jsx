@@ -10,6 +10,17 @@ export function LiveScoreboard() {
   const [events, setEvents]       = useState([])
   const [loading, setLoading]     = useState(true)
   const [notFound, setNotFound]   = useState(false)
+  const [elapsed, setElapsed]     = useState(0)
+
+  // Game clock - must be before any early returns
+  useEffect(() => {
+    if (!match?.started_at || match?.status !== 'in_progress') return
+    const startMs = new Date(match.started_at).getTime()
+    const tick = () => setElapsed(Math.floor((Date.now() - startMs) / 1000))
+    tick()
+    const interval = setInterval(tick, 1000)
+    return () => clearInterval(interval)
+  }, [match?.started_at, match?.status])
 
   useEffect(() => {
     async function load() {
@@ -22,7 +33,7 @@ export function LiveScoreboard() {
           division:divisions(id, name),
           team_a:tournament_teams!team_a_id(id, name, short_name, primary_color, logo_url),
           team_b:tournament_teams!team_b_id(id, name, short_name, primary_color, logo_url),
-          venue:venues(id, name, short_name),
+          venue:venues(id, youtube_url, name, short_name),
           time_slot:time_slots(scheduled_start, scheduled_end)
         `)
         .eq('id', matchId)
@@ -88,9 +99,12 @@ export function LiveScoreboard() {
     </div>
   )
 
-  const isLive     = match.status === 'in_progress'
-  const isDone     = match.status === 'complete' || match.status === 'forfeit'
-  const isScheduled = match.status === 'scheduled'
+  const isLive     = match?.status === 'in_progress'
+  const isDone     = match?.status === 'complete' || match?.status === 'forfeit'
+  const isScheduled = match?.status === 'scheduled'
+  const clockStr = isLive && match?.started_at && elapsed > 0
+    ? String(Math.floor(elapsed / 60)).padStart(2, '0') + ':' + String(elapsed % 60).padStart(2, '0')
+    : null
   const teamA      = match.team_a
   const teamB      = match.team_b
   const winner     = isDone
@@ -98,37 +112,45 @@ export function LiveScoreboard() {
     : null
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white flex flex-col">
+    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)] flex flex-col">
 
       {/* Top bar */}
-      <div className="bg-[var(--bg-base)] border-b border-gray-800 px-4 py-2.5 flex items-center justify-between">
+      <div className="bg-[var(--bg-base)] border-b border-[var(--border)] px-4 py-2.5 flex items-center justify-between">
         {match.tournament && (
           <Link to={'/t/' + match.tournament.slug} className="flex items-center gap-2 text-[var(--text-muted)] hover:text-white text-sm">
             <ChevronLeft size={16} />
             {match.tournament.name}
           </Link>
         )}
-        <div className="text-xs text-[var(--text-muted)] text-right">
-          {match.division?.name}
-          {match.venue && ' - ' + (match.venue.short_name ?? match.venue.name)}
-          {match.round_label && ' - ' + match.round_label}
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          {match.venue?.youtube_url && (
+            <Link to={'/watch/' + match.id}
+              style={{ fontSize:12, fontWeight:600, color:'#f87171', textDecoration:'none', display:'flex', alignItems:'center', gap:4, padding:'3px 8px', borderRadius:6, border:'1px solid rgba(239,68,68,0.2)', background:'rgba(239,68,68,0.08)' }}>
+              <span style={{ width:6, height:6, borderRadius:'50%', background:'#f87171', display:'inline-block' }} /> Watch live
+            </Link>
+          )}
+          <div className="text-xs text-[var(--text-muted)] text-right">
+            {match.division?.name}
+            {match.venue && ' - ' + (match.venue.short_name ?? match.venue.name)}
+            {match.round_label && ' - ' + match.round_label}
+          </div>
         </div>
       </div>
 
       {/* Score hero */}
       <div className="flex-shrink-0 px-4 py-8 flex flex-col items-center gap-6"
-        style={{ background: 'linear-gradient(to bottom, #111827, #030712)' }}>
+        style={{ background: 'linear-gradient(to bottom, var(--bg-surface), var(--bg-base))' }}>
 
         {/* Status badge */}
         <div className="flex items-center gap-2">
           {isLive && (
-            <span className="inline-flex items-center gap-1.5 bg-green-500/20 text-green-400 text-xs font-semibold px-3 py-1 rounded-full border border-green-500/30">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="inline-flex items-center gap-1.5 bg-[rgba(34,197,94,0.15)] text-[var(--live)] text-xs font-semibold px-3 py-1 rounded-full border border-[rgba(34,197,94,0.25)]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--live)] animate-pulse" />
               LIVE
             </span>
           )}
           {isDone && (
-            <span className="inline-flex items-center gap-1.5 bg-gray-700 text-[var(--text-muted)] text-xs font-semibold px-3 py-1 rounded-full">
+            <span className="inline-flex items-center gap-1.5 bg-[var(--bg-raised)] text-[var(--text-muted)] text-xs font-semibold px-3 py-1 rounded-full">
               FINAL
             </span>
           )}
@@ -157,11 +179,16 @@ export function LiveScoreboard() {
           />
 
           {/* VS / score divider */}
-          <div className="text-center">
+          <div className="text-center flex flex-col items-center gap-1">
             {isScheduled
               ? <span className="text-2xl font-black text-[var(--text-secondary)]">VS</span>
               : <span className="text-[var(--text-secondary)] text-lg font-bold">-</span>
             }
+            {clockStr && (
+              <span style={{ fontFamily:'DM Mono, monospace', fontSize:16, fontWeight:600, color:'var(--text-primary)', letterSpacing:'0.05em' }}>
+                {clockStr}
+              </span>
+            )}
           </div>
 
           {/* Team B */}
@@ -237,7 +264,7 @@ function EventRow({ event: ev, teamA, teamB }) {
   const isScore   = ev.score_a_after !== null && ev.score_b_after !== null
 
   return (
-    <div className="flex items-center gap-3 py-2 border-b border-gray-800/50">
+    <div className="flex items-center gap-3 py-2 border-b border-[var(--border)]/50">
       {/* Score state */}
       {isScore && (
         <span className="text-xs font-black tabular-nums text-[var(--text-muted)] w-10 text-right flex-shrink-0">

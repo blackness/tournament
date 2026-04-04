@@ -200,6 +200,9 @@ export function DirectorHQ() {
         </div>
       </div>
 
+      {/* Stream URLs per venue */}
+      <StreamManager tournamentId={tournamentId} />
+
       {/* PIN management */}
       <PinManager tournamentId={tournamentId} matches={matches} onPinsUpdated={() => window.location.reload()} />
 
@@ -276,6 +279,49 @@ function QuickLink({ to, label, sub, external }) {
   )
   if (external) return <a href={to} target="_blank" rel="noreferrer" className={cls}>{inner}</a>
   return <Link to={to} className={cls}>{inner}</Link>
+}
+
+function StreamManager({ tournamentId }) {
+  const [venues, setVenues]   = useState([])
+  const [saving, setSaving]   = useState(null)
+  const [message, setMessage] = useState(null)
+
+  useEffect(() => {
+    supabase.from('venues').select('id, name, short_name, youtube_url')
+      .eq('tournament_id', tournamentId).order('sort_order')
+      .then(({ data }) => setVenues(data ?? []))
+  }, [tournamentId])
+
+  async function saveUrl(venueId, url) {
+    setSaving(venueId)
+    await supabase.from('venues').update({ youtube_url: url || null }).eq('id', venueId)
+    setMessage('Stream URL saved')
+    setTimeout(() => setMessage(null), 2500)
+    setSaving(null)
+  }
+
+  if (venues.length === 0) return null
+
+  return (
+    <div style={{ border:'1px solid var(--border)', borderRadius:14, padding:'16px 18px' }}>
+      <p style={{ fontSize:13, fontWeight:600, color:'var(--text-secondary)', marginBottom:4 }}>Live stream URLs</p>
+      <p style={{ fontSize:12, color:'var(--text-muted)', marginBottom:14 }}>Paste a YouTube live URL per field. Spectators can watch at /watch/:matchId</p>
+      {venues.map(v => (
+        <div key={v.id} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+          <span style={{ fontSize:12, fontWeight:500, color:'var(--text-secondary)', width:70, flexShrink:0 }}>{v.short_name ?? v.name}</span>
+          <input
+            className="field-input"
+            style={{ flex:1, fontSize:12 }}
+            placeholder="https://youtube.com/watch?v=..."
+            defaultValue={v.youtube_url ?? ''}
+            onBlur={e => saveUrl(v.id, e.target.value)}
+          />
+          {saving === v.id && <span style={{ fontSize:11, color:'var(--text-muted)' }}>Saving...</span>}
+        </div>
+      ))}
+      {message && <p style={{ fontSize:12, color:'#4ade80', marginTop:6 }}>{message}</p>}
+    </div>
+  )
 }
 
 function PinManager({ tournamentId, matches, onPinsUpdated }) {
