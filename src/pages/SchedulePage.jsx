@@ -21,6 +21,7 @@ export function SchedulePage() {
   const [tab, setTab]               = useState('unplayed')
   const [filterVenue, setFilterVenue]       = useState('all')
   const [filterDivision, setFilterDivision] = useState('all')
+  const [search, setSearch]                 = useState('')
 
   useEffect(() => {
     async function load() {
@@ -29,9 +30,6 @@ export function SchedulePage() {
         .eq('slug', slug).is('deleted_at', null).single()
       if (!t) { setLoading(false); return }
       setTournament(t)
-
-      // Default to live tab if tournament is live
-      if (t.status === 'live') setTab('live')
 
       const { data: m } = await supabase.from('matches').select(`
         id, status, score_a, score_b, winner_id, round_label,
@@ -43,6 +41,13 @@ export function SchedulePage() {
         time_slot:time_slots(scheduled_start)
       `).eq('tournament_id', t.id).neq('status', 'cancelled').order('time_slot(scheduled_start)')
       setMatches(m ?? [])
+
+      // Smart default tab: live > unplayed > finished
+      const liveCount     = (m ?? []).filter(x => x.status === 'in_progress').length
+      const unplayedCount = (m ?? []).filter(x => x.status === 'scheduled').length
+      if (liveCount > 0)          setTab('live')
+      else if (unplayedCount > 0) setTab('unplayed')
+      else                        setTab('finished')
 
       const { data: v } = await supabase.from('venues').select('id, name, short_name').eq('tournament_id', t.id).order('sort_order')
       setVenues(v ?? [])
@@ -77,10 +82,19 @@ export function SchedulePage() {
     all:      matches,
   }
 
-  // Apply venue/division filters
+  // Apply venue/division/search filters
   let filtered = byTab[tab] ?? []
   if (filterVenue !== 'all')    filtered = filtered.filter(m => m.venue?.id === filterVenue)
   if (filterDivision !== 'all') filtered = filtered.filter(m => m.division?.id === filterDivision)
+  if (search.trim()) {
+    const q = search.trim().toLowerCase()
+    filtered = filtered.filter(m =>
+      m.team_a?.name?.toLowerCase().includes(q) ||
+      m.team_b?.name?.toLowerCase().includes(q) ||
+      m.team_a?.short_name?.toLowerCase().includes(q) ||
+      m.team_b?.short_name?.toLowerCase().includes(q)
+    )
+  }
 
   // Group by time for unplayed/all, reverse for finished
   const groups = groupByTime(filtered, tab === 'finished')
@@ -145,6 +159,18 @@ export function SchedulePage() {
             )}
           </div>
         )}
+
+        {/* Search */}
+        <div style={{ marginBottom:12 }}>
+          <input
+            type="text"
+            placeholder="Search by team name..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="field-input"
+            style={{ width:'100%', fontSize:14 }}
+          />
+        </div>
 
         {/* Empty state */}
         {filtered.length === 0 && (

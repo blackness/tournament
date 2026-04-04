@@ -114,34 +114,34 @@ export function TeamComparePage() {
   ].filter(r => r.a !== 0 || r.b !== 0 || r.label === 'Record' || r.label === 'Pool rank')
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
+    <div style={{maxWidth:640, margin:"0 auto", padding:"32px 20px 80px"}}>
       {/* Header */}
       <div className="flex items-center gap-3">
         {tournament && (
-          <Link to={'/t/' + tournament.slug} className="text-gray-400 hover:text-gray-600 flex-shrink-0">
+          <Link to={'/t/' + tournament.slug} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] flex-shrink-0">
             <ChevronLeft size={20} />
           </Link>
         )}
-        <h1 className="text-xl font-bold text-gray-900">Team Comparison</h1>
+        <h1 className="text-xl font-bold text-[var(--text-primary)]">Team Comparison</h1>
       </div>
 
       {/* Team headers */}
       <div className="grid grid-cols-2 gap-3">
         {[teamA, teamB].map((t, i) => (
           <Link key={i} to={'/t/' + tournament?.slug + '/team/' + t?.id}
-            className="flex flex-col items-center gap-2 p-4 bg-white border border-gray-200 rounded-2xl hover:shadow-sm text-center">
+            className="flex flex-col items-center gap-2 p-4 bg-[var(--bg-surface)] border border-[var(--border)] rounded-2xl hover: text-center">
             <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-black text-xl"
               style={{ backgroundColor: t?.primary_color ?? '#6b7280' }}>
               {(t?.short_name ?? t?.name ?? '?')[0]}
             </div>
-            <p className="font-bold text-gray-900 text-sm leading-tight">{t?.name ?? 'TBD'}</p>
-            {t?.pool && <p className="text-xs text-gray-400">{t.pool.name}</p>}
+            <p className="font-bold text-[var(--text-primary)] text-sm leading-tight">{t?.name ?? 'TBD'}</p>
+            {t?.pool && <p className="text-xs text-[var(--text-muted)]">{t.pool.name}</p>}
           </Link>
         ))}
       </div>
 
       {/* Comparison table */}
-      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+      <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-2xl overflow-hidden">
         {COMPARE_ROWS.map((row, i) => {
           const numA = typeof row.a === 'number' ? row.a : null
           const numB = typeof row.b === 'number' ? row.b : null
@@ -153,7 +153,7 @@ export function TeamComparePage() {
               <div className={'py-3 px-4 text-right text-sm tabular-nums font-semibold ' + (aWins ? 'text-green-600' : 'text-gray-700')}>
                 {String(row.a)}
               </div>
-              <div className="py-3 px-2 text-center text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              <div className="py-3 px-2 text-center text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">
                 {row.label}
               </div>
               <div className={'py-3 px-4 text-left text-sm tabular-nums font-semibold ' + (bWins ? 'text-green-600' : 'text-gray-700')}>
@@ -186,12 +186,12 @@ function HeadToHead({ teamIdA, teamIdB, teamA, teamB }) {
   }, [teamIdA, teamIdB])
 
   if (h2h.length === 0) return (
-    <div className="text-center py-4 text-gray-400 text-sm">No head-to-head games yet</div>
+    <div className="text-center py-4 text-[var(--text-muted)] text-sm">No head-to-head games yet</div>
   )
 
   return (
     <div>
-      <h2 className="text-sm font-semibold text-gray-700 mb-2">Head to head</h2>
+      <h2 className="text-sm font-semibold text-[var(--text-secondary)] mb-2">Head to head</h2>
       <div className="space-y-2">
         {h2h.map(m => {
           const aIsTeamA = m.team_a_id === teamIdA
@@ -202,11 +202,11 @@ function HeadToHead({ teamIdA, teamIdB, teamA, teamB }) {
 
           return (
             <Link key={m.id} to={'/score/' + m.id}
-              className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-xl hover:shadow-sm text-sm">
+              className="flex items-center justify-between p-3 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl hover: text-sm">
               <span className={'font-semibold ' + (aWon ? 'text-green-600' : bWon ? 'text-gray-400' : 'text-gray-700')}>
                 {teamA?.short_name ?? teamA?.name}
               </span>
-              <span className="font-black tabular-nums text-gray-800">{scoreA ?? '-'} - {scoreB ?? '-'}</span>
+              <span className="font-black tabular-nums text-[var(--text-primary)]">{scoreA ?? '-'} - {scoreB ?? '-'}</span>
               <span className={'font-semibold ' + (bWon ? 'text-green-600' : aWon ? 'text-gray-400' : 'text-gray-700')}>
                 {teamB?.short_name ?? teamB?.name}
               </span>

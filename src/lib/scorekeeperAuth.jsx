@@ -89,22 +89,22 @@ function PinGate({ match, onSuccess }) {
     <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center px-4 gap-6">
       {/* Back */}
       <div className="absolute top-4 left-4">
-        <Link to={'/t/' + match.tournament?.slug + '/gameday'} className="text-gray-600 hover:text-gray-400">
+        <Link to={'/t/' + match.tournament?.slug + '/gameday'} className="text-[var(--text-secondary)] hover:text-[var(--text-muted)]">
           <ChevronLeft size={20} />
         </Link>
       </div>
 
       {/* Game info */}
       <div className="text-center space-y-1">
-        <div className="w-14 h-14 bg-gray-800 rounded-2xl flex items-center justify-center mx-auto mb-3">
-          <Lock size={24} className="text-gray-400" />
+        <div className="w-14 h-14 bg-[var(--bg-raised)] rounded-2xl flex items-center justify-center mx-auto mb-3">
+          <Lock size={24} className="text-[var(--text-muted)]" />
         </div>
-        <p className="text-gray-400 text-xs uppercase tracking-widest">Scorekeeper access</p>
+        <p className="text-[var(--text-muted)] text-xs uppercase tracking-widest">Scorekeeper access</p>
         <p className="text-white font-bold text-lg">
           {teamA?.name ?? 'TBD'} vs {teamB?.name ?? 'TBD'}
         </p>
         {match.venue && (
-          <p className="text-gray-500 text-sm">{match.venue?.name}</p>
+          <p className="text-[var(--text-muted)] text-sm">{match.venue?.name}</p>
         )}
       </div>
 
@@ -112,20 +112,20 @@ function PinGate({ match, onSuccess }) {
       <div className="flex items-center gap-3">
         {Array.from({ length: match.scorekeeper_pin?.length ?? 4 }).map((_, i) => (
           <div key={i} className={`w-12 h-14 rounded-xl border-2 flex items-center justify-center text-2xl font-black transition-colors ${
-            i < pin.length
-              ? 'border-blue-500 bg-blue-500/10 text-white'
-              : 'border-gray-700 bg-gray-900 text-gray-700'
-          }`}>
+ i < pin.length
+ ? 'border-blue-500 bg-[var(--accent)]/10 text-white'
+ : 'border-[var(--border-mid)] bg-[var(--bg-base)] text-[var(--text-secondary)]'
+ }`}>
             {i < pin.length ? (show ? pin[i] : '*') : ''}
           </div>
         ))}
-        <button onClick={() => setShow(s => !s)} className="ml-2 text-gray-600 hover:text-gray-400 p-1">
+        <button onClick={() => setShow(s => !s)} className="ml-2 text-[var(--text-secondary)] hover:text-[var(--text-muted)] p-1">
           {show ? <EyeOff size={16} /> : <Eye size={16} />}
         </button>
       </div>
 
       {error && <p className="text-red-400 text-sm">{error}</p>}
-      {checking && <p className="text-gray-500 text-sm">Checking...</p>}
+      {checking && <p className="text-[var(--text-muted)] text-sm">Checking...</p>}
 
       {/* Numpad */}
       <div className="grid grid-cols-3 gap-3 w-64">
@@ -135,17 +135,17 @@ function PinGate({ match, onSuccess }) {
             onClick={() => d === 'DEL' ? handleBackspace() : d !== '' ? handleDigit(String(d)) : null}
             disabled={d === ''}
             className={`h-16 rounded-2xl text-xl font-bold transition-all active:scale-95 ${
-              d === '' ? 'invisible' :
-              d === 'DEL' ? 'bg-gray-800 text-gray-400 hover:bg-gray-700' :
-              'bg-gray-800 text-white hover:bg-gray-700'
-            }`}
+ d === '' ? 'invisible' :
+ d === 'DEL' ? 'bg-[var(--bg-raised)] text-[var(--text-muted)] hover:bg-gray-700' :
+ 'bg-[var(--bg-raised)] text-white hover:bg-gray-700'
+ }`}
           >
             {d}
           </button>
         ))}
       </div>
 
-      <p className="text-gray-600 text-xs text-center max-w-xs">
+      <p className="text-[var(--text-secondary)] text-xs text-center max-w-xs">
         Enter the scorekeeper PIN provided by the tournament director
       </p>
     </div>

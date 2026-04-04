@@ -143,7 +143,7 @@ function QRCodeDisplay({ url, size = 150 }) {
   const src = 'https://api.qrserver.com/v1/create-qr-code/?size=' + size + 'x' + size + '&data=' + encoded + '&margin=1&format=png'
 
   return (
-    <div className="bg-white p-2 rounded-lg">
+    <div className="bg-[var(--bg-surface)] p-2 rounded-lg">
       <img
         src={src}
         alt={'QR code for ' + url}

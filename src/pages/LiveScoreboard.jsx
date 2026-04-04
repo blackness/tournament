@@ -82,9 +82,9 @@ export function LiveScoreboard() {
 
   if (loading) return <PageLoader />
   if (notFound) return (
-    <div className="max-w-lg mx-auto px-4 py-16 text-center text-gray-400">
+    <div className="max-w-lg mx-auto px-4 py-16 text-center text-[var(--text-muted)]">
       <Trophy size={36} className="mx-auto mb-3 opacity-30" />
-      <p className="text-lg font-semibold text-gray-700">Game not found</p>
+      <p className="text-lg font-semibold text-[var(--text-secondary)]">Game not found</p>
     </div>
   )
 
@@ -101,14 +101,14 @@ export function LiveScoreboard() {
     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
 
       {/* Top bar */}
-      <div className="bg-gray-900 border-b border-gray-800 px-4 py-2.5 flex items-center justify-between">
+      <div className="bg-[var(--bg-base)] border-b border-gray-800 px-4 py-2.5 flex items-center justify-between">
         {match.tournament && (
-          <Link to={'/t/' + match.tournament.slug} className="flex items-center gap-2 text-gray-400 hover:text-white text-sm">
+          <Link to={'/t/' + match.tournament.slug} className="flex items-center gap-2 text-[var(--text-muted)] hover:text-white text-sm">
             <ChevronLeft size={16} />
             {match.tournament.name}
           </Link>
         )}
-        <div className="text-xs text-gray-500 text-right">
+        <div className="text-xs text-[var(--text-muted)] text-right">
           {match.division?.name}
           {match.venue && ' - ' + (match.venue.short_name ?? match.venue.name)}
           {match.round_label && ' - ' + match.round_label}
@@ -128,12 +128,12 @@ export function LiveScoreboard() {
             </span>
           )}
           {isDone && (
-            <span className="inline-flex items-center gap-1.5 bg-gray-700 text-gray-300 text-xs font-semibold px-3 py-1 rounded-full">
+            <span className="inline-flex items-center gap-1.5 bg-gray-700 text-[var(--text-muted)] text-xs font-semibold px-3 py-1 rounded-full">
               FINAL
             </span>
           )}
           {isScheduled && match.time_slot && (
-            <span className="inline-flex items-center gap-1.5 bg-blue-500/20 text-blue-400 text-xs font-semibold px-3 py-1 rounded-full border border-blue-500/30">
+            <span className="inline-flex items-center gap-1.5 bg-[var(--accent)]/20 text-blue-400 text-xs font-semibold px-3 py-1 rounded-full border border-blue-500/30">
               <Clock size={11} />
               {formatTime(match.time_slot.scheduled_start)}
             </span>
@@ -159,8 +159,8 @@ export function LiveScoreboard() {
           {/* VS / score divider */}
           <div className="text-center">
             {isScheduled
-              ? <span className="text-2xl font-black text-gray-600">VS</span>
-              : <span className="text-gray-600 text-lg font-bold">-</span>
+              ? <span className="text-2xl font-black text-[var(--text-secondary)]">VS</span>
+              : <span className="text-[var(--text-secondary)] text-lg font-bold">-</span>
             }
           </div>
 
@@ -188,7 +188,7 @@ export function LiveScoreboard() {
         })
         return (
           <div className="flex-1 px-4 py-4 max-w-lg mx-auto w-full">
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Play by play</h2>
+            <h2 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-3">Play by play</h2>
             <div className="space-y-2">
               {deduped.map(ev => (
                 <EventRow key={ev.id} event={ev} teamA={teamA} teamB={teamB} />
@@ -199,7 +199,7 @@ export function LiveScoreboard() {
       })()}
 
       {isScheduled && (
-        <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">
+        <div className="flex-1 flex items-center justify-center text-[var(--text-secondary)] text-sm">
           Game starts {match.time_slot ? formatTime(match.time_slot.scheduled_start) : 'soon'}
         </div>
       )}
@@ -218,7 +218,7 @@ function TeamDisplay({ team, score, isWinner, isLoser, align }) {
       >
         {team ? (team.short_name ?? team.name ?? '?')[0] : '?'}
       </div>
-      <p className="text-xs text-gray-400 text-center leading-tight max-w-20 truncate">
+      <p className="text-xs text-[var(--text-muted)] text-center leading-tight max-w-20 truncate">
         {team?.name ?? 'TBD'}
       </p>
       {score !== null && score !== undefined && (
@@ -240,7 +240,7 @@ function EventRow({ event: ev, teamA, teamB }) {
     <div className="flex items-center gap-3 py-2 border-b border-gray-800/50">
       {/* Score state */}
       {isScore && (
-        <span className="text-xs font-black tabular-nums text-gray-400 w-10 text-right flex-shrink-0">
+        <span className="text-xs font-black tabular-nums text-[var(--text-muted)] w-10 text-right flex-shrink-0">
           {ev.score_a_after}-{ev.score_b_after}
         </span>
       )}
@@ -250,17 +250,17 @@ function EventRow({ event: ev, teamA, teamB }) {
       <div className="flex-1 min-w-0">
         <span className="text-sm text-gray-200">{statLabel}</span>
         {ev.player && (
-          <span className="text-sm text-gray-400">
+          <span className="text-sm text-[var(--text-muted)]">
             {' - '}
-            <span className="text-gray-300">{ev.player.name}</span>
-            {ev.player.number && <span className="text-gray-500"> #{ev.player.number}</span>}
+            <span className="text-[var(--text-muted)]">{ev.player.name}</span>
+            {ev.player.number && <span className="text-[var(--text-muted)]"> #{ev.player.number}</span>}
           </span>
         )}
         {ev.secondary_player && (
-          <span className="text-xs text-gray-500"> (assist: {ev.secondary_player.name})</span>
+          <span className="text-xs text-[var(--text-muted)]"> (assist: {ev.secondary_player.name})</span>
         )}
       </div>
-      <span className="text-xs text-gray-600 flex-shrink-0">{formatEventTime(ev.event_timestamp)}</span>
+      <span className="text-xs text-[var(--text-secondary)] flex-shrink-0">{formatEventTime(ev.event_timestamp)}</span>
     </div>
   )
 }

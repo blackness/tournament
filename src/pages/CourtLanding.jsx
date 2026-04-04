@@ -154,7 +154,7 @@ export function CourtLanding() {
       <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center gap-4 px-6 text-center">
         <AlertTriangle size={40} className="text-red-400" />
         <p className="text-white font-bold text-xl">Court not found</p>
-        <p className="text-gray-400 text-sm">This QR code may be outdated or the tournament has ended.</p>
+        <p className="text-[var(--text-muted)] text-sm">This QR code may be outdated or the tournament has ended.</p>
       </div>
     )
   }
@@ -175,7 +175,7 @@ export function CourtLanding() {
         </div>
         <h1 className="text-white text-2xl font-black">{venue?.name}</h1>
         {tournament && (
-          <p className="text-gray-500 text-sm mt-1">{tournament.name}</p>
+          <p className="text-[var(--text-muted)] text-sm mt-1">{tournament.name}</p>
         )}
       </div>
 
@@ -190,8 +190,8 @@ export function CourtLanding() {
               LIVE NOW
             </div>
             <MatchDisplay match={match} brandColor={brandColor} />
-            <p className="text-gray-500 text-sm">Opening scorekeeper...</p>
-            <LoadingSpinner size="sm" className="mx-auto text-gray-600" />
+            <p className="text-[var(--text-muted)] text-sm">Opening scorekeeper...</p>
+            <LoadingSpinner size="sm" className="mx-auto text-[var(--text-secondary)]" />
           </div>
         )}
 
@@ -199,9 +199,9 @@ export function CourtLanding() {
         {state === 'upcoming' && match && (
           <div className="text-center space-y-6 w-full max-w-sm">
             <div className="space-y-1">
-              <p className="text-gray-500 text-xs uppercase tracking-widest font-semibold">Up next</p>
+              <p className="text-[var(--text-muted)] text-xs uppercase tracking-widest font-semibold">Up next</p>
               {match.time_slot?.scheduled_start && (
-                <p className="text-gray-300 text-sm">
+                <p className="text-[var(--text-muted)] text-sm">
                   {formatTime(match.time_slot.scheduled_start)}
                 </p>
               )}
@@ -211,8 +211,8 @@ export function CourtLanding() {
 
             {/* Countdown */}
             {countdown && (
-              <div className="bg-gray-900 border border-gray-800 rounded-2xl px-6 py-4">
-                <p className="text-gray-500 text-xs mb-1 flex items-center justify-center gap-1">
+              <div className="bg-[var(--bg-base)] border border-gray-800 rounded-2xl px-6 py-4">
+                <p className="text-[var(--text-muted)] text-xs mb-1 flex items-center justify-center gap-1">
                   <Clock size={11} /> Starts in
                 </p>
                 <p className="text-white text-4xl font-black tabular-nums">{countdown}</p>
@@ -232,13 +232,13 @@ export function CourtLanding() {
         {/* Idle */}
         {state === 'idle' && (
           <div className="text-center space-y-4">
-            <Trophy size={48} className="mx-auto text-gray-700" />
-            <p className="text-gray-400 font-semibold">No games scheduled</p>
-            <p className="text-gray-600 text-sm">Check back later or view the full schedule.</p>
+            <Trophy size={48} className="mx-auto text-[var(--text-secondary)]" />
+            <p className="text-[var(--text-muted)] font-semibold">No games scheduled</p>
+            <p className="text-[var(--text-secondary)] text-sm">Check back later or view the full schedule.</p>
             {tournament && (
               <Link
                 to={'/t/' + tournament.slug + '/schedule'}
-                className="inline-block mt-2 text-sm px-4 py-2 rounded-xl border border-gray-700 text-gray-400 hover:border-gray-500"
+                className="inline-block mt-2 text-sm px-4 py-2 rounded-xl border border-[var(--border-mid)] text-[var(--text-muted)] hover:border-gray-500"
               >
                 View schedule
               </Link>
@@ -250,7 +250,7 @@ export function CourtLanding() {
       {/* Footer */}
       {tournament && (
         <div className="px-6 pb-8 text-center flex-shrink-0">
-          <Link to={'/t/' + tournament.slug} className="text-xs text-gray-700 hover:text-gray-500">
+          <Link to={'/t/' + tournament.slug} className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-muted)]">
             {tournament.name}
           </Link>
         </div>
@@ -264,10 +264,10 @@ function MatchDisplay({ match, brandColor }) {
   const teamB = match.team_b
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+    <div className="bg-[var(--bg-base)] border border-gray-800 rounded-2xl p-5">
       <div className="flex items-center justify-between gap-4">
         <TeamPill team={teamA} />
-        <span className="text-gray-700 font-bold text-sm flex-shrink-0">VS</span>
+        <span className="text-[var(--text-secondary)] font-bold text-sm flex-shrink-0">VS</span>
         <TeamPill team={teamB} align="right" />
       </div>
       {match.status === 'in_progress' && (
