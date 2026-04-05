@@ -89,6 +89,115 @@ export function BracketGenerator() {
         }
       }
 
+      // ── Placement games (pool_to_placement) ──────────────────────────────────
+      // No bracket tree — just parallel finals: 1st vs 1st, 2nd vs 2nd, etc.
+      if (division.format_type === 'pool_to_placement') {
+        const numPools = poolList.length
+        if (numPools < 2) {
+          setError('Placement games require at least 2 pools.')
+          setGenerating(null)
+          return
+        }
+
+        // Build placement pairs: rank 1 from each pool, rank 2 from each pool, etc.
+        // Supports exactly 2 pools (Pool A vs Pool B per rank)
+        const placementPairs = []
+        const maxRank = Math.max(...poolList.map(p => p.length))
+        for (let rank = 0; rank < maxRank; rank++) {
+          const teamA = poolList[0]?.[rank]
+          const teamB = poolList[1]?.[rank]
+          if (teamA && teamB) {
+            placementPairs.push({ teamA, teamB, rank: rank + 1 })
+          }
+        }
+
+        if (placementPairs.length < 1) {
+          setError('Not enough teams in standings to generate placement games.')
+          setGenerating(null)
+          return
+        }
+
+        // Check / confirm existing bracket matches
+        const { data: existingBracket } = await supabase.from('matches').select('id, status').eq('division_id', division.id).eq('phase', 2)
+        const completedCount = (existingBracket ?? []).filter(m => m.status === 'complete').length
+        const scheduledCount = (existingBracket ?? []).filter(m => m.status === 'scheduled').length
+
+        if (existingBracket?.length > 0) {
+          setGenerating(null)
+          setConfirmModal({ division, completedCount, scheduledCount, seeds, numRounds: 1, size: placementPairs.length, availableSlots: [], bracketSlots: [], matchRows: [] })
+          return
+        }
+
+        // Delete existing bracket_slots and matches
+        const { data: existingSlots } = await supabase.from('bracket_slots').select('id').eq('division_id', division.id)
+        if (existingSlots?.length > 0) {
+          await supabase.from('bracket_slots').update({ match_id: null }).eq('division_id', division.id)
+        }
+        await supabase.from('bracket_slots').delete().eq('division_id', division.id)
+        await supabase.from('matches').delete().eq('division_id', division.id).eq('phase', 2)
+
+        const crypto = globalThis.crypto
+        const startIdx = bracketConfig[division.id]?.startSlotIdx ?? 0
+        const availableSlots = slots.slice(startIdx)
+        const matchRows = []
+        const bracketSlots = []
+
+        const placementLabels = ['1st Place', '2nd Place', '3rd Place', '4th Place', '5th Place', '6th Place', '7th Place', '8th Place']
+
+        placementPairs.forEach(({ teamA, teamB, rank }, idx) => {
+          const nextSlot = availableSlots[idx]
+          const matchId = crypto.randomUUID()
+          const label = placementLabels[rank - 1] ?? `${rank}th Place`
+
+          matchRows.push({
+            id:            matchId,
+            tournament_id: tournamentId,
+            division_id:   division.id,
+            phase:         2,
+            round:         1,
+            match_number:  rank,
+            round_label:   label,
+            team_a_id:     teamA.team_id,
+            team_b_id:     teamB.team_id,
+            is_bye:        false,
+            time_slot_id:  nextSlot?.id ?? null,
+            venue_id:      nextSlot?.venue?.id ?? null,
+            status:        'scheduled',
+            score_a:       0,
+            score_b:       0,
+          })
+
+          bracketSlots.push({
+            id:            crypto.randomUUID(),
+            division_id:   division.id,
+            phase:         2,
+            round:         1,
+            position:      rank,
+            bracket_side:  'placement',
+            team_a_id:     teamA.team_id,
+            team_b_id:     teamB.team_id,
+            team_a_source: `Pool A ${rank}`,
+            team_b_source: `Pool B ${rank}`,
+            label,
+          })
+        })
+
+        if (bracketSlots.length > 0) {
+          const { error: bErr } = await supabase.from('bracket_slots').insert(bracketSlots)
+          if (bErr) throw bErr
+        }
+        if (matchRows.length > 0) {
+          const { error: mErr } = await supabase.from('matches').insert(matchRows)
+          if (mErr) throw mErr
+        }
+
+        setGenerated(prev => ({ ...prev, [division.id]: { rounds: 1, teams: placementPairs.length * 2, matches: matchRows.length } }))
+        setResultModal({ division, rounds: 1, teams: placementPairs.length * 2, matches: matchRows.length })
+        setGenerating(null)
+        return
+      }
+      // ── End placement games ───────────────────────────────────────────────────
+
       const n = seeds.length
       if (n < 2) {
         setError('Not enough teams in standings for ' + division.name + '. Make sure pool play is complete and standings are updated.')
@@ -372,7 +481,10 @@ export function BracketGenerator() {
                   <div>
                     <h2 className="font-bold text-[var(--text-primary)]">{div.name}</h2>
                     <p className="text-xs text-[var(--text-muted)] mt-0.5 capitalize">
-                      {div.format_type?.replace(/_/g, ' ')} - {numPools} pool{numPools !== 1 ? 's' : ''}, top {advance} advance
+                      {div.format_type?.replace(/_/g, ' ')} · {numPools} pool{numPools !== 1 ? 's' : ''}
+                      {div.format_type === 'pool_to_placement'
+                        ? ' · all teams to placement games'
+                        : ` · top ${advance} advance`}
                     </p>
                   </div>
                   {result ? (

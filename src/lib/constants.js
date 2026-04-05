@@ -18,6 +18,7 @@ export const TOURNAMENT_STATUS_LABELS = {
 // ─── Division formats ──────────────────────────────────────────────────────────
 export const FORMAT_TYPES = {
   POOL_TO_BRACKET:    'pool_to_bracket',
+  POOL_TO_PLACEMENT:  'pool_to_placement',
   SINGLE_ELIM:        'single_elimination',
   DOUBLE_ELIM:        'double_elimination',
   ROUND_ROBIN:        'round_robin',
@@ -26,6 +27,7 @@ export const FORMAT_TYPES = {
 
 export const FORMAT_LABELS = {
   pool_to_bracket:    'Pool Play → Bracket',
+  pool_to_placement:  'Pool Play → Placement Games',
   single_elimination: 'Single Elimination',
   double_elimination: 'Double Elimination',
   round_robin:        'Round Robin',
