@@ -35,7 +35,7 @@ export function SchedulePage() {
         id, status, score_a, score_b, winner_id, round_label,
         team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
         team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
-        venue:venues(id, name, short_name),
+        venue:venues(id, name, short_name, youtube_url),
         division:divisions(id, name),
         pool:pools(id, name),
         time_slot:time_slots(scheduled_start)
@@ -217,12 +217,25 @@ export function SchedulePage() {
 }
 
 function GameCard({ match: m, tab }) {
-  const isLive = m.status === 'in_progress'
-  const isDone = ['complete','forfeit'].includes(m.status)
-  const teamA  = m.team_a
-  const teamB  = m.team_b
+  const isLive   = m.status === 'in_progress'
+  const isDone   = ['complete','forfeit'].includes(m.status)
+  const teamA    = m.team_a
+  const teamB    = m.team_b
+  const hasStream = !!m.venue?.youtube_url
 
   return (
+    <div style={{ position:'relative' }}>
+    {hasStream && isLive && (
+      <Link to={'/watch/' + m.id}
+        style={{ position:'absolute', top:10, right:10, zIndex:2, display:'flex', alignItems:'center', gap:5,
+          fontSize:11, fontWeight:700, color:'#fff', textDecoration:'none',
+          padding:'4px 10px', borderRadius:20, background:'#dc2626',
+          boxShadow:'0 2px 8px rgba(220,38,38,0.4)' }}
+        onClick={e => e.stopPropagation()}>
+        <span style={{ width:5, height:5, borderRadius:'50%', background:'#fff', animation:'pulse 1.5s infinite', display:'inline-block' }} />
+        Watch live
+      </Link>
+    )}
     <Link to={'/score/' + m.id}
       style={{ display:'block', background:'var(--bg-surface)', border:`1px solid ${isLive ? 'rgba(34,197,94,0.3)' : 'var(--border)'}`, borderRadius:14, overflow:'hidden', textDecoration:'none', transition:'border-color 0.15s, background 0.15s' }}
       onMouseEnter={e => { e.currentTarget.style.borderColor = isLive ? 'rgba(34,197,94,0.5)' : 'var(--border-mid)'; e.currentTarget.style.background = 'var(--bg-raised)' }}
@@ -273,6 +286,7 @@ function GameCard({ match: m, tab }) {
         )}
       </div>
     </Link>
+    </div>
   )
 }
 

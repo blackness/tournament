@@ -20,8 +20,45 @@
     --color-brand:    #e8ff47;
   }
 
+  /* Light theme -- applied when html has data-theme="light" */
+  html[data-theme="light"] {
+    --bg-base:        #f4f4ef;
+    --bg-surface:     #ffffff;
+    --bg-raised:      #ececec;
+    --bg-hover:       #e2e2dd;
+    --border:         #d0d0ca;
+    --border-mid:     #b8b8b2;
+    --text-primary:   #0d0d0f;
+    --text-secondary: #3a3a44;
+    --text-muted:     #777780;
+    --accent:         #4a5500;
+    --accent-dim:     rgba(74,85,0,0.1);
+    --live:           #15803d;
+    --live-dim:       rgba(21,128,61,0.1);
+    --color-brand:    #4a5500;
+    color-scheme: light;
+  }
+
   html {
     color-scheme: dark;
+  }
+
+  html[data-theme="light"] {
+    --bg-base:        #f4f4ef;
+    --bg-surface:     #ffffff;
+    --bg-raised:      #ececec;
+    --bg-hover:       #e2e2dd;
+    --border:         #d0d0ca;
+    --border-mid:     #b8b8b2;
+    --text-primary:   #0d0d0f;
+    --text-secondary: #3a3a44;
+    --text-muted:     #777780;
+    --accent:         #4a5500;
+    --accent-dim:     rgba(74,85,0,0.1);
+    --live:           #15803d;
+    --live-dim:       rgba(21,128,61,0.1);
+    --color-brand:    #4a5500;
+    color-scheme: light;
   }
 
   body {
@@ -46,7 +83,7 @@
 
 @layer components {
 
-  /* ── Cards ───────────────────────────────────────────────── */
+  /*  Cards  */
   .card {
     background: var(--bg-surface);
     border: 1px solid var(--border);
@@ -67,7 +104,7 @@
     padding: 24px;
   }
 
-  /* ── Form fields ─────────────────────────────────────────── */
+  /*  Form fields  */
   .field-group { @apply space-y-1.5; }
 
   .field-label {
@@ -107,7 +144,7 @@
   .field-input-error { border-color: #ef4444; }
   .field-error { font-size: 12px; color: #f87171; margin-top: 4px; }
 
-  /* ── Buttons ─────────────────────────────────────────────── */
+  /*  Buttons  */
   .btn {
     display: inline-flex;
     align-items: center;
@@ -158,7 +195,7 @@
   .btn-lg { padding: 11px 22px; font-size: 14px; border-radius: 10px; }
   .btn-sm { padding: 5px 11px; font-size: 12px; border-radius: 7px; }
 
-  /* ── Badges ──────────────────────────────────────────────── */
+  /*  Badges  */
   .badge {
     display: inline-flex;
     align-items: center;
@@ -177,7 +214,7 @@
   .badge-gray   { background: var(--bg-hover); color: var(--text-secondary); border: 1px solid var(--border); }
   .badge-accent { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(232,255,71,0.2); }
 
-  /* ── Section headings ────────────────────────────────────── */
+  /*  Section headings  */
   .section-title {
     font-size: 16px;
     font-weight: 600;
@@ -197,10 +234,10 @@
     color: var(--text-muted);
   }
 
-  /* ── Divider ─────────────────────────────────────────────── */
+  /*  Divider  */
   .divider { border-top: 1px solid var(--border); margin: 20px 0; }
 
-  /* ── Score display ───────────────────────────────────────── */
+  /*  Score display  */
   .score-display {
     font-family: 'DM Mono', monospace;
     font-size: 52px;
@@ -210,7 +247,7 @@
     letter-spacing: -0.01em;
   }
 
-  /* ── Live indicator ──────────────────────────────────────── */
+  /*  Live indicator  */
   .live-dot {
     display: inline-block;
     width: 6px;
@@ -224,7 +261,7 @@
     50% { opacity: 0.3; }
   }
 
-  /* ── Table ───────────────────────────────────────────────── */
+  /*  Table  */
   .data-table {
     width: 100%;
     border-collapse: collapse;
@@ -248,14 +285,14 @@
   .data-table tbody tr:last-child td { border-bottom: none; }
   .data-table tbody tr:hover td { background: var(--bg-hover); }
 
-  /* ── Page header ─────────────────────────────────────────── */
+  /*  Page header  */
   .page-header {
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border);
     padding: 24px;
   }
 
-  /* ── Stat box ────────────────────────────────────────────── */
+  /*  Stat box  */
   .stat-box {
     background: var(--bg-raised);
     border: 1px solid var(--border);

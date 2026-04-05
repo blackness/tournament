@@ -125,8 +125,8 @@ export function LiveScoreboard() {
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           {match.venue?.youtube_url && (
             <Link to={'/watch/' + match.id}
-              style={{ fontSize:12, fontWeight:600, color:'#f87171', textDecoration:'none', display:'flex', alignItems:'center', gap:4, padding:'3px 8px', borderRadius:6, border:'1px solid rgba(239,68,68,0.2)', background:'rgba(239,68,68,0.08)' }}>
-              <span style={{ width:6, height:6, borderRadius:'50%', background:'#f87171', display:'inline-block' }} /> Watch live
+              style={{ fontSize:12, fontWeight:600, color:'var(--text-muted)', textDecoration:'none', display:'flex', alignItems:'center', gap:4, padding:'3px 8px', borderRadius:6, border:'1px solid var(--border)' }}>
+              Watch stream
             </Link>
           )}
           <div className="text-xs text-[var(--text-muted)] text-right">
@@ -166,6 +166,18 @@ export function LiveScoreboard() {
             </span>
           )}
         </div>
+
+        {/* Watch Live - prominent CTA when stream available */}
+        {match.venue?.youtube_url && isLive && (
+          <Link to={'/watch/' + match.id}
+            style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+              padding:'10px 28px', borderRadius:100, textDecoration:'none',
+              background:'#dc2626', color:'#fff', fontSize:14, fontWeight:700,
+              boxShadow:'0 4px 16px rgba(220,38,38,0.5)', letterSpacing:'0.01em' }}>
+            <span style={{ width:8, height:8, borderRadius:'50%', background:'#fff', animation:'pulse 1.5s infinite', display:'inline-block', flexShrink:0 }} />
+            Watch Live Stream
+          </Link>
+        )}
 
         {/* Teams + score */}
         <div className="w-full max-w-sm grid grid-cols-3 items-center gap-2">

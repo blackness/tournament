@@ -3,6 +3,7 @@ import { useAuth } from '../../lib/AuthContext'
 import { LayoutDashboard, LogOut, Menu, X, User, ChevronDown, Shield, Eye } from 'lucide-react'
 import { useAdmin } from '../../lib/AdminContext'
 import { useState, useRef, useEffect } from 'react'
+import { ThemeToggle } from './ThemeToggle'
 
 function LogoMark() {
   return (
@@ -56,6 +57,7 @@ export function PublicLayout() {
               className="hover:text-[var(--text-primary)] transition-colors">
               Tournaments
             </Link>
+            <ThemeToggle style={{ marginLeft:4 }} />
 
             {user ? (
               <>
@@ -126,10 +128,13 @@ export function PublicLayout() {
           </nav>
 
           {/* Mobile hamburger */}
-          <button className="sm:hidden p-2 rounded-lg" style={{ background:'transparent', border:'none', color:'var(--text-secondary)', cursor:'pointer' }}
-            onClick={() => setMenuOpen(o => !o)}>
-            {menuOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
+          <div className="sm:hidden flex items-center gap-2">
+            <ThemeToggle />
+            <button className="p-2 rounded-lg" style={{ background:'transparent', border:'none', color:'var(--text-secondary)', cursor:'pointer' }}
+              onClick={() => setMenuOpen(o => !o)}>
+              {menuOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+          </div>
         </div>
 
         {/* Mobile menu */}

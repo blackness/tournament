@@ -1,50 +1,51 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Suspense, lazy } from 'react'
 import { AuthProvider } from './lib/AuthContext'
+import { AdminProvider } from './lib/AdminContext'
 
-// Layouts
+// Layouts (always needed)
 import { PublicLayout }   from './components/ui/PublicLayout'
 import { DirectorLayout } from './components/ui/DirectorLayout'
+import { RequireAuth }    from './components/ui/RequireAuth'
+import { PageLoader }     from './components/ui/LoadingSpinner'
 
-// Public pages
-import { TournamentList }    from './pages/TournamentList'
-import { TournamentHome }    from './pages/TournamentHome'
-import { StandingsPage }     from './pages/StandingsPage'
-import { BracketPage }       from './pages/BracketPage'
-import { SchedulePage }      from './pages/SchedulePage'
-import { TeamPage }          from './pages/TeamPage'
-import { GameDayPage }       from './pages/GameDayPage'
-import { TeamComparePage }   from './pages/TeamComparePage'
-import { WatchPage }         from './pages/WatchPage'
-import { LiveScoreboard }    from './pages/LiveScoreboard'
-import { CourtLanding }      from './pages/CourtLanding'
-import { SpectatorDashboard} from './pages/SpectatorDashboard'
-
-// Director pages
-import { DirectorDashboard }  from './pages/director/DirectorDashboard'
-import { WizardPage }         from './pages/director/WizardPage'
-import { DirectorHQ }         from './pages/director/DirectorHQ'
-import { ScheduleEditor }     from './pages/director/ScheduleEditor'
-import { BracketGenerator }  from './pages/director/BracketGenerator'
-import { RosterManager }     from './pages/director/RosterManager'
-import { ConstraintReview }   from './pages/director/ConstraintReview'
-import { QRManager }          from './pages/director/QRManager'
-
-// Scorekeeper
-import { ScorekeeperPage } from './pages/ScorekeeperPage'
+// Critical public pages - loaded immediately
+import { TournamentList }  from './pages/TournamentList'
+import { TournamentHome }  from './pages/TournamentHome'
+import { LiveScoreboard }  from './pages/LiveScoreboard'
+import { CourtLanding }    from './pages/CourtLanding'
 import { LoginPage }       from './pages/LoginPage'
-import { AdminDashboard }  from './pages/admin/AdminDashboard'
-import { AdminProvider }   from './lib/AdminContext'
 import { SignupPage }      from './pages/SignupPage'
-import { SOTGEntryPage }    from './pages/SOTGEntryPage'
 
-// Auth
-import { RequireAuth }      from './components/ui/RequireAuth'
+// Lazy-loaded public pages
+const SchedulePage     = lazy(() => import('./pages/SchedulePage').then(m => ({ default: m.SchedulePage })))
+const StandingsPage    = lazy(() => import('./pages/StandingsPage').then(m => ({ default: m.StandingsPage })))
+const BracketPage      = lazy(() => import('./pages/BracketPage').then(m => ({ default: m.BracketPage })))
+const TeamPage         = lazy(() => import('./pages/TeamPage').then(m => ({ default: m.TeamPage })))
+const TeamComparePage  = lazy(() => import('./pages/TeamComparePage').then(m => ({ default: m.TeamComparePage })))
+const GameDayPage      = lazy(() => import('./pages/GameDayPage').then(m => ({ default: m.GameDayPage })))
+const WatchPage        = lazy(() => import('./pages/WatchPage').then(m => ({ default: m.WatchPage })))
+const ScorekeeperPage  = lazy(() => import('./pages/ScorekeeperPage').then(m => ({ default: m.ScorekeeperPage })))
+const SOTGEntryPage    = lazy(() => import('./pages/SOTGEntryPage').then(m => ({ default: m.SOTGEntryPage })))
+
+// Lazy-loaded director pages
+const DirectorDashboard = lazy(() => import('./pages/director/DirectorDashboard').then(m => ({ default: m.DirectorDashboard })))
+const WizardPage        = lazy(() => import('./pages/director/WizardPage').then(m => ({ default: m.WizardPage })))
+const DirectorHQ        = lazy(() => import('./pages/director/DirectorHQ').then(m => ({ default: m.DirectorHQ })))
+const ScheduleEditor    = lazy(() => import('./pages/director/ScheduleEditor').then(m => ({ default: m.ScheduleEditor })))
+const BracketGenerator  = lazy(() => import('./pages/director/BracketGenerator').then(m => ({ default: m.BracketGenerator })))
+const RosterManager     = lazy(() => import('./pages/director/RosterManager').then(m => ({ default: m.RosterManager })))
+const QRManager         = lazy(() => import('./pages/director/QRManager').then(m => ({ default: m.QRManager })))
+const ConstraintReview  = lazy(() => import('./pages/director/ConstraintReview').then(m => ({ default: m.ConstraintReview })))
+const AdminDashboard    = lazy(() => import('./pages/admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })))
+const SpectatorDashboard = lazy(() => import('./pages/SpectatorDashboard').then(m => ({ default: m.SpectatorDashboard })))
 
 export default function App() {
   return (
     <AdminProvider>
     <AuthProvider>
       <BrowserRouter>
+        <Suspense fallback={<PageLoader />}>
         <Routes>
 
           {/* ── Public routes ───────────────────────────────────────────── */}
@@ -91,6 +92,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/tournaments" replace />} />
 
         </Routes>
+        </Suspense>
       </BrowserRouter>
     </AuthProvider>
     </AdminProvider>

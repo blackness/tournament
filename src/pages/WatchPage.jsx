@@ -2,11 +2,20 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/LoadingSpinner'
-import { ChevronLeft } from 'lucide-react'
+import { ChevronLeft, Maximize2, Minimize2 } from 'lucide-react'
 
 const TICKER_DURATION = 5000 // ms to show new event
 
 export function WatchPage() {
+  // WatchPage is always dark -- it's a video player
+  useEffect(() => {
+    const prev = document.documentElement.getAttribute('data-theme')
+    document.documentElement.removeAttribute('data-theme')
+    return () => {
+      if (prev) document.documentElement.setAttribute('data-theme', prev)
+      else document.documentElement.removeAttribute('data-theme')
+    }
+  }, [])
   const { matchId }               = useParams()
   const [match, setMatch]         = useState(null)
   const [events, setEvents]       = useState([])
@@ -17,6 +26,21 @@ export function WatchPage() {
   const [drawerOpen, setDrawerOpen] = useState(false) // desktop hover drawer
   const tickerTimer               = useRef(null)
   const isMobile                  = typeof window !== 'undefined' && window.innerWidth < 768
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {})
+    } else {
+      document.exitFullscreen().catch(() => {})
+    }
+  }
+
+  useEffect(() => {
+    function onFsChange() { setIsFullscreen(!!document.fullscreenElement) }
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [])
 
   useEffect(() => {
     async function load() {
@@ -99,7 +123,7 @@ export function WatchPage() {
 
   const rawUrl = match.venue?.youtube_url
   const embedUrl = rawUrl
-    ? rawUrl.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/') + (rawUrl.includes('?') ? '&' : '?') + 'autoplay=1&rel=0'
+    ? rawUrl.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/') + (rawUrl.includes('?') ? '&' : '?') + 'autoplay=1&rel=0&fs=0'
     : null
 
   const scoreA = match.score_a ?? 0
@@ -172,15 +196,26 @@ export function WatchPage() {
         </div>
       )}
 
-      {/* Top-left: back link */}
-      <Link to={'/score/' + matchId} style={{ position:'absolute', top:16, left:16, zIndex:30,
-        display:'flex', alignItems:'center', gap:5, color:'rgba(255,255,255,0.5)', textDecoration:'none', fontSize:12,
-        padding:'6px 10px', borderRadius:8, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(8px)',
-        transition:'color 0.15s' }}
-        onMouseEnter={e => e.currentTarget.style.color='rgba(255,255,255,0.9)'}
-        onMouseLeave={e => e.currentTarget.style.color='rgba(255,255,255,0.5)'}>
-        <ChevronLeft size={14} /> {match.tournament?.name}
-      </Link>
+      {/* Top-left: back link + fullscreen */}
+      <div style={{ position:'absolute', top:16, left:16, zIndex:30, display:'flex', alignItems:'center', gap:8 }}>
+        <Link to={'/score/' + matchId} style={{
+          display:'flex', alignItems:'center', gap:5, color:'rgba(255,255,255,0.5)', textDecoration:'none', fontSize:12,
+          padding:'6px 10px', borderRadius:8, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(8px)', transition:'color 0.15s' }}
+          onMouseEnter={e => e.currentTarget.style.color='rgba(255,255,255,0.9)'}
+          onMouseLeave={e => e.currentTarget.style.color='rgba(255,255,255,0.5)'}>
+          <ChevronLeft size={14} /> {match.tournament?.name}
+        </Link>
+        <button onClick={toggleFullscreen}
+          title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen (keeps score visible)'}
+          style={{ display:'flex', alignItems:'center', justifyContent:'center', width:34, height:34,
+            borderRadius:8, background:'rgba(0,0,0,0.4)', backdropFilter:'blur(8px)',
+            border:'1px solid rgba(255,255,255,0.15)', cursor:'pointer', color:'rgba(255,255,255,0.6)',
+            transition:'color 0.15s, border-color 0.15s' }}
+          onMouseEnter={e => { e.currentTarget.style.color='#fff'; e.currentTarget.style.borderColor='rgba(255,255,255,0.4)' }}
+          onMouseLeave={e => { e.currentTarget.style.color='rgba(255,255,255,0.6)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.15)' }}>
+          {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+        </button>
+      </div>
 
       {/* Top-right: score overlay - always visible */}
       <div style={{ position:'absolute', top:16, right:16, zIndex:30,

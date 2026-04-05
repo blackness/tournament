@@ -38,7 +38,7 @@ export function TournamentHome() {
         }
 
         const { data: live } = await supabase.from('matches')
-          .select('id, score_a, score_b, status, team_a:tournament_teams!team_a_id(id, name, short_name, primary_color), team_b:tournament_teams!team_b_id(id, name, short_name, primary_color), venue:venues(name, short_name), time_slot:time_slots(scheduled_start)')
+          .select('id, score_a, score_b, status, team_a:tournament_teams!team_a_id(id, name, short_name, primary_color), team_b:tournament_teams!team_b_id(id, name, short_name, primary_color), venue:venues(name, short_name, youtube_url), time_slot:time_slots(scheduled_start)')
           .eq('tournament_id', t.id).eq('status', 'in_progress').order('time_slot(scheduled_start)')
         setLiveMatches(live ?? [])
 
@@ -251,6 +251,18 @@ export function TournamentHome() {
 function LiveMatchCard({ match: m }) {
   const teamA = m.team_a, teamB = m.team_b
   return (
+    <div style={{ position:'relative' }}>
+    {m.venue?.youtube_url && (
+      <Link to={'/watch/' + m.id}
+        style={{ position:'absolute', top:14, right:14, zIndex:2,
+          display:'flex', alignItems:'center', gap:5, fontSize:12, fontWeight:700,
+          color:'#fff', textDecoration:'none', padding:'5px 12px', borderRadius:20,
+          background:'#dc2626', boxShadow:'0 2px 8px rgba(220,38,38,0.35)' }}
+        onClick={e => e.stopPropagation()}>
+        <span style={{ width:6, height:6, borderRadius:'50%', background:'#fff', animation:'pulse 1.5s infinite', display:'inline-block' }} />
+        Watch live
+      </Link>
+    )}
     <Link to={'/score/' + m.id} style={{ display:'block', background:'var(--bg-raised)', border:'1px solid var(--border)', borderRadius:14, padding:'18px 20px', textDecoration:'none', transition:'border-color 0.15s' }}
       onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border-mid)'}
       onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
@@ -272,6 +284,7 @@ function LiveMatchCard({ match: m }) {
         <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:11, fontWeight:600, color:'var(--live)' }}><span className="live-dot" /> Live</span>
       </div>
     </Link>
+    </div>
   )
 }
 

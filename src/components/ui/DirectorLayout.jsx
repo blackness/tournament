@@ -1,6 +1,7 @@
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../lib/AuthContext'
 import { Trophy, LogOut, ChevronLeft, LayoutDashboard } from 'lucide-react'
+import { ThemeToggle } from './ThemeToggle'
 
 function LogoMark() {
   return (
@@ -50,7 +51,8 @@ export function DirectorLayout() {
               </div>
               <span style={{ fontSize:13, color:'var(--text-secondary)' }}>{displayName}</span>
             </div>
-            <button onClick={handleSignOut}
+            <ThemeToggle style={{ marginRight:4 }} />
+        <button onClick={handleSignOut}
               style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 10px', borderRadius:7, background:'transparent', border:'none', cursor:'pointer', fontSize:13, color:'var(--text-muted)', fontFamily:'inherit' }}
               className="hover:text-[var(--text-secondary)] transition-colors">
               <LogOut size={14} />
