@@ -22,12 +22,29 @@ export function WizardStep6Schedule({ onNext, onBack }) {
   const [confirmRegen, setConfirmRegen]   = useState(false)
   const [dragOver, setDragOver]         = useState(null)
 
+  // Normalize a datetime string to yyyy-MM-ddThh:mm for datetime-local inputs
+  function toLocalInputFormat(val) {
+    if (!val) return ''
+    // Already in correct format
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(val)) return val
+    // Strip timezone offset and seconds
+    return val.slice(0, 16)
+  }
+
   // Pre-fill start/end time from tournament start date
   useEffect(() => {
     if (!scheduleConfig.startTime && startDate) {
       setScheduleConfig({
         startTime: startDate + 'T09:00',
         endTime:   startDate + 'T18:00',
+      })
+    } else if (scheduleConfig.startTime && scheduleConfig.startTime.length > 16) {
+      // Normalize any ISO strings already in the store
+      setScheduleConfig({
+        startTime: toLocalInputFormat(scheduleConfig.startTime),
+        endTime:   toLocalInputFormat(scheduleConfig.endTime),
+        lunchBreakStart: toLocalInputFormat(scheduleConfig.lunchBreakStart),
+        lunchBreakEnd:   toLocalInputFormat(scheduleConfig.lunchBreakEnd),
       })
     }
   }, [startDate])
@@ -176,27 +193,77 @@ export function WizardStep6Schedule({ onNext, onBack }) {
         if (p.dbId) { poolDbIdMap[p.id] = p.dbId; poolDbIdMap[p.dbId] = p.dbId }
       }
 
+      // Load division DB IDs directly from the database — don't rely on store dbId
+      // which may not be set if the director skipped back and forward through steps.
+      const { data: dbDivisions } = await db.divisions.byTournament(tournamentId)
+      const divisionDbIdMap = {}
+      for (const dbDiv of (dbDivisions ?? [])) {
+        // Map by DB id (direct) and also by matching store division name/slug
+        divisionDbIdMap[dbDiv.id] = dbDiv.id
+        const storeDiv = freshState.divisions.find(d => d.dbId === dbDiv.id || d.slug === dbDiv.slug || d.name === dbDiv.name)
+        if (storeDiv) divisionDbIdMap[storeDiv.id] = dbDiv.id
+      }
+
+      // Also load pools from DB to get their real IDs + which division they belong to
+      const { data: dbPools } = await supabase
+        .from('pools')
+        .select('id, division_id, name')
+        .in('division_id', (dbDivisions ?? []).map(d => d.id))
+      for (const dbPool of (dbPools ?? [])) {
+        poolDbIdMap[dbPool.id] = dbPool.id
+        const storePool = freshState.pools.find(p => p.dbId === dbPool.id || p.name === dbPool.name)
+        if (storePool) {
+          poolDbIdMap[storePool.id] = dbPool.id
+          divisionDbIdMap[storePool.id + '_div'] = dbPool.division_id
+        }
+      }
+
       function getDivDbId(poolLocalId) {
+        // First try: pool's division via the DB pool lookup
+        const poolDbId = poolDbIdMap[poolLocalId]
+        if (poolDbId) {
+          const dbPool = (dbPools ?? []).find(p => p.id === poolDbId)
+          if (dbPool) return dbPool.division_id
+        }
+        // Fallback: find via store pool → store division → DB division id
         const pool = freshState.pools.find(p => p.id === poolLocalId || p.dbId === poolLocalId)
         if (!pool) return null
-        const div = freshState.divisions.find(d => d.id === pool.divisionId)
-        return div?.dbId ?? null
+        return divisionDbIdMap[pool.divisionId] ?? null
       }
 
       // Save slots (use localSlots, which may include slots from swapped matches)
       const usedSlotIds = new Set(localMatches.map(m => m.slot_id).filter(Boolean))
       const slotsToSave = localSlots.filter(s => usedSlotIds.has(s.id))
 
-      const slotRows = slotsToSave.map(s => ({
-        tournament_id:   tournamentId,
-        venue_id:        venueDbIdMap[s.venue_id] || null,
-        scheduled_start: s.scheduled_start,
-        scheduled_end:   s.scheduled_end,
-        offset_minutes:  0,
-      }))
-      const { data: slotData } = await db.timeSlots.createMany(slotRows)
+      // Resolve venue DB IDs — slots from generateSchedule() use v.dbId || v.id
+      // which may be a local UUID if dbId wasn't set at generation time.
+      const slotRows = slotsToSave.map(s => {
+        const venueDbId = venueDbIdMap[s.venue_id] || s.venue_id || null
+        return {
+          tournament_id:   tournamentId,
+          venue_id:        venueDbId,
+          scheduled_start: s.scheduled_start,
+          scheduled_end:   s.scheduled_end,
+          offset_minutes:  0,
+        }
+      })
+
+      const { data: slotData, error: slotErr } = await db.timeSlots.createMany(slotRows)
+      if (slotErr) throw slotErr
+
+      // Map local slot IDs to DB slot IDs using scheduled_start + venue_id as a stable key.
+      // Supabase does not guarantee insert order so index-based mapping is unreliable.
+      const dbSlotsByKey = {}
+      for (const dbSlot of (slotData ?? [])) {
+        const key = dbSlot.scheduled_start + '|' + (dbSlot.venue_id ?? '')
+        dbSlotsByKey[key] = dbSlot.id
+      }
       const slotIdMap = {}
-      slotsToSave.forEach((s, i) => { slotIdMap[s.id] = slotData?.[i]?.id })
+      for (const s of slotsToSave) {
+        const venueDbId = venueDbIdMap[s.venue_id] || s.venue_id || null
+        const key = s.scheduled_start + '|' + (venueDbId ?? '')
+        slotIdMap[s.id] = dbSlotsByKey[key] ?? null
+      }
 
       // Save matches using localMatches (with any drag edits applied)
       const matchRows = localMatches.map(m => ({
@@ -212,7 +279,15 @@ export function WizardStep6Schedule({ onNext, onBack }) {
         phase:         1,
         status:        'scheduled',
       }))
-      await db.matches.createMany(matchRows)
+      // Log matchRows for debugging before insert
+      console.log('[Schedule save] matchRows sample:', JSON.stringify(matchRows[0] ?? {}))
+      const nullDivRows = matchRows.filter(m => !m.division_id)
+      if (nullDivRows.length > 0) {
+        console.error('[Schedule save] division_id is null on', nullDivRows.length, 'rows. Pool map:', poolDbIdMap)
+        throw new Error(`division_id is null on ${nullDivRows.length} match rows. Check that pools were saved in Step 5.`)
+      }
+      const { error: matchErr } = await db.matches.createMany(matchRows)
+      if (matchErr) throw new Error('Matches insert failed: ' + matchErr.message + ' | code: ' + matchErr.code)
 
       // Initialize pool_standings rows for all pool-assigned teams
       // Safe to run multiple times -- ON CONFLICT DO NOTHING
@@ -289,13 +364,13 @@ export function WizardStep6Schedule({ onNext, onBack }) {
         <div className="field-group">
           <label className="field-label flex items-center gap-1"><Clock size={13} /> Day start *</label>
           <input type="datetime-local" className="field-input"
-            value={scheduleConfig.startTime ?? ''}
+            value={toLocalInputFormat(scheduleConfig.startTime)}
             onChange={e => setScheduleConfig({ startTime: e.target.value })} />
         </div>
         <div className="field-group">
           <label className="field-label flex items-center gap-1"><Clock size={13} /> Day end</label>
           <input type="datetime-local" className="field-input"
-            value={scheduleConfig.endTime ?? ''}
+            value={toLocalInputFormat(scheduleConfig.endTime)}
             onChange={e => setScheduleConfig({ endTime: e.target.value })} />
         </div>
         <div className="field-group">
@@ -335,13 +410,13 @@ export function WizardStep6Schedule({ onNext, onBack }) {
             <div className="field-group">
               <label className="field-label text-xs">Break start</label>
               <input type="datetime-local" className="field-input text-sm"
-                value={scheduleConfig.lunchBreakStart ?? ''}
+                value={toLocalInputFormat(scheduleConfig.lunchBreakStart)}
                 onChange={e => setScheduleConfig({ lunchBreakStart: e.target.value })} />
             </div>
             <div className="field-group">
               <label className="field-label text-xs">Break end</label>
               <input type="datetime-local" className="field-input text-sm"
-                value={scheduleConfig.lunchBreakEnd ?? ''}
+                value={toLocalInputFormat(scheduleConfig.lunchBreakEnd)}
                 onChange={e => setScheduleConfig({ lunchBreakEnd: e.target.value })} />
             </div>
           </div>

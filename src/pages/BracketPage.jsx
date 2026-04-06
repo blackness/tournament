@@ -1,8 +1,29 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/LoadingSpinner'
 import { Trophy, ChevronLeft, ZoomIn, ZoomOut, Medal } from 'lucide-react'
+
+// Reads live CSS variable values so SVG elements (which can't use var()) get themed colors
+function useThemeColors() {
+  const [colors, setColors] = useState(() => resolveColors())
+  useEffect(() => {
+    const observer = new MutationObserver(() => setColors(resolveColors()))
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
+  return colors
+}
+function resolveColors() {
+  const s = getComputedStyle(document.documentElement)
+  const get = v => s.getPropertyValue(v).trim()
+  return {
+    textMuted:    get('--text-muted')    || '#55556a',
+    textPrimary:  get('--text-primary')  || '#f0f0f2',
+    border:       get('--border')        || '#2a2a32',
+    bgSurface:    get('--bg-surface')    || '#111114',
+  }
+}
 
 const NODE_W  = 200
 const NODE_H  = 72
@@ -80,6 +101,7 @@ export function BracketPage() {
   const tournament = division?.tournament
   const { nodes = [], edges = [], svgW = 600, svgH = 400, numRounds = 1, champion, second, third } = bracket ?? {}
   const color = tournament?.primary_color ?? '#8b5cf6'
+  const themeColors = useThemeColors()
 
   return (
     <div style={{ minHeight:'100vh', background:'var(--bg-base)', display:'flex', flexDirection:'column' }}>
@@ -215,19 +237,19 @@ export function BracketPage() {
               {getRoundLabels(nodes, numRounds).map(({ round, x, label }) => (
                 <text key={round} x={x + NODE_W/2} y={PADDING - 16}
                   textAnchor="middle" fontSize={10} fontWeight="700"
-                  fill="#55556a" style={{ fontFamily:'DM Sans, system-ui', textTransform:'uppercase', letterSpacing:'0.1em' }}>
+                  fill={themeColors.textMuted} style={{ fontFamily:'DM Sans, system-ui', textTransform:'uppercase', letterSpacing:'0.1em' }}>
                   {label}
                 </text>
               ))}
 
               {/* Connector lines */}
               {edges.map((e, i) => (
-                <path key={i} d={e.d} fill="none" stroke="#2a2a32" strokeWidth={2} />
+                <path key={i} d={e.d} fill="none" stroke={themeColors.border} strokeWidth={2} />
               ))}
 
               {/* Nodes */}
               {nodes.map(node => (
-                <BracketNode key={node.id} node={node} primaryColor={color} />
+                <BracketNode key={node.id} node={node} primaryColor={color} themeColors={themeColors} />
               ))}
             </svg>
           </div>
@@ -237,7 +259,7 @@ export function BracketPage() {
   )
 }
 
-function BracketNode({ node, primaryColor }) {
+function BracketNode({ node, primaryColor, themeColors }) {
   const { x, y, match, team_a, team_b, team_a_source, team_b_source, label } = node
   const isLive   = match?.status === 'in_progress'
   const isDone   = match?.status === 'complete' || match?.status === 'forfeit'
@@ -246,8 +268,8 @@ function BracketNode({ node, primaryColor }) {
   const isFinal  = label === 'Final'
   const is3rd    = label === '3rd Place'
 
-  const cardStroke = isLive ? '#22c55e' : isFinal ? primaryColor : '#2a2a32'
-  const cardFill   = isLive ? 'rgba(34,197,94,0.06)' : isFinal ? primaryColor + '0d' : '#111114'
+  const cardStroke = isLive ? '#22c55e' : isFinal ? primaryColor : themeColors.border
+  const cardFill   = isLive ? 'rgba(34,197,94,0.06)' : isFinal ? primaryColor + '0d' : themeColors.bgSurface
   const strokeW    = isLive || isFinal ? 1.5 : 1
 
   return (
@@ -279,11 +301,11 @@ function BracketNode({ node, primaryColor }) {
         isWinner={isDone && winnerId && team_a && winnerId === team_a.id}
         isLoser={isDone && winnerId && team_a && winnerId !== team_a.id}
         showScore={isLive || isDone}
-        primaryColor={primaryColor} />
+        primaryColor={primaryColor} themeColors={themeColors} />
 
       {/* Divider */}
       <line x1={x+8} y1={y+NODE_H/2} x2={x+NODE_W-8} y2={y+NODE_H/2}
-        stroke="#2a2a32" strokeWidth={1} />
+        stroke={themeColors.border} strokeWidth={1} />
 
       {/* Team B row */}
       <NodeTeamRow x={x} y={y+NODE_H/2} rowIndex={1}
@@ -293,19 +315,20 @@ function BracketNode({ node, primaryColor }) {
         isLoser={isDone && winnerId && team_b && winnerId !== team_b.id}
         showScore={isLive || isDone}
         primaryColor={primaryColor}
+        themeColors={themeColors}
         isBye={isBye} />
     </g>
   )
 }
 
-function NodeTeamRow({ x, y, team, source, score, isWinner, isLoser, showScore, primaryColor, isBye }) {
+function NodeTeamRow({ x, y, team, source, score, isWinner, isLoser, showScore, primaryColor, isBye, themeColors }) {
   const rowH     = NODE_H / 2
-  const dotColor = team?.primary_color ?? (isBye ? '#3a3a44' : '#55556a')
+  const dotColor = team?.primary_color ?? (isBye ? themeColors.border : themeColors.textMuted)
   const opacity  = isLoser ? 0.35 : isBye ? 0.4 : 1
   const nameStr  = team ? (team.name ?? team.short_name ?? 'TBD') : (source ?? 'TBD')
   const teamLink = team?.id ? ('/t/' + (window._bracketSlug ?? '') + '/team/' + team.id) : null
   const truncated = nameStr.length > 18 ? nameStr.slice(0, 17) + '..' : nameStr
-  const textColor = isWinner ? primaryColor : isBye ? '#3a3a44' : '#f0f0f2'
+  const textColor = isWinner ? primaryColor : isBye ? themeColors.border : themeColors.textPrimary
   const fontWeight = isWinner ? '700' : '500'
   const fontSize   = isWinner ? 13 : 12
 
@@ -334,7 +357,7 @@ function NodeTeamRow({ x, y, team, source, score, isWinner, isLoser, showScore, 
           dominantBaseline="middle" textAnchor="end"
           fontSize={isWinner ? 15 : 13}
           fontWeight={isWinner ? '800' : '600'}
-          fill={isWinner ? primaryColor : '#55556a'}
+          fill={isWinner ? primaryColor : themeColors.textMuted}
           style={{ fontFamily:'DM Mono, monospace' }}>
           {score}
         </text>

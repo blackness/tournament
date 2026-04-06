@@ -4,7 +4,7 @@ import { db, supabase } from '../../../lib/supabase'
 import { WizardNavButtons } from './WizardNavButtons'
 import { evaluatePoolConstraints, autoDetect } from '../../../lib/constraintEngine'
 import { ConstraintEditor } from '../teams/ConstraintEditor'
-import { PlusCircle, Trash2, Upload, Users, ChevronDown, ChevronUp, AlertTriangle, Settings } from 'lucide-react'
+import { PlusCircle, Trash2, Upload, Users, ChevronDown, ChevronUp, AlertTriangle, Settings, GripVertical } from 'lucide-react'
 import { suggestPoolStructure, serpentineSeeding } from '../../../lib/scheduleGenerator'
 
 const crypto = globalThis.crypto
@@ -126,37 +126,59 @@ export function WizardStep5Teams({ onNext, onBack }) {
     try {
       const liveState = useWizardStore.getState()
 
-      // Load existing divisions/pools/teams from DB to get their real IDs
-      const { data: dbDivisions } = await db.divisions.byTournament(tournamentId)
-      const dbDivMap = Object.fromEntries((dbDivisions ?? []).map(d => [d.slug, d.id]))
+      // Load ALL divisions for this tournament from the DB
+      const { data: dbDivisions, error: divErr } = await db.divisions.byTournament(tournamentId)
+      if (divErr) throw new Error('Failed to load divisions: ' + divErr.message)
+      if (!dbDivisions || dbDivisions.length === 0) throw new Error('No divisions found in DB for this tournament. Go back to Step 3 and save divisions first.')
 
-      // Ensure all divisions have dbId
-      for (const div of liveState.divisions) {
-        if (!div.dbId) {
-          const slug = div.slug || div.name.toLowerCase().replace(/[^a-z0-9]/g, '-')
-          const dbId = dbDivMap[slug]
-          if (dbId) useWizardStore.getState().updateDivision(div.id, { dbId })
-        }
-      }
+      console.log('[Step5 save] DB divisions:', dbDivisions.map(d => ({ id: d.id, name: d.name, slug: d.slug })))
+      console.log('[Step5 save] Store divisions:', liveState.divisions.map(d => ({ id: d.id, name: d.name, slug: d.slug, dbId: d.dbId })))
 
-      // Re-read with fresh dbIds
+      // Match store divisions to DB divisions — try dbId first, then slug, then name
+      const resolvedDivisions = liveState.divisions.map(div => {
+        const dbDiv = dbDivisions.find(d =>
+          d.id === div.dbId ||
+          (div.slug && d.slug === div.slug) ||
+          d.name.trim().toLowerCase() === div.name.trim().toLowerCase()
+        )
+        if (dbDiv && !div.dbId) useWizardStore.getState().updateDivision(div.id, { dbId: dbDiv.id })
+        return { storeDiv: div, dbDivId: dbDiv?.id ?? null }
+      })
+
+      const unmapped = resolvedDivisions.filter(r => !r.dbDivId)
+      if (unmapped.length > 0) throw new Error(`Could not match division "${unmapped[0].storeDiv.name}" to a saved division. Go back to Step 3 and re-save.`)
+
+      // Re-read store after updating dbIds
       const state2 = useWizardStore.getState()
 
-      for (const div of state2.divisions) {
-        if (!div.dbId) continue
-        const dt = state2.teams.filter(t => t.divisionId === div.id)
-        const dp = state2.pools.filter(p => p.divisionId === div.id)
+      for (const { storeDiv, dbDivId } of resolvedDivisions) {
+        const dt = state2.teams.filter(t => t.divisionId === storeDiv.id)
+        const dp = state2.pools.filter(p => p.divisionId === storeDiv.id)
 
-        // Upsert pools
+        console.log('[Step5 save] Division', storeDiv.name, '→ dbId', dbDivId, '| pools:', dp.length, '| teams:', dt.length)
+
+        // Load existing DB pools for this division to avoid duplicates
+        const { data: dbPools } = await supabase
+          .from('pools')
+          .select('id, name')
+          .eq('division_id', dbDivId)
+        const dbPoolByName = Object.fromEntries((dbPools ?? []).map(p => [p.name.trim().toLowerCase(), p.id]))
+
+        // Save pools — upsert by name
         for (const pool of dp) {
-          if (pool.dbId) continue
-          const { data } = await db.pools.upsert({
-            division_id: div.dbId,
-            name:        pool.name,
-            short_name:  pool.shortName || null,
-            sort_order:  pool.sortOrder,
-          })
-          if (data) useWizardStore.getState().updatePool(pool.id, { dbId: data.id })
+          const existingDbId = pool.dbId || dbPoolByName[pool.name.trim().toLowerCase()]
+          if (existingDbId) {
+            // Already exists — just stamp the dbId
+            if (!pool.dbId) useWizardStore.getState().updatePool(pool.id, { dbId: existingDbId })
+          } else {
+            // Insert new pool
+            const { data, error: poolErr } = await supabase
+              .from('pools')
+              .insert({ division_id: dbDivId, name: pool.name, short_name: pool.shortName || null, sort_order: pool.sortOrder ?? 0 })
+              .select().single()
+            if (poolErr) throw new Error('Failed to save pool "' + pool.name + '": ' + poolErr.message)
+            if (data) useWizardStore.getState().updatePool(pool.id, { dbId: data.id })
+          }
         }
 
         // Re-read after pool saves
@@ -166,7 +188,7 @@ export function WizardStep5Teams({ onNext, onBack }) {
           const assignedPool = state3.pools.find(p => p.id === state3.poolAssignments[team.id])
           const payload = {
             tournament_id:    tournamentId,
-            division_id:      div.dbId,
+            division_id:      dbDivId,
             pool_id:          assignedPool?.dbId ?? null,
             name:             team.name.trim(),
             short_name:       team.shortName?.trim()      || null,
@@ -178,31 +200,31 @@ export function WizardStep5Teams({ onNext, onBack }) {
             constraints:      team.constraints ?? {},
           }
           if (team.dbId) {
-            // Already saved -- update in place
             await db.teams.update(team.dbId, payload)
           } else {
-            // New team -- check if it was already inserted (retry scenario)
-            // by looking for matching name+division in DB before inserting
             const { data: existing } = await supabase
-                .from('tournament_teams')
-                .select('id')
-                .eq('tournament_id', tournamentId)
-                .eq('division_id', div.dbId)
-                .eq('name', team.name.trim())
-                .maybeSingle()
+              .from('tournament_teams')
+              .select('id')
+              .eq('tournament_id', tournamentId)
+              .eq('division_id', dbDivId)
+              .eq('name', team.name.trim())
+              .maybeSingle()
             if (existing) {
               updateTeam(team.id, { dbId: existing.id })
               await db.teams.update(existing.id, payload)
             } else {
-              const { data } = await db.teams.create(payload)
+              const { data, error: teamErr } = await db.teams.create(payload)
+              if (teamErr) throw new Error('Failed to save team "' + team.name + '": ' + teamErr.message)
               if (data) updateTeam(team.id, { dbId: data.id })
             }
           }
         }
       }
+
       useWizardStore.getState().markSaved()
       onNext()
     } catch (err) {
+      console.error('[Step5 save] Error:', err)
       setFormError(err.message || 'Failed to save teams')
     } finally {
       setSaving(false)
@@ -309,7 +331,8 @@ export function WizardStep5Teams({ onNext, onBack }) {
       )}
 
       {divPools.length > 0 && (
-        <PoolSummary pools={divPools} teams={divTeams} assignments={poolAssignments} violations={violations} />
+        <PoolSummary pools={divPools} teams={divTeams} assignments={poolAssignments} violations={violations}
+          onAssign={(teamId, poolId) => setPoolAssignment(teamId, poolId)} />
       )}
 
       {teams.length > 0 && (
@@ -415,28 +438,100 @@ function TeamRow({ team, idx, pools, allTeams, venues, assignment, violations, e
   )
 }
 
-function PoolSummary({ pools, teams, assignments, violations }) {
+function PoolSummary({ pools, teams, assignments, violations, onAssign }) {
+  const [dragTeamId, setDragTeamId] = useState(null)
+  const [dragOver,   setDragOver]   = useState(null) // poolId being hovered
+
+  function handleDragStart(teamId) { setDragTeamId(teamId) }
+  function handleDragOver(e, poolId) { e.preventDefault(); setDragOver(poolId) }
+  function handleDragLeave() { setDragOver(null) }
+  function handleDrop(poolId) {
+    if (dragTeamId) onAssign(dragTeamId, poolId)
+    setDragTeamId(null)
+    setDragOver(null)
+  }
+
+  const unassigned = teams.filter(t => !assignments[t.id] || !pools.find(p => p.id === assignments[t.id]))
+
   return (
-    <div className="mt-2">
-      <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-2">Pool summary</h4>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+    <div className="mt-2 space-y-3">
+      <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">
+        Pool board — drag teams between pools
+      </h4>
+
+      {/* Unassigned bin */}
+      {unassigned.length > 0 && (
+        <div
+          className={"border-2 border-dashed rounded-xl p-3 " + (dragOver === '__unassigned' ? 'border-[var(--accent)] bg-[var(--accent-dim)]' : 'border-[var(--border)]')}
+          onDragOver={e => handleDragOver(e, '__unassigned')}
+          onDragLeave={handleDragLeave}
+          onDrop={() => handleDrop(null)}
+        >
+          <p className="text-xs font-semibold text-[var(--text-muted)] mb-2">Unassigned ({unassigned.length})</p>
+          <div className="flex flex-wrap gap-1.5">
+            {unassigned.map(t => (
+              <PoolTeamChip key={t.id} team={t} onDragStart={handleDragStart} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Pool columns */}
+      <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(pools.length, 4)}, 1fr)` }}>
         {pools.map(pool => {
-          const poolTeams    = teams.filter(t => assignments[t.id] === pool.id)
+          const poolTeams      = teams.filter(t => assignments[t.id] === pool.id)
           const poolViolations = violations.filter(v => v.poolId === pool.id)
+          const isOver         = dragOver === pool.id
+
           return (
-            <div key={pool.id} className={'bg-[var(--bg-raised)] border rounded-lg p-2 ' + (poolViolations.length > 0 ? 'border-red-300 bg-red-50' : 'border-gray-200')}>
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-xs font-semibold text-[var(--text-secondary)]">{pool.name}</p>
-                {poolViolations.length > 0 && <AlertTriangle size={11} className="text-red-500" />}
+            <div
+              key={pool.id}
+              onDragOver={e => handleDragOver(e, pool.id)}
+              onDragLeave={handleDragLeave}
+              onDrop={() => handleDrop(pool.id)}
+              className={"border-2 rounded-xl p-3 min-h-24 transition-colors " + (
+                isOver
+                  ? 'border-[var(--accent)] bg-[var(--accent-dim)]'
+                  : poolViolations.length > 0
+                    ? 'border-amber-300 bg-amber-50/30'
+                    : 'border-[var(--border)] bg-[var(--bg-raised)]'
+              )}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wide">{pool.name}</p>
+                <span className="text-xs text-[var(--text-muted)]">{poolTeams.length}</span>
               </div>
-              {poolTeams.length === 0
-                ? <p className="text-xs text-[var(--text-muted)] italic">Empty</p>
-                : poolTeams.map(t => <p key={t.id} className="text-xs text-[var(--text-secondary)] truncate">{t.name}</p>)
-              }
+
+              {poolViolations.length > 0 && (
+                <p className="text-xs text-amber-600 flex items-center gap-1 mb-1.5">
+                  <AlertTriangle size={10} /> {poolViolations[0].message}
+                </p>
+              )}
+
+              <div className="space-y-1">
+                {poolTeams.length === 0
+                  ? <p className="text-xs text-[var(--text-muted)] italic py-2 text-center">Drop here</p>
+                  : poolTeams.map(t => <PoolTeamChip key={t.id} team={t} onDragStart={handleDragStart} />)
+                }
+              </div>
             </div>
           )
         })}
       </div>
+    </div>
+  )
+}
+
+function PoolTeamChip({ team, onDragStart }) {
+  return (
+    <div
+      draggable
+      onDragStart={() => onDragStart(team.id)}
+      className="flex items-center gap-1.5 px-2 py-1 bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg cursor-grab active:cursor-grabbing select-none hover:border-[var(--border-mid)] transition-colors"
+    >
+      <GripVertical size={11} className="text-[var(--text-muted)] flex-shrink-0" />
+      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: team.primaryColor ?? '#e5e7eb' }} />
+      <span className="text-xs font-medium text-[var(--text-secondary)] truncate max-w-24">{team.name || 'Unnamed'}</span>
     </div>
   )
 }

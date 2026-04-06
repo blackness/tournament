@@ -113,7 +113,7 @@ export function StandingsPage() {
                     const advances = idx < advancesPerPool
                     const diff = row.point_diff ?? 0
                     return (
-                      <tr key={row.team_id} style={{ borderBottom:'1px solid rgba(42,42,50,0.5)', background: advances ? brandColor + '08' : 'transparent' }}>
+                      <tr key={row.team_id} style={{ borderBottom:'1px solid var(--border)', background: advances ? brandColor + '08' : 'transparent' }}>
                         <td style={{ padding:'11px 14px', fontSize:12, color:'var(--text-muted)', fontFamily:'DM Mono, monospace' }}>{idx + 1}</td>
                         <td style={{ padding:'11px 14px' }}>
                           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
