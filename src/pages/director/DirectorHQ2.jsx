@@ -7,7 +7,7 @@ import { PageLoader } from '../../components/ui/LoadingSpinner'
 import {
   Trophy, Calendar, MapPin, Users, ExternalLink, Edit,
   Trash2, AlertTriangle, X, ChevronRight, Play, Link2, Copy, Check,
-  CheckCircle, Archive, Eye, Lock
+  CheckCircle, Archive, Eye
 } from 'lucide-react'
 
 const STATUS_FLOW = {
@@ -29,28 +29,12 @@ export function DirectorHQ() {
   const [showDelete, setShowDelete]   = useState(false)
   const [deleting, setDeleting]       = useState(false)
   const [advancing, setAdvancing]     = useState(false)
-  const [seedingBracket, setSeedingBracket] = useState(false)
-  const [seedResult, setSeedResult]     = useState(null)
-  const [teamFollows, setTeamFollows]   = useState({})
   const [error, setError]             = useState(null)
 
   useEffect(() => {
     async function load() {
       const { data: t } = await db.tournaments.byId(tournamentId)
-      if (!t) { navigate('/director'); return }
-
-      // Allow access if user is the tournament director OR has a director/co_director role
-      const isOwner = t.director_id === user?.id
-      if (!isOwner) {
-        const { data: role } = await supabase
-          .from('tournament_roles')
-          .select('id')
-          .eq('tournament_id', tournamentId)
-          .eq('user_id', user?.id)
-          .in('role', ['director', 'co_director'])
-          .maybeSingle()
-        if (!role) { navigate('/director'); return }
-      }
+      if (!t || t.director_id !== user?.id) { navigate('/director'); return }
       setTournament(t)
 
       const { data: divs } = await db.divisions.byTournament(tournamentId)
@@ -64,18 +48,6 @@ export function DirectorHQ() {
         .order('time_slot(scheduled_start)')
         
       setMatches(m ?? [])
-
-      // Fetch team follow counts
-      const { data: follows } = await supabase
-        .from('team_follows')
-        .select('team_id')
-        .eq('tournament_id', tournamentId)
-      if (follows) {
-        const counts = {}
-        for (const f of follows) counts[f.team_id] = (counts[f.team_id] ?? 0) + 1
-        setTeamFollows(counts)
-      }
-
       setLoading(false)
     }
     load()
@@ -109,127 +81,6 @@ export function DirectorHQ() {
     } catch (err) {
       setError(err.message)
       setDeleting(false)
-    }
-  }
-
-
-  async function seedBracket() {
-    setSeedingBracket(true)
-    setSeedResult(null)
-    setError(null)
-    try {
-      // Check if any bracket matches have already been played
-      const { data: playedBracket } = await supabase
-        .from('matches')
-        .select('id, status, round_label')
-        .eq('tournament_id', tournamentId)
-        .eq('phase', 2)
-        .neq('status', 'scheduled')
-      
-      if (playedBracket?.length > 0) {
-        const labels = playedBracket.map(m => m.round_label ?? 'a game').join(', ')
-        setError(`Cannot re-seed — ${labels} has already been played. Use "Change teams" to fix individual games.`)
-        setSeedingBracket(false)
-        return
-      }
-
-      // Fetch final pool standings ordered by rank
-      const { data: standings, error: stErr } = await supabase
-        .from('pool_standings_display')
-        .select('team_id, pool_id, rank, pool_name, team_name')
-        .in('division_id', divisions.map(d => d.id))
-        .order('pool_id')
-        .order('rank')
-      if (stErr) throw new Error(stErr.message)
-
-      // Group by pool
-      const byPool = {}
-      for (const s of standings) {
-        if (!byPool[s.pool_name]) byPool[s.pool_name] = []
-        byPool[s.pool_name].push(s)
-      }
-
-      const pools = Object.keys(byPool).sort()
-      if (pools.length < 2) throw new Error('Need at least 2 pools to seed bracket')
-
-      // Fetch bracket matches (phase 2, no teams yet)
-      const { data: bracketMatches } = await supabase
-        .from('matches')
-        .select('id, bracket_position, notes, team_a_id, team_b_id')
-        .eq('tournament_id', tournamentId)
-        .eq('phase', 2)
-        .order('match_number')
-
-      // Build seed map: pool letter + rank → team_id
-      // e.g. A1, A2, B1, B2, etc.
-      const seedMap = {}
-      for (const pool of pools) {
-        const letter = pool.replace('Pool ', '')
-        for (const s of byPool[pool]) {
-          seedMap[letter + s.rank] = s.team_id
-        }
-      }
-
-      // Parse bracket notes to slot teams
-      // notes format: 'bracket:A1-vs-B4' or 'bracket:1A-vs-2D'
-      const updates = []
-      for (const m of bracketMatches) {
-        if (!m.notes?.startsWith('bracket:')) continue
-        if (m.team_a_id && m.team_b_id) continue // already seeded
-
-        const inner = m.notes.replace('bracket:', '')
-        const [rawA, rawB] = inner.split('-vs-')
-
-        // Normalize: '1A' → 'A1', 'A1' → 'A1'
-        const normalize = s => {
-          if (!s) return null
-          // skip non-seed labels like winG1, winnerV etc
-          if (s.startsWith('win') || s.startsWith('loser') || s.startsWith('semi')) return null
-          // '1A' format
-          const m1 = s.match(/^(\d+)([A-Z])$/)
-          if (m1) return m1[2] + m1[1]
-          // 'A1' format
-          const m2 = s.match(/^([A-Z])(\d+)$/)
-          if (m2) return m2[1] + m2[2]
-          return null
-        }
-
-        const keyA = normalize(rawA)
-        const keyB = normalize(rawB)
-        const teamA = keyA ? seedMap[keyA] : null
-        const teamB = keyB ? seedMap[keyB] : null
-
-        if (teamA || teamB) {
-          const update = { id: m.id }
-          if (teamA && !m.team_a_id) update.team_a_id = teamA
-          if (teamB && !m.team_b_id) update.team_b_id = teamB
-          updates.push(update)
-        }
-      }
-
-      // Apply updates
-      let seeded = 0
-      for (const u of updates) {
-        const { id, ...fields } = u
-        await supabase.from('matches').update(fields).eq('id', id)
-        seeded++
-      }
-
-      setSeedResult(`✓ Seeded ${seeded} bracket game${seeded !== 1 ? 's' : ''} successfully`)
-
-      // Refresh matches
-      const { data: refreshed } = await supabase
-        .from('matches')
-        .select('id, status, score_a, score_b, scorekeeper_pin, tournament_id, team_a:tournament_teams!team_a_id(name, id), team_b:tournament_teams!team_b_id(name, id), time_slot:time_slots(scheduled_start), venue:venues(name)')
-        .eq('tournament_id', tournamentId)
-        .neq('status', 'cancelled')
-        .order('time_slot(scheduled_start)')
-      if (refreshed) setMatches(refreshed)
-
-    } catch (err) {
-      setError('Bracket seeding failed: ' + err.message)
-    } finally {
-      setSeedingBracket(false)
     }
   }
 
@@ -337,7 +188,6 @@ export function DirectorHQ() {
           <QuickLink to={'/director/' + tournamentId + '/roster'} label="Roster manager" sub="Add and manage players" />
           <QuickLink to={'/director/' + tournamentId + '/constraints'} label="Constraint review" sub="Review scheduling conflicts" />
           <QuickLink to={'/director/' + tournamentId + '/qr'} label="QR codes" sub="Print field QR cards" />
-          <QuickLink to={'/director/' + tournamentId + '/scorekeeper-sheet'} label="Scorekeeper sheet" sub="Print QR codes for all games" />
           {divisions.map(div => (
             <QuickLink
               key={div.id}
@@ -349,49 +199,6 @@ export function DirectorHQ() {
           ))}
         </div>
       </div>
-
-      {/* MyTeam follower counts */}
-      {Object.keys(teamFollows).length > 0 && (
-        <div style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, padding:'16px 20px', marginBottom:0 }}>
-          <p style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)', margin:'0 0 12px' }}>My Team followers</p>
-          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-            {Object.entries(teamFollows)
-              .sort(([,a],[,b]) => b - a)
-              .map(([teamId, count]) => {
-                const team = matches.flatMap(m => [m.team_a, m.team_b]).find(t => t?.id === teamId)
-                const name = team?.name ?? teamId.slice(0,8)
-                const max = Math.max(...Object.values(teamFollows))
-                return (
-                  <div key={teamId} style={{ display:'flex', alignItems:'center', gap:10 }}>
-                    <span style={{ fontSize:13, color:'var(--text-secondary)', width:160, flexShrink:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</span>
-                    <div style={{ flex:1, height:6, background:'var(--bg-raised)', borderRadius:3, overflow:'hidden' }}>
-                      <div style={{ height:'100%', background:'var(--accent)', borderRadius:3, width: `${(count/max)*100}%`, transition:'width 0.3s' }} />
-                    </div>
-                    <span style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)', width:24, textAlign:'right', flexShrink:0 }}>{count}</span>
-                  </div>
-                )
-              })
-            }
-          </div>
-        </div>
-      )}
-
-      {/* Seed Bracket */}
-      {divisions.length > 0 && matches.some(m => m.status === 'complete') && (
-        <div style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, padding:'16px 20px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:16 }}>
-          <div>
-            <p style={{ fontSize:14, fontWeight:600, color:'var(--text-primary)', margin:0 }}>Seed bracket from standings</p>
-            <p style={{ fontSize:12, color:'var(--text-muted)', margin:'3px 0 0' }}>
-              Reads final pool standings and slots teams into bracket games automatically.
-            </p>
-            {seedResult && <p style={{ fontSize:12, color:'#4ade80', margin:'4px 0 0', fontWeight:600 }}>{seedResult}</p>}
-          </div>
-          <button onClick={seedBracket} disabled={seedingBracket}
-            style={{ flexShrink:0, padding:'10px 20px', background:'var(--accent)', color:'var(--bg-base)', border:'none', borderRadius:10, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'inherit', opacity: seedingBracket ? 0.6 : 1, whiteSpace:'nowrap' }}>
-            {seedingBracket ? 'Seeding...' : '⚡ Seed Bracket'}
-          </button>
-        </div>
-      )}
 
       {/* Stream URLs per venue */}
       <StreamManager tournamentId={tournamentId} />
@@ -732,58 +539,29 @@ function ScoreEditor({ match: m, onClose, onSaved }) {
 }
 
 function CopyLinkButton({ matchId, pin }) {
-  const [copiedUrl, setCopiedUrl] = useState(false)
-  const [copiedPin, setCopiedPin] = useState(false)
+  const [copied, setCopied] = useState(false)
 
-  const url = window.location.origin + '/scorekeeper/' + matchId
-
-  function copyUrl() {
-    navigator.clipboard.writeText(url).then(() => {
-      setCopiedUrl(true)
-      setTimeout(() => setCopiedUrl(false), 2000)
-    })
-  }
-
-  function copyPin() {
-    if (!pin) return
-    navigator.clipboard.writeText(pin).then(() => {
-      setCopiedPin(true)
-      setTimeout(() => setCopiedPin(false), 2000)
+  function handleCopy() {
+    const url = window.location.origin + '/scorekeeper/' + matchId
+    const text = pin ? url + '\nPIN: ' + pin : url
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
     })
   }
 
   return (
-    <div className="flex items-center gap-1 flex-shrink-0">
-      {/* Copy URL only */}
-      <button
-        onClick={copyUrl}
-        title="Copy scorekeeper link"
-        className={'p-1.5 rounded-lg transition-colors flex items-center gap-1 ' + (
-          copiedUrl
-            ? 'text-[#4ade80] bg-[rgba(34,197,94,0.08)]'
-            : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
-        )}
-      >
-        {copiedUrl ? <Check size={12} /> : <Copy size={12} />}
-        <span className="text-[10px] font-medium">{copiedUrl ? 'Copied!' : 'Link'}</span>
-      </button>
-
-      {/* Show PIN inline + copy it separately */}
-      {pin && (
-        <button
-          onClick={copyPin}
-          title="Copy PIN"
-          className={'p-1.5 rounded-lg transition-colors flex items-center gap-1 ' + (
-            copiedPin
-              ? 'text-[#4ade80] bg-[rgba(34,197,94,0.08)]'
-              : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
-          )}
-        >
-          <Lock size={11} />
-          <span className="text-[10px] font-mono font-bold">{copiedPin ? '✓' : pin}</span>
-        </button>
+    <button
+      onClick={handleCopy}
+      title={pin ? 'Copy scorekeeper link + PIN' : 'Copy scorekeeper link'}
+      className={'flex-shrink-0 p-1.5 rounded-lg transition-colors ' + (
+        copied
+          ? 'text-[#4ade80] bg-[rgba(34,197,94,0.08)]'
+          : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
       )}
-    </div>
+    >
+      {copied ? <Check size={13} /> : <Copy size={13} />}
+    </button>
   )
 }
 
@@ -791,15 +569,15 @@ function MatchRow({ match: m, tournamentId }) {
   const isLive  = m.status === 'in_progress'
   const isDone  = m.status === 'complete' || m.status === 'forfeit'
   const hasTBD  = !m.team_a?.id || !m.team_b?.id
-  const [editing, setEditing]   = useState(false)
+  const [editing, setEditing] = useState(false)
   const [allTeams, setAllTeams] = useState([])
   const [scoreEdit, setScoreEdit] = useState(false)
-  const [saving, setSaving]     = useState(false)
-  const [teamA, setTeamA]       = useState(m.team_a?.id ?? '')
-  const [teamB, setTeamB]       = useState(m.team_b?.id ?? '')
+  const [saving, setSaving]   = useState(false)
+  const [teamA, setTeamA]     = useState(m.team_a?.id ?? '')
+  const [teamB, setTeamB]     = useState(m.team_b?.id ?? '')
 
   async function loadTeams() {
-    const { data } = await supabase
+        const { data } = await supabase
       .from('tournament_teams')
       .select('id, name, short_name, primary_color')
       .eq('tournament_id', m.tournament_id ?? tournamentId)
@@ -810,7 +588,7 @@ function MatchRow({ match: m, tournamentId }) {
 
   async function saveTeams() {
     setSaving(true)
-    await supabase.from('matches').update({
+        await supabase.from('matches').update({
       team_a_id: teamA || null,
       team_b_id: teamB || null,
     }).eq('id', m.id)
@@ -819,127 +597,93 @@ function MatchRow({ match: m, tournamentId }) {
     window.location.reload()
   }
 
-  const borderColor = isLive
-    ? 'rgba(34,197,94,0.3)'
-    : hasTBD ? 'rgba(234,179,8,0.25)'
-    : 'var(--border)'
-  const bg = isLive
-    ? 'rgba(34,197,94,0.05)'
-    : hasTBD ? 'rgba(234,179,8,0.03)'
-    : 'var(--bg-surface)'
-
   return (
-    <div style={{ border: `1px solid ${borderColor}`, borderRadius:12, background:bg, overflow:'hidden' }}>
+    <div className={'rounded-xl border text-sm transition-all ' + (isLive ? 'border-[rgba(34,197,94,0.25)] bg-[rgba(34,197,94,0.06)]' : hasTBD ? 'border-[rgba(234,179,8,0.2)] bg-[rgba(234,179,8,0.04)]' : 'border-[var(--border)] bg-[var(--bg-surface)]')}>
+      <div className="flex items-center gap-3 px-3 py-2">
+        {isLive && <span className="live-dot flex-shrink-0" />}
+        {hasTBD && !isLive && <span className="w-2 h-2 rounded-full bg-[#fde047] flex-shrink-0" />}
 
-      {/* Row 1: Teams + score */}
-      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px' }}>
-        {/* Status dot */}
-        {isLive && <span className="live-dot" style={{ flexShrink:0 }} />}
-        {hasTBD && !isLive && <span style={{ width:8, height:8, borderRadius:'50%', background:'#fde047', flexShrink:0 }} />}
+        <span className="flex-1 truncate text-[var(--text-secondary)]">
+          <span className={!m.team_a?.id ? 'text-[#fde047] italic' : ''}>{m.team_a?.name ?? 'TBD'}</span>
+          <span className="text-[var(--text-muted)] mx-1">vs</span>
+          <span className={!m.team_b?.id ? 'text-[#fde047] italic' : ''}>{m.team_b?.name ?? 'TBD'}</span>
+        </span>
 
-        {/* Team names */}
-        <div style={{ flex:1, minWidth:0 }}>
-          <p style={{ fontSize:14, fontWeight:600, color:'var(--text-primary)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-            <span style={{ color: !m.team_a?.id ? '#fde047' : 'inherit', fontStyle: !m.team_a?.id ? 'italic' : 'normal' }}>
-              {m.team_a?.name ?? 'TBD'}
-            </span>
-            <span style={{ color:'var(--text-muted)', fontWeight:400, margin:'0 6px' }}>vs</span>
-            <span style={{ color: !m.team_b?.id ? '#fde047' : 'inherit', fontStyle: !m.team_b?.id ? 'italic' : 'normal' }}>
-              {m.team_b?.name ?? 'TBD'}
-            </span>
-          </p>
-          <p style={{ fontSize:11, color:'var(--text-muted)', margin:'2px 0 0' }}>
-            {m.time_slot?.scheduled_start ? formatTime(m.time_slot.scheduled_start) : ''}
-            {m.team_a?.id && m.team_b?.id && m.round_label ? ' · ' + m.round_label : ''}
-          </p>
-        </div>
-
-        {/* Score */}
-        {(isLive || isDone) && (
-          <span style={{ fontFamily:'DM Mono, monospace', fontSize:16, fontWeight:700, color: isLive ? 'var(--live)' : 'var(--text-muted)', flexShrink:0 }}>
-            {m.score_a ?? 0}–{m.score_b ?? 0}
-          </span>
-        )}
-      </div>
-
-      {/* Row 2: Action buttons */}
-      <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px 10px', flexWrap:'wrap' }}>
-        {/* Start / Score button */}
-        {isLive ? (
-          <Link to={'/scorekeeper/' + m.id}
-            style={{ padding:'8px 16px', background:'var(--live)', color:'var(--bg-base)', borderRadius:8, fontSize:13, fontWeight:700, textDecoration:'none', flexShrink:0 }}>
-            Score →
-          </Link>
-        ) : !isDone ? (
-          <Link to={'/scorekeeper/' + m.id}
-            style={{ padding:'8px 16px', background:'var(--bg-raised)', border:'1px solid var(--border-mid)', color:'var(--text-secondary)', borderRadius:8, fontSize:13, fontWeight:600, textDecoration:'none', flexShrink:0 }}>
-            Start game
-          </Link>
-        ) : (
-          <Link to={'/score/' + m.id}
-            style={{ padding:'8px 16px', background:'var(--bg-raised)', border:'1px solid var(--border)', color:'var(--text-muted)', borderRadius:8, fontSize:13, textDecoration:'none', flexShrink:0 }}>
-            View →
-          </Link>
+        {isDone && <span className="text-xs font-bold text-[var(--text-muted)] tabular-nums flex-shrink-0">{m.score_a} - {m.score_b}</span>}
+        {isLive && <span className="text-xs font-bold text-[var(--live)] tabular-nums flex-shrink-0 font-mono">{m.score_a} - {m.score_b}</span>}
+        {m.time_slot?.scheduled_start && !isLive && !isDone && (
+          <span className="text-xs text-[var(--text-muted)] flex-shrink-0">{formatTime(m.time_slot.scheduled_start)}</span>
         )}
 
-        {/* Fix teams */}
+        {/* Fix TBD button */}
         {hasTBD && !isDone && (
-          <button onClick={() => loadTeams()}
-            style={{ padding:'8px 14px', background:'rgba(234,179,8,0.1)', border:'1px solid rgba(234,179,8,0.3)', color:'#fde047', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit', flexShrink:0 }}>
+          <button onClick={e => { e.stopPropagation(); loadTeams() }}
+            className="text-xs text-[#fde047] hover:text-[#fbbf24] border border-[rgba(234,179,8,0.3)] rounded px-1.5 py-0.5 flex-shrink-0">
             Fix teams
           </button>
         )}
 
-        {/* Score correction */}
+        {/* Score correction / forfeit */}
         {!hasTBD && (
-          <button onClick={() => setScoreEdit(s => !s)}
-            style={{ padding:'8px 14px', background:'var(--bg-raised)', border:'1px solid var(--border)', color:'var(--text-muted)', borderRadius:8, fontSize:13, cursor:'pointer', fontFamily:'inherit', flexShrink:0 }}>
-            {isDone ? 'Correct score' : 'Record result'}
+          <button onClick={e => { e.stopPropagation(); setScoreEdit(s => !s) }}
+            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] border border-[var(--border)] rounded px-1.5 py-0.5 flex-shrink-0">
+            {isDone ? 'Correct' : 'Forfeit'}
           </button>
         )}
 
-        {/* Scorekeeper link + PIN */}
+        {/* Copy scorekeeper link */}
         {!isDone && (
-          <div style={{ marginLeft:'auto' }}>
-            <CopyLinkButton matchId={m.id} pin={m.scorekeeper_pin} />
-          </div>
+          <CopyLinkButton matchId={m.id} pin={m.scorekeeper_pin} />
+        )}
+
+        {isLive ? (
+          <Link to={'/scorekeeper/' + m.id}
+            className="flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-lg bg-[var(--live)] text-[var(--bg-base)] hover:opacity-90">
+            Score
+          </Link>
+        ) : !isDone ? (
+          <Link to={'/scorekeeper/' + m.id}
+            className="flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]">
+            Start
+          </Link>
+        ) : (
+          <Link to={'/score/' + m.id}
+            className="flex-shrink-0 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
+            <ChevronRight size={13} />
+          </Link>
         )}
       </div>
 
-      {/* Team editor panel */}
+      {/* Inline team editor */}
       {editing && (
-        <div style={{ padding:'12px', borderTop:'1px solid var(--border)', background:'rgba(234,179,8,0.04)' }}>
-          <p style={{ fontSize:12, fontWeight:600, color:'var(--text-secondary)', marginBottom:10 }}>Assign teams</p>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
+        <div className="px-3 pb-3 pt-1 border-t border-[var(--border)] space-y-2 bg-[rgba(234,179,8,0.04)]">
+          <p className="text-xs font-semibold text-[var(--text-secondary)]">Assign teams</p>
+          <div className="grid grid-cols-2 gap-2">
             <div>
-              <label style={{ fontSize:11, color:'var(--text-muted)', display:'block', marginBottom:4 }}>Team A</label>
-              <select className="field-input" style={{ fontSize:13, width:'100%' }} value={teamA} onChange={e => setTeamA(e.target.value)}>
+              <label className="text-xs text-[var(--text-muted)] mb-1 block">Team A</label>
+              <select className="field-input text-xs" value={teamA} onChange={e => setTeamA(e.target.value)}>
                 <option value="">TBD</option>
                 {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
             <div>
-              <label style={{ fontSize:11, color:'var(--text-muted)', display:'block', marginBottom:4 }}>Team B</label>
-              <select className="field-input" style={{ fontSize:13, width:'100%' }} value={teamB} onChange={e => setTeamB(e.target.value)}>
+              <label className="text-xs text-[var(--text-muted)] mb-1 block">Team B</label>
+              <select className="field-input text-xs" value={teamB} onChange={e => setTeamB(e.target.value)}>
                 <option value="">TBD</option>
                 {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
           </div>
-          <div style={{ display:'flex', gap:8 }}>
-            <button onClick={saveTeams} disabled={saving}
-              style={{ flex:1, padding:'10px', background:'var(--accent)', color:'var(--bg-base)', border:'none', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+          <div className="flex gap-2">
+            <button onClick={saveTeams} disabled={saving} className="btn-primary btn btn-sm">
               {saving ? 'Saving...' : 'Save teams'}
             </button>
-            <button onClick={() => setEditing(false)}
-              style={{ padding:'10px 16px', background:'var(--bg-raised)', border:'1px solid var(--border)', color:'var(--text-muted)', borderRadius:8, fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>
-              Cancel
-            </button>
+            <button onClick={() => setEditing(false)} className="btn-secondary btn btn-sm">Cancel</button>
           </div>
         </div>
       )}
 
-      {/* Score editor panel */}
+      {/* Score correction / forfeit panel */}
       {scoreEdit && (
         <ScoreEditor match={m} onClose={() => setScoreEdit(false)} onSaved={() => { setScoreEdit(false); window.location.reload() }} />
       )}

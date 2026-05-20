@@ -3,62 +3,81 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/LoadingSpinner'
-import { ChevronRight, MapPin, Calendar, ChevronLeft, Users, Clock, Trophy } from 'lucide-react'
+import { ChevronRight, MapPin, Calendar, ChevronLeft, Clock, Trophy, Search, X } from 'lucide-react'
+
+const teamKey     = slug => `myteam_${slug}`
+const browsingKey = slug => `browsing_${slug}`
 
 export function TournamentHome() {
-  const { slug }    = useParams()
-  const navigate    = useNavigate()
-  const { user }    = useAuth()
-  const [tournament, setTournament]           = useState(null)
-  const [divisions, setDivisions]             = useState([])
-  const [liveMatches, setLiveMatches]         = useState([])
-  const [upcomingMatches, setUpcomingMatches] = useState([])
-  const [standings, setStandings]             = useState([])
-  const [pools, setPools]                     = useState([])
-  const [loading, setLoading]                 = useState(true)
-  const [notFound, setNotFound]               = useState(false)
-  const [activeTab, setActiveTab]             = useState('overview') // will be overridden after load
+  const { slug }  = useParams()
+  const navigate  = useNavigate()
+  const { user }  = useAuth()
+
+  const [tournament, setTournament] = useState(null)
+  const [divisions, setDivisions]   = useState([])
+  const [teams, setTeams]           = useState([])
+  const [matches, setMatches]       = useState([])
+  const [standings, setStandings]   = useState([])
+  const [loading, setLoading]       = useState(true)
+  const [notFound, setNotFound]     = useState(false)
+
+  const [myTeam, setMyTeam]         = useState(null)
+  const [showPicker, setShowPicker] = useState(false)
+  const [isBrowsing, setIsBrowsing] = useState(false)
+  const [search, setSearch]         = useState('')
 
   useEffect(() => {
     async function load() {
       try {
         const { data: t, error } = await supabase
           .from('tournaments')
-          .select('*, sport_template:sport_templates(slug, display_name), divisions(*)')
+          .select('*, divisions(*)')
           .eq('slug', slug).is('deleted_at', null).single()
         if (error || !t) { setNotFound(true); return }
         setTournament(t)
         setDivisions(t.divisions ?? [])
 
-        // Default tab based on tournament status
-        if (t.status === 'archived' || t.status === 'review') {
-          setActiveTab('bracket')
-        } else if (t.status === 'live') {
-          setActiveTab('overview')
+        const { data: m } = await supabase
+          .from('matches')
+          .select(`id, status, score_a, score_b, round_label, pool_id, phase, bracket_position,
+            team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
+            team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
+            venue:venues(name, short_name, youtube_url),
+            time_slot:time_slots(scheduled_start)`)
+          .eq('tournament_id', t.id).neq('status', 'cancelled')
+          .order('time_slot(scheduled_start)')
+        setMatches(m ?? [])
+
+        const { data: tm } = await supabase
+          .from('tournament_teams')
+          .select('id, name, short_name, primary_color, pool_id, pool:pools(name)')
+          .eq('tournament_id', t.id).order('name')
+        setTeams(tm ?? [])
+
+        if (t.divisions?.length > 0) {
+          const { data: st } = await supabase
+            .from('pool_standings_display').select('*')
+            .in('division_id', t.divisions.map(d => d.id))
+            .order('pool_id').order('rank')
+          setStandings(st ?? [])
         }
 
-        const { data: live } = await supabase.from('matches')
-          .select('id, score_a, score_b, status, team_a:tournament_teams!team_a_id(id, name, short_name, primary_color), team_b:tournament_teams!team_b_id(id, name, short_name, primary_color), venue:venues(name, short_name, youtube_url), time_slot:time_slots(scheduled_start)')
-          .eq('tournament_id', t.id).eq('status', 'in_progress').order('time_slot(scheduled_start)')
-        setLiveMatches(live ?? [])
-
-        const { data: upcoming } = await supabase.from('matches')
-          .select('id, status, team_a:tournament_teams!team_a_id(id, name, short_name, primary_color), team_b:tournament_teams!team_b_id(id, name, short_name, primary_color), venue:venues(name, short_name), time_slot:time_slots(scheduled_start), pool:pools(name)')
-          .eq('tournament_id', t.id).eq('status', 'scheduled').order('time_slot(scheduled_start)').limit(8)
-        setUpcomingMatches(upcoming ?? [])
-
-        // Load standings for all divisions
-        if (t.divisions?.length > 0) {
-          const divIds = t.divisions.map(d => d.id)
-          const { data: st } = await supabase.from('pool_standings_display')
-            .select('*').in('division_id', divIds).order('pool_id').order('rank')
-          setStandings(st ?? [])
-          const { data: poolData } = await supabase.from('pools')
-            .select('id, name, division_id').in('division_id', divIds).order('sort_order')
-          setPools(poolData ?? [])
+        if (t.myteam_enabled !== false) {
+          const savedTeam     = localStorage.getItem(teamKey(slug))
+          const savedBrowsing = localStorage.getItem(browsingKey(slug))
+          if (savedTeam) {
+            try {
+              const parsed = JSON.parse(savedTeam)
+              const found = (tm ?? []).find(x => x.id === parsed.id)
+              if (found) { setMyTeam(found); return }
+              else localStorage.removeItem(teamKey(slug))
+            } catch { localStorage.removeItem(teamKey(slug)) }
+          }
+          if (savedBrowsing) { setIsBrowsing(true); return }
+          setShowPicker(true)
         }
       } catch (err) {
-        console.error('TournamentHome error:', err)
+        console.error(err)
         setNotFound(true)
       } finally {
         setLoading(false)
@@ -69,389 +88,530 @@ export function TournamentHome() {
 
   useEffect(() => {
     if (!tournament) return
-    const channel = supabase.channel('tournament-home-' + tournament.id)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches', filter: 'tournament_id=eq.' + tournament.id }, () => {
-        supabase.from('matches').select('id, score_a, score_b, status, team_a:tournament_teams!team_a_id(id, name, short_name, primary_color), team_b:tournament_teams!team_b_id(id, name, short_name, primary_color), venue:venues(name, short_name)')
-          .eq('tournament_id', tournament.id).eq('status', 'in_progress')
-          .then(({ data }) => setLiveMatches(data ?? []))
+    const ch = supabase.channel('home-rt-' + tournament.id)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches',
+        filter: 'tournament_id=eq.' + tournament.id }, payload => {
+        setMatches(prev => prev.map(m =>
+          m.id === payload.new.id
+            ? { ...m, score_a: payload.new.score_a, score_b: payload.new.score_b, status: payload.new.status }
+            : m
+        ))
       }).subscribe()
-    return () => supabase.removeChannel(channel)
+    return () => supabase.removeChannel(ch)
   }, [tournament?.id])
+
+  function pickTeam(team) {
+    setMyTeam(team); setShowPicker(false); setSearch('')
+    localStorage.setItem(teamKey(slug), JSON.stringify(team))
+    localStorage.removeItem(browsingKey(slug))
+    // Log team follow
+    if (tournament?.id && team?.id) {
+      supabase.from('team_follows').insert({ tournament_id: tournament.id, team_id: team.id }).then(() => {})
+    }
+  }
+
+  function goBrowse() {
+    setIsBrowsing(true); setShowPicker(false); setSearch('')
+    localStorage.setItem(browsingKey(slug), '1')
+    localStorage.removeItem(teamKey(slug))
+  }
+
+  function clearPreference() {
+    setMyTeam(null); setIsBrowsing(false); setShowPicker(true)
+    localStorage.removeItem(teamKey(slug))
+    localStorage.removeItem(browsingKey(slug))
+  }
 
   if (loading) return <PageLoader />
   if (notFound) return (
-    <div style={{ maxWidth:600, margin:'0 auto', padding:'64px 20px', textAlign:'center', color:'var(--text-muted)' }}>
+    <div style={{ maxWidth:600, margin:'0 auto', padding:'64px 20px', textAlign:'center' }}>
       <p style={{ fontSize:18, fontWeight:600, color:'var(--text-secondary)', marginBottom:8 }}>Tournament not found</p>
       <Link to="/tournaments" className="btn btn-secondary btn-sm">Browse tournaments</Link>
     </div>
   )
 
-  const color      = tournament.primary_color ?? '#8a8a9a'
-  const initial    = (tournament.name ?? '?')[0].toUpperCase()
-  const isLive     = tournament.status === 'live'
-  const isUpcoming = tournament.status === 'published'
-  const hasRules   = !!(tournament.rules_text)
+  const color         = tournament.primary_color ?? '#1a56db'
+  const divId         = divisions[0]?.id
+  const myTeamEnabled = tournament.myteam_enabled !== false
+  const liveMatches   = matches.filter(m => m.status === 'in_progress')
+  const tournamentDone = ['review', 'complete', 'archived'].includes(tournament?.status)
 
-  const formatDate = d => d ? new Date(d + 'T12:00').toLocaleDateString('en-CA', { month:'short', day:'numeric', year:'numeric' }) : ''
+  // Redirect completed tournaments to bracket
+  if (tournamentDone && divId) {
+    window.location.replace('/t/' + slug + '/bracket/' + divId)
+    return <PageLoader />
+  }
 
-  const TABS = [
-    ['overview', 'Overview'],
-    ['schedule', 'Schedule', '/t/' + slug + '/schedule'],
-    ['standings', 'Standings'],
-    ['bracket', 'Bracket'],
-    ...(hasRules ? [['rules', 'Rules']] : []),
-  ]
+  const myMatches  = myTeam ? matches.filter(m => m.team_a?.id === myTeam.id || m.team_b?.id === myTeam.id) : []
+  const heroMatch  = myMatches.find(m => m.status === 'in_progress') ?? myMatches.find(m => m.status === 'scheduled')
+  const myStanding = myTeam ? standings.find(s => s.team_id === myTeam.id) : null
+
+  const filteredTeams = teams.filter(t =>
+    t.name.toLowerCase().includes(search.toLowerCase()) ||
+    (t.pool?.name ?? '').toLowerCase().includes(search.toLowerCase())
+  )
+
+  const fmtTime = iso => iso
+    ? new Date(iso).toLocaleTimeString('en-CA', { hour:'numeric', minute:'2-digit', hour12:true, timeZone:'America/Toronto' })
+    : ''
+  const fmtDate = d => d
+    ? new Date(d + 'T12:00').toLocaleDateString('en-CA', { weekday:'long', month:'long', day:'numeric' })
+    : ''
+
+  const showMyTeam   = myTeamEnabled && !!myTeam
+  const showBrowsing = myTeamEnabled && !myTeam && isBrowsing
+  const showOverview = !myTeamEnabled
 
   return (
     <div style={{ minHeight:'100vh', background:'var(--bg-base)' }}>
-      {/* Hero */}
+
+      {/* Header */}
       <div style={{ background:'var(--bg-surface)', borderBottom:'1px solid var(--border)' }}>
-        <div style={{ maxWidth:860, margin:'0 auto', padding:'28px 20px 0' }}>
-          <Link to="/tournaments" style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:12, color:'var(--text-muted)', textDecoration:'none', marginBottom:16 }}
-            className="hover:text-[var(--text-secondary)]">
+        <div style={{ maxWidth:640, margin:'0 auto', padding:'20px 20px 0' }}>
+          <Link to="/tournaments" style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:12, color:'var(--text-muted)', textDecoration:'none', marginBottom:14 }}>
             <ChevronLeft size={13} /> All tournaments
           </Link>
-
-          <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:16, marginBottom:20 }}>
-            <div style={{ minWidth:0 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6, flexWrap:'wrap' }}>
-                <h1 style={{ fontSize:26, fontWeight:700, letterSpacing:'-0.03em', color:'var(--text-primary)', lineHeight:1.1 }}>{tournament.name}</h1>
-                {isLive && (
-                  <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:10, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--live)', background:'var(--live-dim)', border:'1px solid rgba(34,197,94,0.2)', padding:'3px 9px', borderRadius:20 }}>
+          <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:14 }}>
+            <div>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4, flexWrap:'wrap' }}>
+                <h1 style={{ fontSize:20, fontWeight:700, letterSpacing:'-0.02em', color:'var(--text-primary)', margin:0 }}>{tournament.name}</h1>
+                {liveMatches.length > 0 && (
+                  <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:10, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--live)', background:'var(--live-dim)', border:'1px solid rgba(34,197,94,0.2)', padding:'2px 8px', borderRadius:20 }}>
                     <span className="live-dot" /> Live
                   </span>
                 )}
               </div>
-              <div style={{ display:'flex', gap:16, fontSize:13, color:'var(--text-muted)', flexWrap:'wrap' }}>
-                {tournament.venue_name && <span style={{ display:'flex', alignItems:'center', gap:4 }}><MapPin size={12} /> {tournament.venue_name}</span>}
-                {tournament.start_date && <span style={{ display:'flex', alignItems:'center', gap:4 }}><Calendar size={12} /> {formatDate(tournament.start_date)}</span>}
-                {divisions.length > 0 && <span style={{ display:'flex', alignItems:'center', gap:4 }}><Users size={12} /> {divisions.length} division{divisions.length !== 1 ? 's' : ''}</span>}
-              </div>
+              <p style={{ fontSize:12, color:'var(--text-muted)', margin:0, display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                <span style={{ display:'flex', alignItems:'center', gap:3 }}><Calendar size={11} />{fmtDate(tournament.start_date)}</span>
+                {tournament.venue_name && <span style={{ display:'flex', alignItems:'center', gap:3 }}><MapPin size={11} />{tournament.venue_name}</span>}
+              </p>
             </div>
-            <div style={{ width:48, height:48, borderRadius:12, background:color, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, fontWeight:700, color:'#fff', flexShrink:0 }}>
-              {initial}
+            <div style={{ width:44, height:44, borderRadius:10, background:color, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:700, color:'#fff', flexShrink:0 }}>
+              {(tournament.name ?? '?')[0].toUpperCase()}
             </div>
           </div>
 
-          {/* Tabs */}
-          <div style={{ display:'flex', gap:0, marginTop:4, borderTop:'1px solid var(--border)', overflowX:'auto' }}>
-            {TABS.map(([tab, label, href]) => (
-              <button key={tab} onClick={() => {
-                if (href) { navigate(href); return }
-                if (tab === 'bracket' && divisions.length === 1) { navigate('/t/' + slug + '/bracket/' + divisions[0].id); return }
-                if (tab === 'bracket' && divisions.length > 1) { setActiveTab('bracket'); return }
-                setActiveTab(tab)
-              }}
-                style={{ padding:'10px 16px', fontSize:13, fontWeight:500, fontFamily:'inherit', background:'transparent', border:'none', cursor:'pointer', whiteSpace:'nowrap',
-                  borderBottom: activeTab === tab ? '2px solid var(--accent)' : '2px solid transparent',
-                  color: activeTab === tab ? 'var(--accent)' : 'var(--text-muted)', transition:'color 0.15s' }}>
-                {label}
-              </button>
-            ))}
+          {/* Nav tabs */}
+          <div style={{ display:'flex', overflowX:'auto' }}>
+            {[
+              myTeamEnabled ? ['My Team', null] : null,
+              ['Schedule', `/t/${slug}/schedule`],
+              divId ? ['Standings', `/t/${slug}/standings/${divId}`] : null,
+              divId ? ['Bracket', `/t/${slug}/bracket/${divId}`] : null,
+            ].filter(Boolean).map(([label, href]) =>
+              href ? (
+                <Link key={label} to={href}
+                  style={{ padding:'10px 16px', fontSize:13, fontWeight:500, color:'var(--text-muted)', textDecoration:'none', borderBottom:'2px solid transparent', whiteSpace:'nowrap', flexShrink:0 }}>
+                  {label}
+                </Link>
+              ) : (
+                <span key={label}
+                  style={{ padding:'10px 16px', fontSize:13, fontWeight:600, color, borderBottom:`2px solid ${color}`, whiteSpace:'nowrap', flexShrink:0 }}>
+                  {label}
+                </span>
+              )
+            )}
           </div>
         </div>
       </div>
 
-      {/* Content */}
-      <div style={{ maxWidth:860, margin:'0 auto', padding:'28px 20px 80px' }}>
+      <div style={{ maxWidth:640, margin:'0 auto', padding:'16px 20px 80px' }}>
 
-        {/* Staff entry */}
-        {user && (isLive || isUpcoming) && (
-          <Link to={'/t/' + slug + '/gameday'}
-            style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 18px', background:'var(--accent-dim)', border:'1px solid rgba(232,255,71,0.15)', borderRadius:12, textDecoration:'none', marginBottom:24 }}>
+        {/* Staff banner */}
+        {user && (
+          <Link to={`/t/${slug}/gameday`}
+            style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 16px', background:'var(--accent-dim)', border:'1px solid rgba(232,255,71,0.15)', borderRadius:10, textDecoration:'none', marginBottom:16 }}>
             <span style={{ fontSize:13, fontWeight:600, color:'var(--accent)' }}>Scorekeeper / Staff entry</span>
-            <ChevronRight size={15} style={{ color:'var(--accent)' }} />
+            <ChevronRight size={14} style={{ color:'var(--accent)' }} />
           </Link>
         )}
 
-        {/* - OVERVIEW - */}
-        {activeTab === 'overview' && (
-          <div style={{ display:'flex', flexDirection:'column', gap:24 }}>
-            {/* Live games inline on overview */}
-            {liveMatches.length > 0 && (
-              <div>
-                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
-                  <span style={{ display:'flex', alignItems:'center', gap:5, fontSize:11, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--live)', background:'var(--live-dim)', border:'1px solid rgba(34,197,94,0.2)', padding:'3px 10px', borderRadius:20 }}>
-                    <span className="live-dot" /> Live
-                  </span>
-                  <span style={{ fontSize:12, color:'var(--text-muted)' }}>{liveMatches.length} game{liveMatches.length !== 1 ? 's' : ''} in progress</span>
-                </div>
-                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                  {liveMatches.map(m => <LiveMatchCard key={m.id} match={m} />)}
-                </div>
-              </div>
-            )}
-
-            {/* Description */}
-            {tournament.description ? (
-              <div style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, padding:'20px 22px' }}>
-                <h2 style={{ fontSize:13, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:12 }}>About</h2>
-                <p style={{ fontSize:14, color:'var(--text-secondary)', lineHeight:1.7, whiteSpace:'pre-wrap' }}>{tournament.description}</p>
-              </div>
-            ) : null}
-
-
-
-            {/* Up next */}
-            {upcomingMatches.length > 0 && (
-              <div>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
-                  <span style={{ fontSize:11, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', display:'flex', alignItems:'center', gap:5 }}>
-                    <Clock size={11} /> Up next
-                  </span>
-                  <button onClick={() => setActiveTab('schedule')}
-                    style={{ fontSize:12, color:'var(--text-muted)', background:'transparent', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:4, fontFamily:'inherit' }}
-                    className="hover:text-[var(--text-secondary)]">
-                    Full schedule <ChevronRight size={12} />
-                  </button>
-                </div>
-                <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-                  {upcomingMatches.slice(0,4).map(m => <UpcomingCard key={m.id} match={m} />)}
-                </div>
-              </div>
-            )}
-
-            {!tournament.description && liveMatches.length === 0 && upcomingMatches.length === 0 && divisions.length === 0 && (
-              <div style={{ textAlign:'center', padding:'48px 0', color:'var(--text-muted)' }}>
-                <Trophy size={32} style={{ margin:'0 auto 12px', opacity:0.3 }} />
-                <p style={{ fontSize:15, fontWeight:600, color:'var(--text-secondary)' }}>
-                  {tournament.status === 'archived' ? 'Tournament complete' : 'Coming soon'}
-                </p>
-              </div>
-            )}
+        {/* Live ticker */}
+        {liveMatches.length > 0 && (
+          <div style={{ marginBottom:20 }}>
+            <p style={{ fontSize:10, fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--live)', marginBottom:8, display:'flex', alignItems:'center', gap:4 }}>
+              <span className="live-dot" /> {liveMatches.length} game{liveMatches.length !== 1 ? 's' : ''} live now
+            </p>
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+              {liveMatches.map(m => <LiveMatchCard key={m.id} match={m} />)}
+            </div>
           </div>
         )}
 
-        {/* - SCHEDULE - */}
-        {activeTab === 'schedule' && (
-          <ScheduleRedirect slug={slug} />
+        {/* MY TEAM */}
+        {showMyTeam && (
+          <MyTeamView myTeam={myTeam} myStanding={myStanding} myMatches={myMatches}
+            heroMatch={heroMatch} slug={slug} divId={divId} color={color}
+            fmtTime={fmtTime} onClear={clearPreference} />
         )}
 
-        {/* - STANDINGS - */}
-        {activeTab === 'standings' && (
-          <StandingsTab divisions={divisions} standings={standings} pools={pools} slug={slug} advancesPerPool={2} brandColor={color} />
+        {/* SPECTATOR */}
+        {showBrowsing && (
+          <BrowsingView matches={matches} liveMatches={liveMatches} slug={slug}
+            divId={divId} color={color} fmtTime={fmtTime}
+            onPickTeam={() => { setIsBrowsing(false); setShowPicker(true) }} />
         )}
 
-        {/* - BRACKET - */}
-        {activeTab === 'bracket' && (
-          <BracketTab divisions={divisions} slug={slug} />
+        {/* OVERVIEW (myteam disabled) */}
+        {showOverview && (
+          <OverviewView matches={matches} slug={slug} divId={divId} color={color} fmtTime={fmtTime} />
         )}
 
-        {/* - RULES - */}
-        {activeTab === 'rules' && tournament.rules_text && (
-          <div style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, padding:'20px 22px' }}>
-            <p style={{ fontSize:14, color:'var(--text-secondary)', lineHeight:1.8, whiteSpace:'pre-wrap' }}>{tournament.rules_text}</p>
+        {myTeamEnabled && showPicker && !showMyTeam && !showBrowsing && (
+          <div style={{ padding:'40px 0', textAlign:'center', color:'var(--text-muted)' }}>
+            <p style={{ fontSize:14 }}>Select your team to personalize your experience</p>
           </div>
         )}
       </div>
+
+      {/* TEAM PICKER OVERLAY */}
+      {showPicker && myTeamEnabled && (
+        <div style={{ position:'fixed', inset:0, background:'var(--bg-base)', zIndex:100, display:'flex', flexDirection:'column' }}>
+          <div style={{ padding:'20px 20px 12px', background:'var(--bg-surface)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
+              <div>
+                <h2 style={{ fontSize:20, fontWeight:700, color:'var(--text-primary)', margin:0, letterSpacing:'-0.02em' }}>Which team are you following?</h2>
+                <p style={{ fontSize:13, color:'var(--text-muted)', margin:'4px 0 0' }}>{tournament.name}</p>
+              </div>
+              {(myTeam || isBrowsing) && (
+                <button onClick={() => setShowPicker(false)}
+                  style={{ background:'transparent', border:'none', color:'var(--text-muted)', cursor:'pointer', padding:4 }}>
+                  <X size={20} />
+                </button>
+              )}
+            </div>
+            <div style={{ position:'relative' }}>
+              <Search size={15} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--text-muted)', pointerEvents:'none' }} />
+              <input type="text" placeholder="Search team or pool..." value={search}
+                onChange={e => setSearch(e.target.value)} autoFocus
+                style={{ width:'100%', padding:'10px 12px 10px 36px', background:'var(--bg-raised)', border:'1px solid var(--border-mid)', borderRadius:10, fontSize:15, color:'var(--text-primary)', fontFamily:'inherit', outline:'none', boxSizing:'border-box' }} />
+            </div>
+          </div>
+
+          <div style={{ flex:1, overflowY:'auto', padding:'12px 16px 40px' }}>
+            <button onClick={goBrowse}
+              style={{ width:'100%', marginBottom:16, padding:'16px', background:'var(--bg-surface)', border:'1px solid var(--border-mid)', borderRadius:12, fontSize:16, fontWeight:600, color:'var(--text-secondary)', cursor:'pointer', fontFamily:'inherit' }}>
+              Just spectating →
+            </button>
+
+            {Object.entries(
+              filteredTeams.reduce((acc, t) => {
+                const pool = t.pool?.name ?? 'Teams'
+                if (!acc[pool]) acc[pool] = []
+                acc[pool].push(t)
+                return acc
+              }, {})
+            ).sort(([a], [b]) => a.localeCompare(b)).map(([poolName, poolTeams]) => (
+              <div key={poolName} style={{ marginBottom:20 }}>
+                <p style={{ fontSize:11, fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:8, paddingLeft:2 }}>{poolName}</p>
+                <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                  {poolTeams.map(team => (
+                    <button key={team.id} onClick={() => pickTeam(team)}
+                      style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 16px', background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:12, cursor:'pointer', fontFamily:'inherit', textAlign:'left', width:'100%' }}>
+                      <div style={{ width:42, height:42, borderRadius:10, background:team.primary_color ?? '#374151', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:700, color:'#fff', flexShrink:0 }}>
+                        {(team.short_name ?? team.name)[0]}
+                      </div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <p style={{ fontSize:16, fontWeight:600, color:'var(--text-primary)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{team.name}</p>
+                        <p style={{ fontSize:12, color:'var(--text-muted)', margin:'2px 0 0' }}>{team.short_name}</p>
+                      </div>
+                      <ChevronRight size={16} style={{ color:'var(--text-muted)', flexShrink:0 }} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {filteredTeams.length === 0 && (
+              <p style={{ textAlign:'center', color:'var(--text-muted)', padding:'40px 0', fontSize:14 }}>No teams found</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+function MyTeamView({ myTeam, myStanding, myMatches, heroMatch, slug, divId, color, fmtTime, onClear }) {
+  return (
+    <>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <div style={{ width:42, height:42, borderRadius:10, background:myTeam.primary_color ?? color, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:700, color:'#fff' }}>
+            {(myTeam.short_name ?? myTeam.name)[0]}
+          </div>
+          <div>
+            <p style={{ fontSize:17, fontWeight:700, color:'var(--text-primary)', margin:0 }}>{myTeam.name}</p>
+            <p style={{ fontSize:12, color:'var(--text-muted)', margin:0 }}>{myTeam.pool?.name ?? ''}</p>
+          </div>
+        </div>
+        {myStanding && (
+          <div style={{ display:'flex', gap:6 }}>
+            {[
+              ['Rank', myStanding.rank ?? '—', null],
+              ['W–L', `${myStanding.wins ?? 0}–${myStanding.losses ?? 0}`, null],
+              ['+/–', ((myStanding.point_diff ?? 0) > 0 ? '+' : '') + (myStanding.point_diff ?? 0),
+                (myStanding.point_diff ?? 0) > 0 ? '#4ade80' : (myStanding.point_diff ?? 0) < 0 ? '#f87171' : null],
+            ].map(([label, val, valColor]) => (
+              <div key={label} style={{ textAlign:'center', background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:8, padding:'5px 8px', minWidth:40 }}>
+                <p style={{ fontSize:15, fontWeight:800, color: valColor ?? 'var(--text-primary)', margin:0, lineHeight:1, fontFamily:'DM Mono, monospace' }}>{val}</p>
+                <p style={{ fontSize:9, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', margin:0 }}>{label}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {heroMatch && <HeroMatchCard match={heroMatch} myTeamId={myTeam.id} color={color} fmtTime={fmtTime} />}
+
+      <div style={{ marginTop:18 }}>
+        <p style={{ fontSize:11, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:10 }}>All games</p>
+        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          {myMatches.length === 0
+            ? <p style={{ fontSize:14, color:'var(--text-muted)', fontStyle:'italic' }}>No games scheduled yet</p>
+            : myMatches.map(m => (
+              <MatchRow key={m.id} match={m} myTeamId={myTeam.id} fmtTime={fmtTime}
+                isHero={m.id === heroMatch?.id && m.status !== 'complete' && m.status !== 'forfeit'} />
+            ))
+          }
+        </div>
+      </div>
+
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginTop:24 }}>
+        <QuickBtn to={`/t/${slug}/schedule`} label="Schedule" icon={<Clock size={15} />} color={color} />
+        {divId && <QuickBtn to={`/t/${slug}/standings/${divId}`} label="Standings" icon={<Trophy size={15} />} color={color} />}
+        {divId && <QuickBtn to={`/t/${slug}/bracket/${divId}`} label="Bracket" icon={<ChevronRight size={15} />} color={color} />}
+        <QuickBtn to={`/t/${slug}/team/${myTeam.id}`} label="Team page" icon={<ChevronRight size={15} />} color={color} />
+      </div>
+
+      <button onClick={onClear}
+        style={{ marginTop:20, background:'transparent', border:'none', color:'var(--text-muted)', fontSize:12, cursor:'pointer', fontFamily:'inherit', padding:'8px 0', textDecoration:'underline', width:'100%', textAlign:'center' }}>
+        Change my team
+      </button>
+    </>
+  )
+}
+
+function BrowsingView({ matches, liveMatches, slug, divId, color, fmtTime, onPickTeam }) {
+  const display = liveMatches.length > 0 ? liveMatches : matches.filter(m => m.status === 'scheduled').slice(0, 8)
+  return (
+    <>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:20 }}>
+        <QuickBtn to={`/t/${slug}/schedule`} label="Schedule" icon={<Clock size={15} />} color={color} />
+        {divId && <QuickBtn to={`/t/${slug}/standings/${divId}`} label="Standings" icon={<Trophy size={15} />} color={color} />}
+        {divId && <QuickBtn to={`/t/${slug}/bracket/${divId}`} label="Bracket" icon={<ChevronRight size={15} />} color={color} />}
+      </div>
+      {display.length > 0 && (
+        <>
+          <p style={{ fontSize:11, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:10 }}>
+            {liveMatches.length > 0 ? 'Live now' : 'Upcoming games'}
+          </p>
+          <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:20 }}>
+            {display.map(m => (
+              <Link key={m.id} to={`/score/${m.id}`}
+                style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 14px', background:'var(--bg-surface)', border:`1px solid ${m.status === 'in_progress' ? 'rgba(34,197,94,0.3)' : 'var(--border)'}`, borderRadius:12, textDecoration:'none', gap:10 }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:3 }}>
+                    {m.status === 'in_progress' && <span style={{ fontSize:9, fontWeight:700, color:'var(--live)', letterSpacing:'0.08em' }}>LIVE</span>}
+                    <span style={{ fontSize:11, color:'var(--text-muted)' }}>{fmtTime(m.time_slot?.scheduled_start)} · {m.venue?.short_name ?? m.venue?.name}</span>
+                  </div>
+                  <p style={{ fontSize:14, fontWeight:600, color:'var(--text-primary)', margin:0 }}>
+                    {m.team_a?.short_name ?? m.team_a?.name ?? 'TBD'} vs {m.team_b?.short_name ?? m.team_b?.name ?? 'TBD'}
+                  </p>
+                  {m.round_label && !m.round_label.startsWith('Pool') && (
+                    <span style={{ fontSize:10, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--accent)', background:'var(--accent-dim)', padding:'2px 6px', borderRadius:20, marginTop:2, display:'inline-block' }}>{m.round_label}</span>
+                  )}
+                </div>
+                {m.status === 'in_progress' && (
+                  <span style={{ fontFamily:'DM Mono, monospace', fontSize:16, fontWeight:700, color:'var(--text-primary)', flexShrink:0 }}>
+                    {m.score_a ?? 0}–{m.score_b ?? 0}
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
+        </>
+      )}
+      <button onClick={onPickTeam}
+        style={{ background:'transparent', border:'none', color:'var(--text-muted)', fontSize:12, cursor:'pointer', fontFamily:'inherit', padding:'8px 0', textDecoration:'underline', width:'100%', textAlign:'center' }}>
+        Follow a specific team
+      </button>
+    </>
+  )
+}
+
+function OverviewView({ matches, slug, divId, color, fmtTime }) {
+  const upcoming = matches.filter(m => m.status === 'scheduled').slice(0, 6)
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
+      {upcoming.length > 0 && (
+        <div>
+          <p style={{ fontSize:11, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:10 }}>Upcoming</p>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {upcoming.map(m => (
+              <Link key={m.id} to={`/score/${m.id}`}
+                style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:12, textDecoration:'none' }}>
+                <span style={{ fontFamily:'DM Mono, monospace', fontSize:12, color:'var(--text-muted)', width:52, flexShrink:0 }}>{fmtTime(m.time_slot?.scheduled_start)}</span>
+                <div style={{ width:1, height:24, background:'var(--border)', flexShrink:0 }} />
+                <div style={{ flex:1, minWidth:0 }}>
+                  <p style={{ fontSize:14, fontWeight:500, color:'var(--text-primary)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                    {m.team_a?.short_name ?? 'TBD'} vs {m.team_b?.short_name ?? 'TBD'}
+                  </p>
+                  {m.round_label && !m.round_label.startsWith('Pool') && (
+                    <span style={{ fontSize:10, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--accent)', background:'var(--accent-dim)', padding:'2px 6px', borderRadius:20, marginTop:2, display:'inline-block' }}>{m.round_label}</span>
+                  )}
+                </div>
+                <span style={{ fontSize:12, color:'var(--text-muted)', flexShrink:0 }}>{m.venue?.short_name}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+        <QuickBtn to={`/t/${slug}/schedule`} label="Schedule" icon={<Clock size={15} />} color={color} />
+        {divId && <QuickBtn to={`/t/${slug}/standings/${divId}`} label="Standings" icon={<Trophy size={15} />} color={color} />}
+        {divId && <QuickBtn to={`/t/${slug}/bracket/${divId}`} label="Bracket" icon={<ChevronRight size={15} />} color={color} />}
+      </div>
+    </div>
+  )
+}
+
+function HeroMatchCard({ match: m, myTeamId, color, fmtTime }) {
+  const isLive = m.status === 'in_progress'
+  const isDone = m.status === 'complete' || m.status === 'forfeit'
+  const isMyA  = m.team_a?.id === myTeamId
+  const my = isMyA ? (m.score_a ?? 0) : (m.score_b ?? 0)
+  const th = isMyA ? (m.score_b ?? 0) : (m.score_a ?? 0)
+  const opp = isMyA ? m.team_b : m.team_a
+  const won = isDone && my > th, lost = isDone && my < th
+
+  return (
+    <Link to={`/score/${m.id}`}
+      style={{ display:'block', textDecoration:'none', background:'var(--bg-surface)', border:`2px solid ${isLive ? 'rgba(34,197,94,0.4)' : color + '40'}`, borderRadius:16, padding:'18px 20px', position:'relative', overflow:'hidden', marginBottom:4 }}>
+      <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background: isLive ? 'var(--live)' : color }} />
+      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:10 }}>
+        <div>
+          {isLive
+            ? <span style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', color:'var(--live)', display:'flex', alignItems:'center', gap:4 }}><span className="live-dot" /> Live now</span>
+            : <span style={{ fontSize:11, color:'var(--text-muted)', display:'flex', alignItems:'center', gap:4 }}><Clock size={11} />{fmtTime(m.time_slot?.scheduled_start)} · {m.venue?.short_name ?? m.venue?.name}</span>
+          }
+          {m.round_label && <p style={{ fontSize:11, color:'var(--text-muted)', margin:'4px 0 0' }}>{m.round_label}</p>}
+        </div>
+        {isDone && (
+          <span style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', color: won ? '#4ade80' : lost ? '#f87171' : 'var(--text-muted)', background: won ? 'rgba(74,222,128,0.1)' : lost ? 'rgba(248,113,113,0.1)' : 'var(--bg-raised)', padding:'3px 10px', borderRadius:20 }}>
+            {won ? 'Win' : lost ? 'Loss' : 'Draw'}
+          </span>
+        )}
+      </div>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <div>
+          <p style={{ fontSize:13, color:'var(--text-muted)', margin:'0 0 2px' }}>vs</p>
+          <p style={{ fontSize:22, fontWeight:800, color:'var(--text-primary)', margin:0 }}>{opp?.name ?? 'TBD'}</p>
+          {!isLive && <p style={{ fontSize:12, color:'var(--text-muted)', margin:'4px 0 0' }}>{m.venue?.short_name} · {fmtTime(m.time_slot?.scheduled_start)}</p>}
+        </div>
+        {(isLive || isDone) && (
+          <div style={{ textAlign:'center' }}>
+            <p style={{ fontSize:44, fontWeight:900, color:'var(--text-primary)', margin:0, lineHeight:1, fontFamily:'DM Mono, monospace' }}>
+              <span style={{ color: my > th ? '#4ade80' : 'inherit' }}>{my}</span>
+              <span style={{ color:'var(--text-muted)', fontSize:28 }}> – </span>
+              <span style={{ color: th > my ? '#f87171' : 'inherit' }}>{th}</span>
+            </p>
+            <p style={{ fontSize:9, color:'var(--text-muted)', margin:'4px 0 0', letterSpacing:'0.06em', textTransform:'uppercase' }}>us – them</p>
+          </div>
+        )}
+      </div>
+      {isLive && (
+        <div style={{ marginTop:12, padding:'8px 12px', background:'rgba(34,197,94,0.08)', border:'1px solid rgba(34,197,94,0.15)', borderRadius:8, fontSize:12, color:'var(--live)', fontWeight:500, textAlign:'center' }}>
+          Tap to watch live scores →
+        </div>
+      )}
+    </Link>
+  )
+}
+
+function MatchRow({ match: m, myTeamId, fmtTime, isHero }) {
+  const isLive = m.status === 'in_progress'
+  const isDone = m.status === 'complete' || m.status === 'forfeit'
+  const isMyA  = m.team_a?.id === myTeamId
+  const my = isMyA ? (m.score_a ?? 0) : (m.score_b ?? 0)
+  const th = isMyA ? (m.score_b ?? 0) : (m.score_a ?? 0)
+  const opp = isMyA ? m.team_b : m.team_a
+  const won = isDone && my > th, lost = isDone && my < th
+  if (isHero) return null
+  return (
+    <Link to={`/score/${m.id}`}
+      style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 14px', background:'var(--bg-surface)', border:`1px solid ${isLive ? 'rgba(34,197,94,0.3)' : 'var(--border)'}`, borderRadius:12, textDecoration:'none', gap:10 }}>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:3 }}>
+          {isLive && <span style={{ fontSize:9, fontWeight:700, color:'var(--live)', letterSpacing:'0.08em' }}>LIVE</span>}
+          <span style={{ fontSize:12, color:'var(--text-muted)' }}>{fmtTime(m.time_slot?.scheduled_start)} · {m.venue?.short_name ?? m.venue?.name}</span>
+        </div>
+        <p style={{ fontSize:14, fontWeight:600, color:'var(--text-primary)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+          vs {opp?.name ?? 'TBD'}
+        </p>
+        {m.round_label && m.phase === 2 && (
+          <span style={{ fontSize:10, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase', color:'var(--accent)', background:'var(--accent-dim)', padding:'2px 6px', borderRadius:20, marginTop:2, display:'inline-block' }}>{m.round_label}</span>
+        )}
+      </div>
+      <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
+        {(isLive || isDone) && (
+          <span style={{ fontFamily:'DM Mono, monospace', fontSize:15, fontWeight:700, color:'var(--text-primary)' }}>
+            <span style={{ color: my > th ? '#4ade80' : 'inherit' }}>{my}</span>
+            <span style={{ color:'var(--text-muted)' }}>–</span>
+            <span style={{ color: th > my ? '#f87171' : 'inherit' }}>{th}</span>
+          </span>
+        )}
+        {isDone && (
+          <span style={{ fontSize:10, fontWeight:700, color: won ? '#4ade80' : lost ? '#f87171' : 'var(--text-muted)', background: won ? 'rgba(74,222,128,0.1)' : lost ? 'rgba(248,113,113,0.1)' : 'transparent', padding:'2px 8px', borderRadius:20, border:`1px solid ${won ? 'rgba(74,222,128,0.2)' : lost ? 'rgba(248,113,113,0.2)' : 'transparent'}` }}>
+            {won ? 'W' : lost ? 'L' : 'D'}
+          </span>
+        )}
+      </div>
+    </Link>
   )
 }
 
 function LiveMatchCard({ match: m }) {
-  const teamA = m.team_a, teamB = m.team_b
-  return (
-    <div style={{ position:'relative' }}>
-    {m.venue?.youtube_url && (
-      <Link to={'/watch/' + m.id}
-        style={{ position:'absolute', top:14, right:14, zIndex:2,
-          display:'flex', alignItems:'center', gap:5, fontSize:12, fontWeight:700,
-          color:'#fff', textDecoration:'none', padding:'5px 12px', borderRadius:20,
-          background:'#dc2626', boxShadow:'0 2px 8px rgba(220,38,38,0.35)' }}
-        onClick={e => e.stopPropagation()}>
-        <span style={{ width:6, height:6, borderRadius:'50%', background:'#fff', animation:'pulse 1.5s infinite', display:'inline-block' }} />
-        Watch live
-      </Link>
-    )}
-    <Link to={'/score/' + m.id} style={{ display:'block', background:'var(--bg-raised)', border:'1px solid var(--border)', borderRadius:14, padding:'18px 20px', textDecoration:'none', transition:'border-color 0.15s' }}
-      onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border-mid)'}
-      onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
-      <div style={{ display:'grid', gridTemplateColumns:'1fr auto 1fr', alignItems:'center', gap:12, marginBottom:12 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <div style={{ width:10, height:10, borderRadius:'50%', background:teamA?.primary_color ?? 'var(--border-mid)', flexShrink:0 }} />
-          <span style={{ fontSize:14, fontWeight:600, color:'var(--text-primary)' }}>{teamA?.short_name ?? teamA?.name ?? 'TBD'}</span>
-        </div>
-        <div style={{ fontFamily:'DM Mono, monospace', fontSize:30, fontWeight:500, color:'var(--text-primary)', textAlign:'center', letterSpacing:'0.04em' }}>
-          {m.score_a ?? 0} - {m.score_b ?? 0}
-        </div>
-        <div style={{ display:'flex', alignItems:'center', gap:8, justifyContent:'flex-end' }}>
-          <span style={{ fontSize:14, fontWeight:600, color:'var(--text-primary)' }}>{teamB?.short_name ?? teamB?.name ?? 'TBD'}</span>
-          <div style={{ width:10, height:10, borderRadius:'50%', background:teamB?.primary_color ?? 'var(--border-mid)', flexShrink:0 }} />
-        </div>
-      </div>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', paddingTop:10, borderTop:'1px solid var(--border)' }}>
-        <span style={{ fontSize:12, color:'var(--text-muted)' }}>{m.venue?.short_name ?? m.venue?.name ?? ''}</span>
-        <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:11, fontWeight:600, color:'var(--live)' }}><span className="live-dot" /> Live</span>
-      </div>
-    </Link>
-    </div>
-  )
-}
-
-function UpcomingCard({ match: m }) {
-  const teamA = m.team_a, teamB = m.team_b
-  const time = m.time_slot?.scheduled_start
-    ? new Date(m.time_slot.scheduled_start).toLocaleTimeString('en-CA', { hour:'numeric', minute:'2-digit', hour12:true })
-    : 'TBD'
-  return (
-    <Link to={'/score/' + m.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'12px 16px', background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:12, textDecoration:'none', transition:'border-color 0.15s, background 0.15s' }}
-      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border-mid)'; e.currentTarget.style.background = 'var(--bg-raised)' }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-surface)' }}>
-      <span style={{ fontFamily:'DM Mono, monospace', fontSize:12, color:'var(--text-muted)', width:48, flexShrink:0 }}>{time}</span>
-      <div style={{ width:1, height:26, background:'var(--border)', flexShrink:0 }} />
-      <div style={{ flex:1 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:14, fontWeight:500, color:'var(--text-primary)' }}>
-          <div style={{ width:8, height:8, borderRadius:'50%', background:teamA?.primary_color ?? 'var(--border-mid)' }} />
-          {teamA?.short_name ?? teamA?.name ?? 'TBD'}
-          <span style={{ fontSize:11, color:'var(--text-muted)', fontWeight:400 }}>vs</span>
-          <div style={{ width:8, height:8, borderRadius:'50%', background:teamB?.primary_color ?? 'var(--border-mid)' }} />
-          {teamB?.short_name ?? teamB?.name ?? 'TBD'}
-        </div>
-        {m.pool && <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>{m.pool.name}</div>}
-      </div>
-      {m.venue && <span style={{ fontSize:12, color:'var(--text-muted)', flexShrink:0 }}>{m.venue.short_name ?? m.venue.name}</span>}
-      <ChevronRight size={14} style={{ color:'var(--text-muted)', flexShrink:0 }} />
-    </Link>
-  )
-}
-
-function ScheduleRedirect({ slug }) {
-  return (
-    <div style={{ textAlign:'center', padding:'48px 20px' }}>
-      <p style={{ fontSize:14, color:'var(--text-secondary)', marginBottom:16 }}>
-        View the full schedule with live scores, filters, and game results.
-      </p>
-      <Link to={'/t/' + slug + '/schedule'}
-        className="btn btn-primary"
-        style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
-        Open full schedule <ChevronRight size={14} />
-      </Link>
-    </div>
-  )
-}
-
-function BracketTab({ divisions, slug }) {
-  const [activeDivId, setActiveDivId] = useState(divisions[0]?.id ?? null)
-  const [pickerOpen, setPickerOpen]   = useState(false)
-  const activeDiv = divisions.find(d => d.id === activeDivId)
-
-  // Set global slug for team links inside SVG
-  if (typeof window !== 'undefined') window._bracketSlug = slug
-
-  if (divisions.length === 0) return (
-    <div style={{ textAlign:'center', padding:'48px 0', color:'var(--text-muted)' }}>
-      <p style={{ fontSize:14, color:'var(--text-secondary)' }}>No divisions yet</p>
-    </div>
-  )
-
-  return (
-    <div>
-      {/* Division picker -- only shown for multiple divisions */}
-      {divisions.length > 1 && (
-        <div style={{ position:'relative', display:'inline-block', marginBottom:20 }}>
-          <button onClick={() => setPickerOpen(o => !o)}
-            style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 14px', fontSize:14, fontWeight:600, background:'var(--bg-surface)', border:'1px solid var(--border-mid)', borderRadius:10, cursor:'pointer', color:'var(--text-primary)', fontFamily:'inherit' }}>
-            {activeDiv?.name ?? 'Select division'}
-            <ChevronRight size={14} style={{ transform: pickerOpen ? 'rotate(90deg)' : 'rotate(0)', transition:'transform 0.15s', color:'var(--text-muted)' }} />
-          </button>
-          {pickerOpen && (
-            <>
-              <div style={{ position:'fixed', inset:0, zIndex:39 }} onClick={() => setPickerOpen(false)} />
-              <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, background:'var(--bg-raised)', border:'1px solid var(--border-mid)', borderRadius:12, boxShadow:'0 8px 24px rgba(0,0,0,0.4)', zIndex:40, minWidth:200, overflow:'hidden' }}>
-                {divisions.map(div => (
-                  <button key={div.id} onClick={() => { setActiveDivId(div.id); setPickerOpen(false) }}
-                    style={{ display:'block', width:'100%', padding:'11px 16px', fontSize:14, fontWeight: div.id === activeDivId ? 600 : 400, textAlign:'left', background: div.id === activeDivId ? 'var(--accent-dim)' : 'transparent', color: div.id === activeDivId ? 'var(--accent)' : 'var(--text-secondary)', border:'none', cursor:'pointer', fontFamily:'inherit', borderBottom:'1px solid var(--border)' }}>
-                    {div.name}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Inline bracket */}
-      {activeDivId && <InlineBracket divisionId={activeDivId} slug={slug} />}
-    </div>
-  )
-}
-
-function InlineBracket({ divisionId, slug }) {
-  // Navigate to bracket page immediately
   const navigate = useNavigate()
-  useEffect(() => { navigate('/t/' + slug + '/bracket/' + divisionId) }, [divisionId, slug])
-  return <div style={{ padding:'32px 0', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>Loading bracket...</div>
-}
-
-function StandingsTab({ divisions, standings, pools, slug, advancesPerPool, brandColor }) {
-  if (divisions.length === 0) return (
-    <div style={{ textAlign:'center', padding:'48px 0', color:'var(--text-muted)' }}>
-      <p style={{ fontSize:14, color:'var(--text-secondary)' }}>No divisions yet</p>
+  const teamA = m.team_a, teamB = m.team_b
+  return (
+    <div role="link" tabIndex={0} onClick={() => navigate('/score/' + m.id)}
+      onKeyDown={e => e.key === 'Enter' && navigate('/score/' + m.id)}
+      style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background:'var(--bg-raised)', border:'1px solid rgba(34,197,94,0.2)', borderRadius:12, padding:'10px 14px', cursor:'pointer', gap:10 }}>
+      <div style={{ flexShrink:0, display:'flex', flexDirection:'column', alignItems:'center', gap:2, minWidth:40 }}>
+        <span style={{ display:'flex', alignItems:'center', gap:3, fontSize:9, fontWeight:700, color:'var(--live)', letterSpacing:'0.08em' }}><span className="live-dot" /> LIVE</span>
+        <span style={{ fontSize:10, color:'var(--text-muted)', textAlign:'center' }}>{m.venue?.short_name ?? ''}</span>
+      </div>
+      <div style={{ flex:1, display:'grid', gridTemplateColumns:'1fr auto 1fr', alignItems:'center', gap:6 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+          <div style={{ width:8, height:8, borderRadius:'50%', background:teamA?.primary_color ?? 'var(--border-mid)', flexShrink:0 }} />
+          <span style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{teamA?.short_name ?? teamA?.name ?? 'TBD'}</span>
+        </div>
+        <div style={{ fontFamily:'DM Mono, monospace', fontSize:20, fontWeight:700, color:'var(--text-primary)', textAlign:'center', whiteSpace:'nowrap' }}>
+          {m.score_a ?? 0} – {m.score_b ?? 0}
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:5, justifyContent:'flex-end' }}>
+          <span style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', textAlign:'right' }}>{teamB?.short_name ?? teamB?.name ?? 'TBD'}</span>
+          <div style={{ width:8, height:8, borderRadius:'50%', background:teamB?.primary_color ?? 'var(--border-mid)', flexShrink:0 }} />
+        </div>
+      </div>
+      {m.venue?.youtube_url && (
+        <Link to={'/watch/' + m.id}
+          style={{ flexShrink:0, fontSize:11, fontWeight:700, color:'#fff', textDecoration:'none', padding:'4px 10px', borderRadius:16, background:'#dc2626' }}
+          onClick={e => e.stopPropagation()}>▶ Watch</Link>
+      )}
     </div>
   )
+}
 
+function QuickBtn({ to, label, icon, color }) {
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
-      {divisions.map(div => {
-        const divPools = pools.filter(p => p.division_id === div.id)
-        return (
-          <div key={div.id}>
-            {divisions.length > 1 && (
-              <h2 style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', marginBottom:10, letterSpacing:'-0.01em' }}>{div.name}</h2>
-            )}
-            {divPools.map(pool => {
-              const rows = standings.filter(s => s.pool_id === pool.id)
-              return (
-                <div key={pool.id} style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, overflow:'hidden', marginBottom:10 }}>
-                  <div style={{ padding:'12px 18px', borderBottom:'1px solid var(--border)', background: brandColor + '12' }}>
-                    <span style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)' }}>{pool.name}</span>
-                  </div>
-                  <table style={{ width:'100%', borderCollapse:'collapse' }}>
-                    <thead>
-                      <tr style={{ borderBottom:'1px solid var(--border)' }}>
-                        {['#','Team','W','L','+/-','GP'].map((h, i) => (
-                          <th key={h} style={{ padding:'9px 14px', fontSize:10, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', textAlign: i < 2 ? 'left' : 'center' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.length === 0
-                        ? <tr><td colSpan={6} style={{ padding:'20px', textAlign:'center', fontSize:13, color:'var(--text-muted)', fontStyle:'italic' }}>No results yet</td></tr>
-                        : rows.map((row, idx) => {
-                          const advances = idx < advancesPerPool
-                          const diff = row.point_diff ?? 0
-                          return (
-                            <tr key={row.team_id} style={{ borderBottom:'1px solid rgba(42,42,50,0.5)', background: advances ? brandColor + '08' : 'transparent' }}>
-                              <td style={{ padding:'10px 14px', fontSize:12, color:'var(--text-muted)', fontFamily:'DM Mono, monospace', textAlign:'center', width:32 }}>{idx+1}</td>
-                              <td style={{ padding:'10px 14px' }}>
-                                <Link to={'/t/' + slug + '/team/' + row.team_id} style={{ display:'flex', alignItems:'center', gap:8, textDecoration:'none' }}>
-                                  <div style={{ width:8, height:8, borderRadius:'50%', background:row.primary_color ?? 'var(--border-mid)', flexShrink:0 }} />
-                                  <span style={{ fontSize:14, fontWeight: advances ? 600 : 400, color:'var(--text-primary)' }}>{row.team_short_name ?? row.team_name}</span>
-                                </Link>
-                              </td>
-                              <td style={{ padding:'10px 14px', textAlign:'center', fontFamily:'DM Mono, monospace', fontSize:13, fontWeight:700, color:'var(--text-primary)' }}>{row.wins ?? 0}</td>
-                              <td style={{ padding:'10px 14px', textAlign:'center', fontFamily:'DM Mono, monospace', fontSize:13, color:'var(--text-secondary)' }}>{row.losses ?? 0}</td>
-                              <td style={{ padding:'10px 14px', textAlign:'center', fontFamily:'DM Mono, monospace', fontSize:13, fontWeight:600, color: diff > 0 ? '#4ade80' : diff < 0 ? '#f87171' : 'var(--text-muted)' }}>
-                                {diff > 0 ? '+' + diff : diff}
-                              </td>
-                              <td style={{ padding:'10px 14px', textAlign:'center', fontFamily:'DM Mono, monospace', fontSize:13, color:'var(--text-muted)' }}>{row.games_played ?? 0}</td>
-                            </tr>
-                          )
-                        })
-                      }
-                    </tbody>
-                  </table>
-                  {rows.length > 0 && (
-                    <div style={{ padding:'8px 14px', borderTop:'1px solid var(--border)', fontSize:11, color:'var(--text-muted)' }}>
-                      Top {advancesPerPool} advance to bracket
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )
-      })}
-    </div>
+    <Link to={to}
+      style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px', background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:12, textDecoration:'none', color:'var(--text-primary)', fontWeight:600, fontSize:14 }}>
+      <span style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <span style={{ color }}>{icon}</span>{label}
+      </span>
+      <ChevronRight size={14} style={{ color:'var(--text-muted)' }} />
+    </Link>
   )
 }
