@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Suspense, lazy } from 'react'
 import { AuthProvider } from './lib/AuthContext'
 import { AdminProvider } from './lib/AdminContext'
+import React from 'react';
+import { inject } from '@vercel/analytics';
 
 // Layouts (always needed)
 import { PublicLayout }   from './components/ui/PublicLayout'

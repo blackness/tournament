@@ -38,6 +38,8 @@ export function BracketPage() {
   const [loading, setLoading]   = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [zoom, setZoom]         = useState(1)
+  const [isPreview, setIsPreview]   = useState(false)
+  const [fifthPlace, setFifthPlace] = useState(null)
   const containerRef            = useRef(null)
 
   useEffect(() => {
@@ -51,8 +53,19 @@ export function BracketPage() {
 
       const { data: slots } = await supabase
         .from('bracket_slots')
-        .select('id, round, position, label, bracket_side, phase, team_a_source, team_b_source, team_a:tournament_teams!team_a_id(id, name, short_name, primary_color), team_b:tournament_teams!team_b_id(id, name, short_name, primary_color), match:matches!match_id(id, score_a, score_b, status, winner_id)')
+        .select('id, round, position, label, bracket_side, phase, team_a_source, team_b_source, team_a:tournament_teams!team_a_id(id, name, short_name, primary_color), team_b:tournament_teams!team_b_id(id, name, short_name, primary_color), match:matches!match_id(id, score_a, score_b, status, winner_id, time_slot:time_slots(scheduled_start), venue:venues(short_name))')
         .eq('division_id', divisionId).order('round').order('position')
+
+      // Fetch 5th place consolation game (always, before early returns)
+      supabase.from('matches')
+        .select(`id, status, score_a, score_b, round_label,
+          team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
+          team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
+          venue:venues(name, short_name),
+          time_slot:time_slots(scheduled_start)`)
+        .eq('division_id', divisionId).eq('phase', 2).eq('bracket_position', 'FIFTH')
+        .maybeSingle()
+        .then(({ data }) => { if (data) setFifthPlace(data) })
 
       if (slots?.length > 0) { setBracket(layoutBracket(slots)); setLoading(false); return }
 
@@ -91,6 +104,8 @@ export function BracketPage() {
     return () => supabase.removeChannel(channel)
   }, [division?.id, !!bracket])
 
+  const themeColors = useThemeColors()
+
   if (loading) return <PageLoader />
   if (notFound) return (
     <div style={{ maxWidth:600, margin:'0 auto', padding:'64px 20px', textAlign:'center', color:'var(--text-muted)' }}>
@@ -101,7 +116,6 @@ export function BracketPage() {
   const tournament = division?.tournament
   const { nodes = [], edges = [], svgW = 600, svgH = 400, numRounds = 1, champion, second, third } = bracket ?? {}
   const color = tournament?.primary_color ?? '#8b5cf6'
-  const themeColors = useThemeColors()
 
   return (
     <div style={{ minHeight:'100vh', background:'var(--bg-base)', display:'flex', flexDirection:'column' }}>
@@ -255,6 +269,39 @@ export function BracketPage() {
           </div>
         )}
       </div>
+
+      {/* 5th Place consolation game */}
+      {fifthPlace && (
+        <div style={{ maxWidth:600, margin:'0 auto', padding:'0 24px 40px' }}>
+          <div style={{ borderTop:'1px solid var(--border)', paddingTop:20 }}>
+            <p style={{ fontSize:11, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:12, textAlign:'center' }}>
+              Consolation — 5th Place
+            </p>
+            <div style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, padding:'16px 20px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+              <div style={{ flex:1, textAlign:'center' }}>
+                <p style={{ fontSize:16, fontWeight:700, color:'var(--text-primary)', margin:0 }}>{fifthPlace.team_a?.name ?? '3rd Pool A'}</p>
+              </div>
+              <div style={{ textAlign:'center', flexShrink:0 }}>
+                {(fifthPlace.status === 'in_progress' || fifthPlace.status === 'complete') ? (
+                  <p style={{ fontFamily:'DM Mono, monospace', fontSize:24, fontWeight:900, color:'var(--text-primary)', margin:0 }}>
+                    {fifthPlace.score_a ?? 0} – {fifthPlace.score_b ?? 0}
+                  </p>
+                ) : <p style={{ fontSize:13, color:'var(--text-muted)', margin:0 }}>vs</p>}
+                {fifthPlace.time_slot?.scheduled_start && (
+                  <p style={{ fontSize:11, color:'var(--text-muted)', margin:'4px 0 0' }}>
+                    {new Date(fifthPlace.time_slot.scheduled_start).toLocaleTimeString('en-CA', { hour:'numeric', minute:'2-digit', hour12:true, timeZone:'America/Toronto' })}
+                    {fifthPlace.venue && ' · ' + (fifthPlace.venue.short_name ?? fifthPlace.venue.name)}
+                  </p>
+                )}
+              </div>
+              <div style={{ flex:1, textAlign:'center' }}>
+                <p style={{ fontSize:16, fontWeight:700, color:'var(--text-primary)', margin:0 }}>{fifthPlace.team_b?.name ?? '3rd Pool B'}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
@@ -317,6 +364,15 @@ function BracketNode({ node, primaryColor, themeColors }) {
         primaryColor={primaryColor}
         themeColors={themeColors}
         isBye={isBye} />
+
+      {/* Game time for scheduled matches */}
+      {!isLive && !isDone && match?.time_slot?.scheduled_start && (
+        <text x={x + NODE_W/2} y={y + NODE_H + 13} textAnchor="middle" fontSize={9}
+          fill={themeColors.muted} style={{ fontFamily:'DM Sans, system-ui' }}>
+          {new Date(match.time_slot.scheduled_start).toLocaleTimeString('en-CA', { hour:'numeric', minute:'2-digit', hour12:true, timeZone:'America/Toronto' })}
+          {match?.venue?.short_name ? ' · ' + match.venue.short_name : ''}
+        </text>
+      )}
     </g>
   )
 }
@@ -392,7 +448,7 @@ function layoutBracket(slots) {
     champion = (finalSlot.team_a?.id === wId ? finalSlot.team_a : finalSlot.team_b) ?? null
     second   = (finalSlot.team_a?.id === wId ? finalSlot.team_b : finalSlot.team_a) ?? null
   }
-  const thirdSlot = slots.find(s => s.label === '3rd Place' || s.bracket_side === 'consolation')
+  const thirdSlot = slots.find(s => s.label === '3rd Place' || s.bracket_side === 'consolation' || s.label === 'Bronze Medal Game' || s.label?.toLowerCase().includes('bronze'))
   if (thirdSlot?.match?.status === 'complete' && thirdSlot.match.winner_id) {
     const wId = thirdSlot.match.winner_id
     third = (thirdSlot.team_a?.id === wId ? thirdSlot.team_a : thirdSlot.team_b) ?? null
