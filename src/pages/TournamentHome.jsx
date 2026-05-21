@@ -114,6 +114,10 @@ export function TournamentHome() {
     setIsBrowsing(true); setShowPicker(false); setSearch('')
     localStorage.setItem(browsingKey(slug), '1')
     localStorage.removeItem(teamKey(slug))
+    // Log spectator
+    if (tournament?.id) {
+      supabase.from('team_follows').insert({ tournament_id: tournament.id, is_spectator: true }).then(() => {})
+    }
   }
 
   function clearPreference() {

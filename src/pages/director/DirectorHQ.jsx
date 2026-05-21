@@ -68,11 +68,16 @@ export function DirectorHQ() {
       // Fetch team follow counts
       const { data: follows } = await supabase
         .from('team_follows')
-        .select('team_id')
+        .select('team_id, is_spectator')
         .eq('tournament_id', tournamentId)
       if (follows) {
         const counts = {}
-        for (const f of follows) counts[f.team_id] = (counts[f.team_id] ?? 0) + 1
+        let spectators = 0
+        for (const f of follows) {
+          if (f.is_spectator) { spectators++; continue }
+          if (f.team_id) counts[f.team_id] = (counts[f.team_id] ?? 0) + 1
+        }
+        counts['__spectators__'] = spectators
         setTeamFollows(counts)
       }
 
@@ -355,7 +360,18 @@ export function DirectorHQ() {
         <div style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, padding:'16px 20px', marginBottom:0 }}>
           <p style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)', margin:'0 0 12px' }}>My Team followers</p>
           <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {/* Spectators row */}
+            {(teamFollows['__spectators__'] ?? 0) > 0 && (
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <span style={{ fontSize:13, color:'var(--text-muted)', width:160, flexShrink:0, fontStyle:'italic' }}>Just spectating</span>
+                <div style={{ flex:1, height:6, background:'var(--bg-raised)', borderRadius:3, overflow:'hidden' }}>
+                  <div style={{ height:'100%', background:'var(--border-mid)', borderRadius:3, width:`${(teamFollows['__spectators__']/Math.max(...Object.values(teamFollows)))*100}%` }} />
+                </div>
+                <span style={{ fontSize:13, fontWeight:700, color:'var(--text-muted)', width:24, textAlign:'right', flexShrink:0 }}>{teamFollows['__spectators__']}</span>
+              </div>
+            )}
             {Object.entries(teamFollows)
+              .filter(([id]) => id !== '__spectators__')
               .sort(([,a],[,b]) => b - a)
               .map(([teamId, count]) => {
                 const team = matches.flatMap(m => [m.team_a, m.team_b]).find(t => t?.id === teamId)
@@ -365,7 +381,7 @@ export function DirectorHQ() {
                   <div key={teamId} style={{ display:'flex', alignItems:'center', gap:10 }}>
                     <span style={{ fontSize:13, color:'var(--text-secondary)', width:160, flexShrink:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</span>
                     <div style={{ flex:1, height:6, background:'var(--bg-raised)', borderRadius:3, overflow:'hidden' }}>
-                      <div style={{ height:'100%', background:'var(--accent)', borderRadius:3, width: `${(count/max)*100}%`, transition:'width 0.3s' }} />
+                      <div style={{ height:'100%', background:'var(--accent)', borderRadius:3, width:`${(count/max)*100}%`, transition:'width 0.3s' }} />
                     </div>
                     <span style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)', width:24, textAlign:'right', flexShrink:0 }}>{count}</span>
                   </div>
