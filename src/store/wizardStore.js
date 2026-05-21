@@ -6,7 +6,7 @@ import { DEFAULT_TIEBREAKERS, SCHEDULE_DEFAULTS } from '../lib/constants'
 const INITIAL_STATE = {
   // Meta
   currentStep: 1,
-  tournamentId: null,   // Set after first save to DB
+  tournamentId: null,
   isDirty: false,
 
   // ── Step 1: Basics ────────────────────────────────────────────────────────────
@@ -28,43 +28,35 @@ const INITIAL_STATE = {
   // ── Step 2: Sport & format ────────────────────────────────────────────────────
   sportTemplateId: null,
   sportSlug: null,
-  sportConfig: null,       // Full config loaded from sport_templates
-  enabledStatIds: [],      // Subset of sport_config.stats the director wants
+  sportConfig: null,
+  enabledStatIds: [],
   tiebreakerOrder: [...DEFAULT_TIEBREAKERS],
   sotgEnabled: true,
 
   // ── Step 3: Divisions ─────────────────────────────────────────────────────────
-  // Each division: { id (local uuid), name, slug, formatType, gameDurationMinutes,
-  //                  breakBetweenGamesMinutes, teamsAdvancePerPool,
-  //                  consolationBracket, thirdPlaceGame, sortOrder }
   divisions: [],
 
   // ── Step 4: Venues ────────────────────────────────────────────────────────────
-  // Each venue: { id (local uuid), name, shortName, qrSlug, sortOrder }
   venues: [],
 
   // ── Step 5: Teams + pool assignment ──────────────────────────────────────────
-  // Each team: { id (local uuid), name, shortName, divisionId, clubName,
-  //              seed, primaryColor, headCoachName, headCoachEmail, constraints }
   teams: [],
-  // Each pool: { id (local uuid), divisionId, name, shortName, sortOrder }
   pools: [],
-  // teamId → poolId
   poolAssignments: {},
 
   // ── Step 6: Schedule ──────────────────────────────────────────────────────────
   scheduleConfig: {
-    startTime: null,      // ISO datetime string
+    startTime: null,
     endTime: null,
     lunchBreakStart: null,
     lunchBreakEnd: null,
-    gameDurationMinutes:      SCHEDULE_DEFAULTS.gameDurationMinutes,
+    gameDurationMinutes: SCHEDULE_DEFAULTS.gameDurationMinutes,
     breakBetweenGamesMinutes: SCHEDULE_DEFAULTS.breakBetweenGamesMinutes,
-    minRestBetweenTeamGames:  SCHEDULE_DEFAULTS.minRestBetweenTeamGames,
+    minRestBetweenTeamGames: SCHEDULE_DEFAULTS.minRestBetweenTeamGames,
   },
-  generatedSlots: [],     // time_slot objects from scheduleGenerator
-  generatedMatches: [],   // match objects from scheduleGenerator
-  scheduleConflicts: [],  // conflict objects from scheduleGenerator
+  generatedSlots: [],
+  generatedMatches: [],
+  scheduleConflicts: [],
 
   // ── Step 7: Constraint review ─────────────────────────────────────────────────
   reviewedTeamIds: [],
@@ -74,7 +66,14 @@ const INITIAL_STATE = {
   isPublished: false,
 }
 
-// ─── Store ─────────────────────────────────────────────────────────────────────
+function clearGeneratedScheduleState() {
+  return {
+    generatedSlots: [],
+    generatedMatches: [],
+    scheduleConflicts: [],
+  }
+}
+
 export const useWizardStore = create(
   persist(
     (set, get) => ({
@@ -112,7 +111,10 @@ export const useWizardStore = create(
 
       // ── Step 3: Divisions ──────────────────────────────────────────────────────
       addDivision: (division) =>
-        set(s => ({ divisions: [...s.divisions, division], isDirty: true })),
+        set(s => ({
+          divisions: [...s.divisions, division],
+          isDirty: true,
+        })),
 
       updateDivision: (id, updates) =>
         set(s => ({
@@ -121,43 +123,82 @@ export const useWizardStore = create(
         })),
 
       removeDivision: (id) =>
-        set(s => ({
-          divisions: s.divisions.filter(d => d.id !== id),
-          // Also remove teams and pools in this division
-          teams: s.teams.filter(t => t.divisionId !== id),
-          pools: s.pools.filter(p => p.divisionId !== id),
-          isDirty: true,
-        })),
+        set(s => {
+          const nextTeams = s.teams.filter(t => t.divisionId !== id)
+          const nextPools = s.pools.filter(p => p.divisionId !== id)
+          const nextPoolIds = new Set(nextPools.map(p => p.id))
+          const nextAssignments = Object.fromEntries(
+            Object.entries(s.poolAssignments).filter(([teamId, poolId]) => {
+              const teamStillExists = nextTeams.some(t => t.id === teamId)
+              const poolStillExists = nextPoolIds.has(poolId)
+              return teamStillExists && poolStillExists
+            })
+          )
+
+          return {
+            divisions: s.divisions.filter(d => d.id !== id),
+            teams: nextTeams,
+            pools: nextPools,
+            poolAssignments: nextAssignments,
+            ...clearGeneratedScheduleState(),
+            isDirty: true,
+          }
+        }),
 
       reorderDivisions: (ordered) =>
-        set({ divisions: ordered.map((d, i) => ({ ...d, sortOrder: i })), isDirty: true }),
+        set({
+          divisions: ordered.map((d, i) => ({ ...d, sortOrder: i })),
+          isDirty: true,
+        }),
 
       // ── Step 4: Venues ─────────────────────────────────────────────────────────
       addVenue: (venue) =>
-        set(s => ({ venues: [...s.venues, venue], isDirty: true })),
+        set(s => ({
+          venues: [...s.venues, venue],
+          ...clearGeneratedScheduleState(),
+          isDirty: true,
+        })),
 
       updateVenue: (id, updates) =>
         set(s => ({
           venues: s.venues.map(v => v.id === id ? { ...v, ...updates } : v),
+          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
       removeVenue: (id) =>
-        set(s => ({ venues: s.venues.filter(v => v.id !== id), isDirty: true })),
+        set(s => ({
+          venues: s.venues.filter(v => v.id !== id),
+          ...clearGeneratedScheduleState(),
+          isDirty: true,
+        })),
 
       reorderVenues: (ordered) =>
-        set({ venues: ordered.map((v, i) => ({ ...v, sortOrder: i })), isDirty: true }),
+        set({
+          venues: ordered.map((v, i) => ({ ...v, sortOrder: i })),
+          ...clearGeneratedScheduleState(),
+          isDirty: true,
+        }),
 
       // ── Step 5: Teams ──────────────────────────────────────────────────────────
       addTeam: (team) =>
-        set(s => ({ teams: [...s.teams, team], isDirty: true })),
+        set(s => ({
+          teams: [...s.teams, team],
+          ...clearGeneratedScheduleState(),
+          isDirty: true,
+        })),
 
       addTeams: (newTeams) =>
-        set(s => ({ teams: [...s.teams, ...newTeams], isDirty: true })),
+        set(s => ({
+          teams: [...s.teams, ...newTeams],
+          ...clearGeneratedScheduleState(),
+          isDirty: true,
+        })),
 
       updateTeam: (id, updates) =>
         set(s => ({
           teams: s.teams.map(t => t.id === id ? { ...t, ...updates } : t),
+          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
@@ -167,44 +208,74 @@ export const useWizardStore = create(
           poolAssignments: Object.fromEntries(
             Object.entries(s.poolAssignments).filter(([tid]) => tid !== id)
           ),
+          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
       // Pool management
       addPool: (pool) =>
-        set(s => ({ pools: [...s.pools, pool], isDirty: true })),
+        set(s => ({
+          pools: [...s.pools, pool],
+          ...clearGeneratedScheduleState(),
+          isDirty: true,
+        })),
 
       updatePool: (id, updates) =>
         set(s => ({
           pools: s.pools.map(p => p.id === id ? { ...p, ...updates } : p),
+          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
       removePool: (id) =>
         set(s => ({
           pools: s.pools.filter(p => p.id !== id),
-          // Unassign teams from this pool
           poolAssignments: Object.fromEntries(
             Object.entries(s.poolAssignments).filter(([, pid]) => pid !== id)
           ),
+          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
       setPoolsForDivision: (divisionId, pools) =>
-        set(s => ({
-          pools: [...s.pools.filter(p => p.divisionId !== divisionId), ...pools],
-          isDirty: true,
-        })),
+        set(s => {
+          const retainedPools = s.pools.filter(p => p.divisionId !== divisionId)
+          const nextPools = [...retainedPools, ...pools]
+          const nextPoolIds = new Set(nextPools.map(p => p.id))
+
+          const nextAssignments = Object.fromEntries(
+            Object.entries(s.poolAssignments).filter(([teamId, poolId]) => {
+              const teamStillExists = s.teams.some(t => t.id === teamId)
+              const poolStillExists = nextPoolIds.has(poolId)
+              return teamStillExists && poolStillExists
+            })
+          )
+
+          return {
+            pools: nextPools,
+            poolAssignments: nextAssignments,
+            ...clearGeneratedScheduleState(),
+            isDirty: true,
+          }
+        }),
 
       setPoolAssignment: (teamId, poolId) =>
         set(s => ({
-          poolAssignments: { ...s.poolAssignments, [teamId]: poolId },
+          poolAssignments: {
+            ...s.poolAssignments,
+            [teamId]: poolId,
+          },
+          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
       setPoolAssignments: (assignments) =>
         set(s => ({
-          poolAssignments: { ...s.poolAssignments, ...assignments },
+          poolAssignments: {
+            ...s.poolAssignments,
+            ...assignments,
+          },
+          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
@@ -232,7 +303,11 @@ export const useWizardStore = create(
         })),
 
       clearSchedule: () =>
-        set({ generatedSlots: [], generatedMatches: [], scheduleConflicts: [] }),
+        set({
+          generatedSlots: [],
+          generatedMatches: [],
+          scheduleConflicts: [],
+        }),
 
       // ── Step 7: Constraint review ──────────────────────────────────────────────
       markTeamReviewed: (teamId) =>
@@ -283,46 +358,51 @@ export const useWizardStore = create(
     }),
     {
       name: 'athleteos-wizard',
-      // Only persist what the director would expect to survive a page reload.
-      // Derived/generated data (schedule conflicts etc.) is omitted.
       partialize: (s) => ({
-        currentStep:          s.currentStep,
-        tournamentId:         s.tournamentId,
-        isPublished:          s.isPublished,
+        currentStep: s.currentStep,
+        tournamentId: s.tournamentId,
+        isPublished: s.isPublished,
+
         // Step 1
-        name:                 s.name,
-        description:          s.description,
-        rules_text:           s.rulesText || null,
-        slug:                 s.slug,
-        startDate:            s.startDate,
-        endDate:              s.endDate,
-        timezone:             s.timezone,
-        venueName:            s.venueName,
-        venueAddress:         s.venueAddress,
-        primaryColor:         s.primaryColor,
-        isPublic:             s.isPublic,
-        logoUrl:              s.logoUrl,
+        name: s.name,
+        description: s.description,
+        rules_text: s.rulesText || null,
+        slug: s.slug,
+        startDate: s.startDate,
+        endDate: s.endDate,
+        timezone: s.timezone,
+        venueName: s.venueName,
+        venueAddress: s.venueAddress,
+        primaryColor: s.primaryColor,
+        isPublic: s.isPublic,
+        logoUrl: s.logoUrl,
+
         // Step 2
-        sportTemplateId:      s.sportTemplateId,
-        sportSlug:            s.sportSlug,
-        sportConfig:          s.sportConfig,
-        enabledStatIds:       s.enabledStatIds,
-        tiebreakerOrder:      s.tiebreakerOrder,
-        sotgEnabled:          s.sotgEnabled,
+        sportTemplateId: s.sportTemplateId,
+        sportSlug: s.sportSlug,
+        sportConfig: s.sportConfig,
+        enabledStatIds: s.enabledStatIds,
+        tiebreakerOrder: s.tiebreakerOrder,
+        sotgEnabled: s.sotgEnabled,
+
         // Step 3
-        divisions:            s.divisions,
+        divisions: s.divisions,
+
         // Step 4
-        venues:               s.venues,
+        venues: s.venues,
+
         // Step 5
-        teams:                s.teams,
-        pools:                s.pools,
-        poolAssignments:      s.poolAssignments,
+        teams: s.teams,
+        pools: s.pools,
+        poolAssignments: s.poolAssignments,
+
         // Step 6
-        scheduleConfig:       s.scheduleConfig,
-        generatedMatches:     s.generatedMatches,
-        generatedSlots:       s.generatedSlots,
+        scheduleConfig: s.scheduleConfig,
+        generatedMatches: s.generatedMatches,
+        generatedSlots: s.generatedSlots,
+
         // Step 7
-        reviewedTeamIds:      s.reviewedTeamIds,
+        reviewedTeamIds: s.reviewedTeamIds,
         acknowledgedConflicts: s.acknowledgedConflicts,
       }),
     }
