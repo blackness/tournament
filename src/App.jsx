@@ -12,12 +12,14 @@ import { RequireAuth }    from './components/ui/RequireAuth'
 import { PageLoader }     from './components/ui/LoadingSpinner'
 
 // Critical public pages - loaded immediately
+import { MarketingHomePage } from './pages/MarketingHomePage'
 import { TournamentList }  from './pages/TournamentList'
 import { TournamentHome }  from './pages/TournamentHome'
 import { LiveScoreboard }  from './pages/LiveScoreboard'
 import { CourtLanding }    from './pages/CourtLanding'
 import { LoginPage }       from './pages/LoginPage'
 import { SignupPage }      from './pages/SignupPage'
+
 
 // Lazy-loaded public pages
 const SchedulePage     = lazy(() => import('./pages/SchedulePage').then(m => ({ default: m.SchedulePage })))
@@ -29,7 +31,8 @@ const GameDayPage      = lazy(() => import('./pages/GameDayPage').then(m => ({ d
 const WatchPage        = lazy(() => import('./pages/WatchPage').then(m => ({ default: m.WatchPage })))
 const ScorekeeperPage  = lazy(() => import('./pages/ScorekeeperPage').then(m => ({ default: m.ScorekeeperPage })))
 const SOTGEntryPage    = lazy(() => import('./pages/SOTGEntryPage').then(m => ({ default: m.SOTGEntryPage })))
-
+const BracketPreviewPage = lazy(() => import('./pages/BracketPreviewPage').then(m => ({ default: m.BracketPreviewPage }))
+)
 // Lazy-loaded director pages
 const DirectorDashboard = lazy(() => import('./pages/director/DirectorDashboard').then(m => ({ default: m.DirectorDashboard })))
 const WizardPage        = lazy(() => import('./pages/director/WizardPage').then(m => ({ default: m.WizardPage })))
@@ -41,7 +44,8 @@ const QRManager         = lazy(() => import('./pages/director/QRManager').then(m
 const ConstraintReview  = lazy(() => import('./pages/director/ConstraintReview').then(m => ({ default: m.ConstraintReview })))
 const AdminDashboard    = lazy(() => import('./pages/admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })))
 const SpectatorDashboard = lazy(() => import('./pages/SpectatorDashboard').then(m => ({ default: m.SpectatorDashboard })))
-
+const MarketingPreviewPage = lazy(() => import('./pages/MarketingPreviewPage').then(m => ({ default: m.MarketingPreviewPage }))
+)
 export default function App() {
   return (
     <AdminProvider>
@@ -51,20 +55,23 @@ export default function App() {
         <Routes>
 
           {/* ── Public routes ───────────────────────────────────────────── */}
-          <Route element={<PublicLayout />}>
-            <Route index element={<Navigate to="/tournaments" replace />} />
-            <Route path="/tournaments"                        element={<TournamentList />} />
-            <Route path="/t/:slug"                            element={<TournamentHome />} />
-            <Route path="/t/:slug/standings/:divisionId"      element={<StandingsPage />} />
-            <Route path="/t/:slug/bracket/:divisionId"        element={<BracketPage />} />
-            <Route path="/t/:slug/schedule"                   element={<SchedulePage />} />
-            <Route path="/t/:slug/team/:teamId"               element={<TeamPage />} />
-          <Route path="/t/:slug/gameday"                     element={<GameDayPage />} />
-          <Route path="/t/:slug/compare/:teamIdA/:teamIdB"     element={<TeamComparePage />} />
-            <Route path="/watch/:matchId"  element={<WatchPage />} />
-          <Route path="/score/:matchId"                     element={<LiveScoreboard />} />
-            <Route path="/dashboard"                          element={<SpectatorDashboard />} />
-          </Route>
+<Route element={<PublicLayout />}>
+  <Route index element={<MarketingHomePage />} />
+  <Route path="/home"                              element={<MarketingHomePage />} />
+  <Route path="/tournaments"                       element={<TournamentList />} />
+  <Route path="/t/:slug"                           element={<TournamentHome />} />
+  <Route path="/t/:slug/standings/:divisionId"     element={<StandingsPage />} />
+  <Route path="/t/:slug/bracket/:divisionId"       element={<BracketPage />} />
+  <Route path="/t/:slug/bracket-preview/:divisionId" element={<BracketPreviewPage />} />
+  <Route path="/t/:slug/schedule"                  element={<SchedulePage />} />
+  <Route path="/t/:slug/team/:teamId"              element={<TeamPage />} />
+  <Route path="/t/:slug/gameday"                   element={<GameDayPage />} />
+  <Route path="/t/:slug/compare/:teamIdA/:teamIdB" element={<TeamComparePage />} />
+  <Route path="/watch/:matchId"                    element={<WatchPage />} />
+  <Route path="/score/:matchId"                    element={<LiveScoreboard />} />
+  <Route path="/dashboard"                         element={<SpectatorDashboard />} />
+  <Route path="/mpp"                               element={<MarketingPreviewPage />} />
+</Route>
 
           {/* ── Court QR landing (no layout chrome — full screen) ────────── */}
           <Route path="/court/:tournamentId/:venueSlug" element={<CourtLanding />} />

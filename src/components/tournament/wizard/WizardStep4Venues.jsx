@@ -1,18 +1,18 @@
 import { useState } from 'react'
 import { useWizardStore } from '../../../store/wizardStore'
-import { db } from '../../../lib/supabase'
+import { db, supabase } from '../../../lib/supabase'
 import { WizardNavButtons } from './WizardNavButtons'
-import { PlusCircle, Trash2, MapPin, QrCode } from 'lucide-react'
+import { PlusCircle, Trash2, QrCode } from 'lucide-react'
 
 const crypto = globalThis.crypto
 
 function newVenue(sortOrder) {
   return {
-    id:        crypto.randomUUID(),
-    name:      '',
+    id: crypto.randomUUID(),
+    name: '',
     shortName: '',
-    qrSlug:    '',
-    notes:     '',
+    qrSlug: '',
+    notes: '',
     sortOrder,
   }
 }
@@ -23,51 +23,99 @@ function toQrSlug(name) {
 
 export function WizardStep4Venues({ onNext, onBack }) {
   const { venues, addVenue, updateVenue, removeVenue, tournamentId } = useWizardStore()
-  const [errors, setErrors]     = useState({})
+  const [errors, setErrors] = useState({})
   const [formError, setFormError] = useState(null)
-  const [saving, setSaving]     = useState(false)
+  const [saving, setSaving] = useState(false)
 
   function validate() {
     const e = {}
-    if (venues.length === 0) { setFormError('Add at least one field or court'); return false }
+
+    if (venues.length === 0) {
+      setFormError('Add at least one field or court')
+      return false
+    }
+
     venues.forEach(v => {
-      if (!v.name.trim())   e[`${v.id}_name`]   = 'Name required'
+      if (!v.name.trim()) e[`${v.id}_name`] = 'Name required'
       if (!v.qrSlug.trim()) e[`${v.id}_qrSlug`] = 'QR slug required'
     })
-    // Check for duplicate slugs
+
     const slugs = venues.map(v => v.qrSlug)
     const dupes = slugs.filter((s, i) => slugs.indexOf(s) !== i)
+
     if (dupes.length > 0) {
-      venues.filter(v => dupes.includes(v.qrSlug)).forEach(v => {
-        e[`${v.id}_qrSlug`] = 'Slug must be unique'
-      })
+      venues
+        .filter(v => dupes.includes(v.qrSlug))
+        .forEach(v => {
+          e[`${v.id}_qrSlug`] = 'Slug must be unique'
+        })
     }
+
     setErrors(e)
-    return Object.keys(e).length === 0
+
+    if (Object.keys(e).length > 0) {
+      setFormError('Fix venue errors before continuing')
+      return false
+    }
+
+    setFormError(null)
+    return true
   }
 
   async function handleNext() {
     if (!validate()) return
-    if (!tournamentId) { onNext(); return }
+    if (!tournamentId) {
+      onNext()
+      return
+    }
 
     setSaving(true)
-    try {
-      const { data: existing } = await db.venues.byTournament(tournamentId)
 
+    try {
+      const { data: existing, error: existingErr } = await db.venues.byTournament(tournamentId)
+      if (existingErr) {
+        throw new Error('Failed to load existing venues: ' + existingErr.message)
+      }
+
+      // Delete venues that were removed locally
+      const localDbIds = new Set(venues.map(v => v.dbId).filter(Boolean))
+
+      const venuesToDelete = (existing ?? []).filter(dbVenue => {
+        return !localDbIds.has(dbVenue.id)
+      })
+
+      for (const dbVenue of venuesToDelete) {
+        const { error: deleteVenueErr } = await supabase
+          .from('venues')
+          .delete()
+          .eq('id', dbVenue.id)
+
+        if (deleteVenueErr) {
+          throw new Error(`Failed to delete removed venue "${dbVenue.name}": ${deleteVenueErr.message}`)
+        }
+      }
+
+      // Upsert current venues
       for (const [i, venue] of venues.entries()) {
         const payload = {
           tournament_id: tournamentId,
-          name:          venue.name.trim(),
-          short_name:    venue.shortName.trim() || null,
-          qr_slug:       venue.qrSlug.trim(),
-          notes:         venue.notes?.trim() || null,
-          sort_order:    i,
+          name: venue.name.trim(),
+          short_name: venue.shortName.trim() || null,
+          qr_slug: venue.qrSlug.trim(),
+          notes: venue.notes?.trim() || null,
+          sort_order: i,
         }
+
         if (venue.dbId) {
-          await db.venues.update(venue.dbId, payload)
+          const { error: updateErr } = await db.venues.update(venue.dbId, payload)
+          if (updateErr) {
+            throw new Error(`Failed to update venue "${venue.name}": ${updateErr.message}`)
+          }
         } else {
-          // upsert by tournament_id+qr_slug to handle retries
-          const { data } = await db.venues.upsert(payload)
+          const { data, error: upsertErr } = await db.venues.upsert(payload)
+          if (upsertErr) {
+            throw new Error(`Failed to save venue "${venue.name}": ${upsertErr.message}`)
+          }
           if (data) updateVenue(venue.id, { dbId: data.id })
         }
       }
@@ -75,13 +123,13 @@ export function WizardStep4Venues({ onNext, onBack }) {
       useWizardStore.getState().markSaved()
       onNext()
     } catch (err) {
+      console.error('[Step4 save] Error:', err)
       setFormError(err.message || 'Failed to save venues')
     } finally {
       setSaving(false)
     }
   }
 
-  // Quick-add numbered fields
   function handleQuickAdd(count) {
     for (let i = 1; i <= count; i++) {
       const n = venues.length + i
@@ -90,7 +138,7 @@ export function WizardStep4Venues({ onNext, onBack }) {
         ...newVenue(venues.length + i - 1),
         name,
         shortName: `F${n}`,
-        qrSlug:    `field${n}`,
+        qrSlug: `field${n}`,
       })
     }
   }
@@ -105,10 +153,11 @@ export function WizardStep4Venues({ onNext, onBack }) {
       </div>
 
       {formError && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{formError}</div>
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          {formError}
+        </div>
       )}
 
-      {/* Quick add */}
       {venues.length === 0 && (
         <div>
           <p className="text-xs text-[var(--text-muted)] mb-2">Quick add numbered fields:</p>
@@ -122,7 +171,6 @@ export function WizardStep4Venues({ onNext, onBack }) {
         </div>
       )}
 
-      {/* Venue rows */}
       <div className="space-y-3">
         {venues.map((venue, idx) => (
           <VenueRow
@@ -136,18 +184,25 @@ export function WizardStep4Venues({ onNext, onBack }) {
         ))}
       </div>
 
-      <button onClick={() => { addVenue(newVenue(venues.length)); setFormError(null) }} className="btn-secondary btn w-full">
+      <button
+        onClick={() => {
+          addVenue(newVenue(venues.length))
+          setFormError(null)
+        }}
+        className="btn-secondary btn w-full"
+      >
         <PlusCircle size={16} />
         Add field / court
       </button>
 
-      {/* QR info callout */}
       {venues.length > 0 && (
         <div className="flex gap-3 p-3 bg-[var(--accent-dim)] border border-blue-100 rounded-lg text-sm text-blue-800">
           <QrCode size={16} className="flex-shrink-0 mt-0.5" />
           <div>
-            QR codes are generated after publishing. Each field's QR links to
-            <code className="mx-1 text-xs bg-[var(--accent-dim)] px-1 rounded">/court/[tournament]/[slug]</code>
+            QR codes are generated after publishing. Each field&apos;s QR links to
+            <code className="mx-1 text-xs bg-[var(--accent-dim)] px-1 rounded">
+              /court/[tournament]/[slug]
+            </code>
             and auto-redirects to the active game.
           </div>
         </div>
@@ -171,7 +226,6 @@ function VenueRow({ venue, idx, errors, onUpdate, onRemove }) {
       </div>
 
       <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {/* Name */}
         <div className="field-group sm:col-span-1">
           <label className="field-label text-xs">Name *</label>
           <input
@@ -192,7 +246,6 @@ function VenueRow({ venue, idx, errors, onUpdate, onRemove }) {
           {errors[`${venue.id}_name`] && <p className="field-error">{errors[`${venue.id}_name`]}</p>}
         </div>
 
-        {/* Short name */}
         <div className="field-group">
           <label className="field-label text-xs">Short name</label>
           <input
@@ -205,7 +258,6 @@ function VenueRow({ venue, idx, errors, onUpdate, onRemove }) {
           />
         </div>
 
-        {/* QR slug */}
         <div className="field-group">
           <label className="field-label text-xs flex items-center gap-1">
             <QrCode size={11} /> QR slug *
@@ -215,14 +267,21 @@ function VenueRow({ venue, idx, errors, onUpdate, onRemove }) {
             className={`field-input text-sm font-mono ${errors[`${venue.id}_qrSlug`] ? 'field-input-error' : ''}`}
             placeholder="field1"
             value={venue.qrSlug}
-            onChange={e => onUpdate({ qrSlug: e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '') })}
+            onChange={e =>
+              onUpdate({
+                qrSlug: e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''),
+              })
+            }
             maxLength={20}
           />
           {errors[`${venue.id}_qrSlug`] && <p className="field-error">{errors[`${venue.id}_qrSlug`]}</p>}
         </div>
       </div>
 
-      <button onClick={onRemove} className="p-1 text-[var(--text-muted)] hover:text-red-500 mt-1 flex-shrink-0">
+      <button
+        onClick={onRemove}
+        className="p-1 text-[var(--text-muted)] hover:text-red-500 mt-1 flex-shrink-0"
+      >
         <Trash2 size={15} />
       </button>
     </div>

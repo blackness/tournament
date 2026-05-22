@@ -88,6 +88,7 @@ export function WizardStep5Teams({ onNext, onBack }) {
       return false
     }
 
+    setFormError(null)
     return true
   }
 
@@ -133,12 +134,8 @@ export function WizardStep5Teams({ onNext, onBack }) {
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
-        complete: ({ data, errors: parseErrors, meta }) => {
+        complete: ({ data }) => {
           try {
-            console.log('[CSV] meta.fields', meta?.fields)
-            console.log('[CSV] parseErrors', parseErrors)
-            console.log('[CSV] raw rows', data)
-
             const currentCount = useWizardStore.getState().teams.filter(
               t => t.divisionId === targetDivision
             ).length
@@ -206,8 +203,6 @@ export function WizardStep5Teams({ onNext, onBack }) {
               })
               .filter(t => t.name.length > 0)
 
-            console.log('[CSV] imported rows', imported)
-
             if (imported.length === 0) {
               setFormError(
                 'No valid teams found. Check the file has a "Team Name" column and at least one non-empty row.'
@@ -218,11 +213,6 @@ export function WizardStep5Teams({ onNext, onBack }) {
               if (targetDivision) {
                 setActiveDivision(targetDivision)
               }
-
-              setTimeout(() => {
-                const state = useWizardStore.getState()
-                console.log('[CSV] teams after addTeams', state.teams)
-              }, 0)
             }
           } catch (err) {
             console.error('[CSV] import processing failed', err)
@@ -314,15 +304,20 @@ export function WizardStep5Teams({ onNext, onBack }) {
           }
         }
 
-        const { data: dbPools } = await supabase
+        const { data: dbPools, error: dbPoolsErr } = await supabase
           .from('pools')
           .select('id, name')
           .eq('division_id', dbDivId)
+
+        if (dbPoolsErr) {
+          throw new Error('Failed to load existing pools: ' + dbPoolsErr.message)
+        }
 
         const dbPoolByName = Object.fromEntries(
           (dbPools ?? []).map(p => [p.name.trim().toLowerCase(), p.id])
         )
 
+        // Create/update current pools
         for (const pool of dp) {
           const existingDbId = pool.dbId || dbPoolByName[pool.name.trim().toLowerCase()]
 
@@ -354,13 +349,59 @@ export function WizardStep5Teams({ onNext, onBack }) {
 
         const state3 = useWizardStore.getState()
 
+        // Reload division pool set after create/update
+        const currentDivisionPools = state3.pools.filter(p => p.divisionId === storeDiv.id)
+        const localPoolDbIds = new Set(currentDivisionPools.map(p => p.dbId).filter(Boolean))
+        const localPoolNames = new Set(currentDivisionPools.map(p => p.name.trim().toLowerCase()))
+
+        // Delete removed DB pools for this division
+        const poolsToDelete = (dbPools ?? []).filter(dbPool => {
+          if (localPoolDbIds.has(dbPool.id)) return false
+          if (localPoolNames.has(dbPool.name.trim().toLowerCase())) return false
+          return true
+        })
+
+        for (const dbPool of poolsToDelete) {
+          const { error: clearTeamsErr } = await supabase
+            .from('tournament_teams')
+            .update({ pool_id: null })
+            .eq('division_id', dbDivId)
+            .eq('pool_id', dbPool.id)
+
+          if (clearTeamsErr) {
+            throw new Error(`Failed clearing teams from removed pool "${dbPool.name}": ${clearTeamsErr.message}`)
+          }
+
+          const { error: deletePoolErr } = await supabase
+            .from('pools')
+            .delete()
+            .eq('id', dbPool.id)
+
+          if (deletePoolErr) {
+            throw new Error(`Failed deleting removed pool "${dbPool.name}": ${deletePoolErr.message}`)
+          }
+        }
+
+        const validPoolDbIds = new Set(
+          currentDivisionPools.map(p => p.dbId).filter(Boolean)
+        )
+
         for (const [i, team] of dt.entries()) {
-          const assignedPool = state3.pools.find(p => p.id === state3.poolAssignments[team.id])
+          const assignedPool = state3.pools.find(
+            p =>
+              p.id === state3.poolAssignments[team.id] &&
+              p.divisionId === storeDiv.id
+          )
+
+          const assignedPoolDbId =
+            assignedPool?.dbId && validPoolDbIds.has(assignedPool.dbId)
+              ? assignedPool.dbId
+              : null
 
           const payload = {
             tournament_id: tournamentId,
             division_id: dbDivId,
-            pool_id: assignedPool?.dbId ?? null,
+            pool_id: assignedPoolDbId,
             name: team.name.trim(),
             short_name: team.shortName?.trim() || null,
             club_name: team.clubName?.trim() || null,
@@ -403,6 +444,24 @@ export function WizardStep5Teams({ onNext, onBack }) {
             }
           }
         }
+
+        // Clear stale standings rows for this division so old pool memberships don't linger
+// Clear stale standings rows for both old and current pools in this division
+        const affectedPoolIds = [
+          ...(dbPools ?? []).map(p => p.id),
+          ...Array.from(localPoolDbIds),
+        ].filter(Boolean)
+
+        if (affectedPoolIds.length > 0) {
+          const { error: clearStandingsErr } = await supabase
+            .from('pool_standings')
+            .delete()
+            .in('pool_id', affectedPoolIds)
+
+          if (clearStandingsErr) {
+            throw new Error('Failed to clear stale standings: ' + clearStandingsErr.message)
+          }
+        }
       }
 
       useWizardStore.getState().markSaved()
@@ -432,6 +491,10 @@ export function WizardStep5Teams({ onNext, onBack }) {
           <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" /> {formError}
         </div>
       )}
+
+      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+        You can safely clear and re-import teams here. Team changes, deletions, CSV imports, and pool assignments are saved when you click <span className="font-semibold">Next</span>.
+      </div>
 
       {violations.length > 0 && (
         <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-1">
@@ -524,7 +587,7 @@ export function WizardStep5Teams({ onNext, onBack }) {
           <Users size={28} className="mx-auto mb-2 opacity-40" />
           <p className="text-sm">No teams currently in this division.</p>
           <p className="text-xs mt-1">
-            Add manually or import a CSV. Team additions, edits, and deletions are saved when you click Next.
+            Add manually or import a CSV. Team additions, edits, deletions, and pool assignments are saved when you click Next.
           </p>
         </div>
       ) : (
@@ -560,10 +623,10 @@ export function WizardStep5Teams({ onNext, onBack }) {
 
       <div className="text-xs text-[var(--text-muted)] text-right space-y-1">
         <p>{teams.length} team{teams.length !== 1 ? 's' : ''} total</p>
-        <p>Team additions, edits, and deletions are saved when you click Next.</p>
+        <p>Team additions, edits, deletions, CSV imports, and pool assignments are saved when you click Next.</p>
       </div>
 
-<WizardNavButtons
+      <WizardNavButtons
         onNext={handleNext}
         onBack={onBack}
         saving={saving}
