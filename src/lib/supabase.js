@@ -53,32 +53,79 @@ export const db = {
   },
 
   // -- Tournaments --------------------------------------------------------------
-  tournaments: {
-    mine: (userId) =>
-      supabase
+// -- Tournaments --------------------------------------------------------------
+tournaments: {
+  mine: async (userId) => {
+    const { data: owned, error: ownedErr } = await supabase
+      .from('tournaments')
+      .select('id, slug, name, start_date, end_date, status, logo_url, primary_color, sport_template_id')
+      .eq('director_id', userId)
+      .is('deleted_at', null)
+
+    if (ownedErr) return { data: null, error: ownedErr }
+
+    const { data: roleRows, error: roleErr } = await supabase
+      .from('tournament_roles')
+      .select('tournament_id')
+      .eq('user_id', userId)
+      .in('role', ['director', 'co_director'])
+
+    if (roleErr) return { data: null, error: roleErr }
+
+    const roleTournamentIds = (roleRows ?? []).map(r => r.tournament_id)
+
+    let shared = []
+    if (roleTournamentIds.length > 0) {
+      const { data: sharedData, error: sharedErr } = await supabase
         .from('tournaments')
         .select('id, slug, name, start_date, end_date, status, logo_url, primary_color, sport_template_id')
-        .eq('director_id', userId)
+        .in('id', roleTournamentIds)
         .is('deleted_at', null)
-        .order('start_date', { ascending: false }),
 
-    bySlug: (slug) =>
-      supabase
-        .from('tournaments')
-        .select(`*, sport_template:sport_templates(slug, display_name, config), divisions(*)`)
-        .eq('slug', slug)
-        .is('deleted_at', null)
-        .single(),
+      if (sharedErr) return { data: null, error: sharedErr }
+      shared = sharedData ?? []
+    }
 
-    byId: (id) =>
-      supabase.from('tournaments').select('*').eq('id', id).is('deleted_at', null).single(),
+    const merged = [...(owned ?? []), ...shared]
+    const deduped = Array.from(new Map(merged.map(t => [t.id, t])).values())
+      .sort((a, b) => {
+        const ad = a.start_date ? new Date(a.start_date).getTime() : 0
+        const bd = b.start_date ? new Date(b.start_date).getTime() : 0
+        return bd - ad
+      })
 
-    create: (data) =>
-      supabase.from('tournaments').insert(data).select().single(),
-
-    update: (id, data) =>
-      supabase.from('tournaments').update(data).eq('id', id).select().single(),
+    return { data: deduped, error: null }
   },
+
+  byId: (id) =>
+    supabase
+      .from('tournaments')
+      .select('*')
+      .eq('id', id)
+      .single(),
+
+  bySlug: (slug) =>
+    supabase
+      .from('tournaments')
+      .select('*')
+      .eq('slug', slug)
+      .single(),
+
+  create: (payload) =>
+    supabase
+      .from('tournaments')
+      .insert(payload)
+      .select()
+      .single(),
+
+  update: (id, payload) =>
+    supabase
+      .from('tournaments')
+      .update(payload)
+      .eq('id', id)
+      .select()
+      .single(),
+},
 
   // -- Divisions ----------------------------------------------------------------
   divisions: {
