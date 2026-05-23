@@ -1,601 +1,496 @@
-const crypto = globalThis.crypto
+import { useEffect, useState } from 'react'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { supabase, db } from '../../lib/supabase'
+import { seed16TeamClassificationBracket } from '../../lib/bracketSeeder'
+import { resolveBracketSources } from '../../lib/bracketResolver'
+import { PageLoader } from '../../components/ui/LoadingSpinner'
+import { ChevronLeft, Trophy, AlertTriangle, Check, Zap } from 'lucide-react'
 
-/**
- * Generate first-round playoff matches for a 4-pool / 16-team format.
- *
- * standingsByPool format:
- * {
- *   A: [{ rank: 1, team_id: '...' }, { rank: 2, team_id: '...' }, ...],
- *   B: [...],
- *   C: [...],
- *   D: [...]
- * }
- *
- * Returns concrete match objects compatible with your current match shape.
- */
-export function generate4PoolPlayoffRound1({
-  standingsByPool,
-  divisionId,
-}) {
-  validate4PoolStandings(standingsByPool)
+export function BracketGenerator() {
+  const { tournamentId } = useParams()
+  const navigate = useNavigate()
 
-  const A1 = getSeed(standingsByPool, 'A', 1)
-  const A2 = getSeed(standingsByPool, 'A', 2)
-  const A3 = getSeed(standingsByPool, 'A', 3)
-  const A4 = getSeed(standingsByPool, 'A', 4)
+  const [tournament, setTournament] = useState(null)
+  const [divisions, setDivisions] = useState([])
+  const [standings, setStandings] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(null)
+  const [generated, setGenerated] = useState({})
+  const [error, setError] = useState(null)
+  const [confirmModal, setConfirmModal] = useState(null)
+  const [resultModal, setResultModal] = useState(null)
 
-  const B1 = getSeed(standingsByPool, 'B', 1)
-  const B2 = getSeed(standingsByPool, 'B', 2)
-  const B3 = getSeed(standingsByPool, 'B', 3)
-  const B4 = getSeed(standingsByPool, 'B', 4)
+  useEffect(() => {
+    async function load() {
+      const { data: t } = await db.tournaments.byId(tournamentId)
+      setTournament(t)
 
-  const C1 = getSeed(standingsByPool, 'C', 1)
-  const C2 = getSeed(standingsByPool, 'C', 2)
-  const C3 = getSeed(standingsByPool, 'C', 3)
-  const C4 = getSeed(standingsByPool, 'C', 4)
+      const { data: divs } = await db.divisions.byTournament(tournamentId)
+      setDivisions(divs ?? [])
 
-  const D1 = getSeed(standingsByPool, 'D', 1)
-  const D2 = getSeed(standingsByPool, 'D', 2)
-  const D3 = getSeed(standingsByPool, 'D', 3)
-  const D4 = getSeed(standingsByPool, 'D', 4)
+      if ((divs ?? []).length > 0) {
+        const { data: st } = await supabase
+          .from('pool_standings_display')
+          .select('*')
+          .in('division_id', divs.map(d => d.id))
+          .order('pool_id, rank')
 
-  return [
-    createPlayoffMatch({
-      code: 'CQF1',
-      division_id: divisionId,
-      phase: 2,
-      round: 1,
-      bracket_type: 'championship',
-      team_a_id: A1.team_id,
-      team_b_id: B2.team_id,
-      source_label: 'A1 vs B2',
-    }),
-    createPlayoffMatch({
-      code: 'CQF2',
-      division_id: divisionId,
-      phase: 2,
-      round: 1,
-      bracket_type: 'championship',
-      team_a_id: B1.team_id,
-      team_b_id: A2.team_id,
-      source_label: 'B1 vs A2',
-    }),
-    createPlayoffMatch({
-      code: 'CQF3',
-      division_id: divisionId,
-      phase: 2,
-      round: 1,
-      bracket_type: 'championship',
-      team_a_id: C1.team_id,
-      team_b_id: D2.team_id,
-      source_label: 'C1 vs D2',
-    }),
-    createPlayoffMatch({
-      code: 'CQF4',
-      division_id: divisionId,
-      phase: 2,
-      round: 1,
-      bracket_type: 'championship',
-      team_a_id: D1.team_id,
-      team_b_id: C2.team_id,
-      source_label: 'D1 vs C2',
-    }),
-
-    createPlayoffMatch({
-      code: 'LQF1',
-      division_id: divisionId,
-      phase: 2,
-      round: 1,
-      bracket_type: 'consolation',
-      team_a_id: A3.team_id,
-      team_b_id: B4.team_id,
-      source_label: 'A3 vs B4',
-    }),
-    createPlayoffMatch({
-      code: 'LQF2',
-      division_id: divisionId,
-      phase: 2,
-      round: 1,
-      bracket_type: 'consolation',
-      team_a_id: B3.team_id,
-      team_b_id: A4.team_id,
-      source_label: 'B3 vs A4',
-    }),
-    createPlayoffMatch({
-      code: 'LQF3',
-      division_id: divisionId,
-      phase: 2,
-      round: 1,
-      bracket_type: 'consolation',
-      team_a_id: C3.team_id,
-      team_b_id: D4.team_id,
-      source_label: 'C3 vs D4',
-    }),
-    createPlayoffMatch({
-      code: 'LQF4',
-      division_id: divisionId,
-      phase: 2,
-      round: 1,
-      bracket_type: 'consolation',
-      team_a_id: D3.team_id,
-      team_b_id: C4.team_id,
-      source_label: 'D3 vs C4',
-    }),
-  ]
-}
-
-/**
- * Generate round 2 playoff matches from completed quarterfinals.
- *
- * Requires results in completedMatches:
- * [
- *   { code: 'CQF1', team_a_id, team_b_id, winner_id, loser_id },
- *   ...
- * ]
- */
-export function generate4PoolPlayoffRound2({
-  divisionId,
-  completedMatches,
-}) {
-  const map = mapByCode(completedMatches)
-
-  requireMatchCodes(map, [
-    'CQF1', 'CQF2', 'CQF3', 'CQF4',
-    'LQF1', 'LQF2', 'LQF3', 'LQF4',
-  ])
-
-  return [
-    createPlayoffMatch({
-      code: 'CSF1',
-      division_id: divisionId,
-      phase: 2,
-      round: 2,
-      bracket_type: 'championship',
-      team_a_id: map.CQF1.winner_id,
-      team_b_id: map.CQF2.winner_id,
-      source_label: 'Winner CQF1 vs Winner CQF2',
-    }),
-    createPlayoffMatch({
-      code: 'CSF2',
-      division_id: divisionId,
-      phase: 2,
-      round: 2,
-      bracket_type: 'championship',
-      team_a_id: map.CQF3.winner_id,
-      team_b_id: map.CQF4.winner_id,
-      source_label: 'Winner CQF3 vs Winner CQF4',
-    }),
-
-    createPlayoffMatch({
-      code: 'P5SF1',
-      division_id: divisionId,
-      phase: 2,
-      round: 2,
-      bracket_type: 'placement-5-8',
-      team_a_id: map.CQF1.loser_id,
-      team_b_id: map.CQF2.loser_id,
-      source_label: 'Loser CQF1 vs Loser CQF2',
-    }),
-    createPlayoffMatch({
-      code: 'P5SF2',
-      division_id: divisionId,
-      phase: 2,
-      round: 2,
-      bracket_type: 'placement-5-8',
-      team_a_id: map.CQF3.loser_id,
-      team_b_id: map.CQF4.loser_id,
-      source_label: 'Loser CQF3 vs Loser CQF4',
-    }),
-
-    createPlayoffMatch({
-      code: 'C9SF1',
-      division_id: divisionId,
-      phase: 2,
-      round: 2,
-      bracket_type: 'placement-9-12',
-      team_a_id: map.LQF1.winner_id,
-      team_b_id: map.LQF2.winner_id,
-      source_label: 'Winner LQF1 vs Winner LQF2',
-    }),
-    createPlayoffMatch({
-      code: 'C9SF2',
-      division_id: divisionId,
-      phase: 2,
-      round: 2,
-      bracket_type: 'placement-9-12',
-      team_a_id: map.LQF3.winner_id,
-      team_b_id: map.LQF4.winner_id,
-      source_label: 'Winner LQF3 vs Winner LQF4',
-    }),
-
-    createPlayoffMatch({
-      code: 'C13SF1',
-      division_id: divisionId,
-      phase: 2,
-      round: 2,
-      bracket_type: 'placement-13-16',
-      team_a_id: map.LQF1.loser_id,
-      team_b_id: map.LQF2.loser_id,
-      source_label: 'Loser LQF1 vs Loser LQF2',
-    }),
-    createPlayoffMatch({
-      code: 'C13SF2',
-      division_id: divisionId,
-      phase: 2,
-      round: 2,
-      bracket_type: 'placement-13-16',
-      team_a_id: map.LQF3.loser_id,
-      team_b_id: map.LQF4.loser_id,
-      source_label: 'Loser LQF3 vs Loser LQF4',
-    }),
-  ]
-}
-
-/**
- * Generate final placement games from completed semifinal-style playoff matches.
- */
-export function generate4PoolPlayoffRound3({
-  divisionId,
-  completedMatches,
-  includeThirdPlace = true,
-}) {
-  const map = mapByCode(completedMatches)
-
-  requireMatchCodes(map, [
-    'CSF1', 'CSF2',
-    'P5SF1', 'P5SF2',
-    'C9SF1', 'C9SF2',
-    'C13SF1', 'C13SF2',
-  ])
-
-  const games = [
-    createPlayoffMatch({
-      code: 'FINAL',
-      division_id: divisionId,
-      phase: 2,
-      round: 3,
-      bracket_type: 'final',
-      team_a_id: map.CSF1.winner_id,
-      team_b_id: map.CSF2.winner_id,
-      source_label: 'Winner CSF1 vs Winner CSF2',
-    }),
-    createPlayoffMatch({
-      code: 'P5',
-      division_id: divisionId,
-      phase: 2,
-      round: 3,
-      bracket_type: 'placement-5-6',
-      team_a_id: map.P5SF1.winner_id,
-      team_b_id: map.P5SF2.winner_id,
-      source_label: 'Winner P5SF1 vs Winner P5SF2',
-    }),
-    createPlayoffMatch({
-      code: 'P7',
-      division_id: divisionId,
-      phase: 2,
-      round: 3,
-      bracket_type: 'placement-7-8',
-      team_a_id: map.P5SF1.loser_id,
-      team_b_id: map.P5SF2.loser_id,
-      source_label: 'Loser P5SF1 vs Loser P5SF2',
-    }),
-    createPlayoffMatch({
-      code: 'P9',
-      division_id: divisionId,
-      phase: 2,
-      round: 3,
-      bracket_type: 'placement-9-10',
-      team_a_id: map.C9SF1.winner_id,
-      team_b_id: map.C9SF2.winner_id,
-      source_label: 'Winner C9SF1 vs Winner C9SF2',
-    }),
-    createPlayoffMatch({
-      code: 'P11',
-      division_id: divisionId,
-      phase: 2,
-      round: 3,
-      bracket_type: 'placement-11-12',
-      team_a_id: map.C9SF1.loser_id,
-      team_b_id: map.C9SF2.loser_id,
-      source_label: 'Loser C9SF1 vs Loser C9SF2',
-    }),
-    createPlayoffMatch({
-      code: 'P13',
-      division_id: divisionId,
-      phase: 2,
-      round: 3,
-      bracket_type: 'placement-13-14',
-      team_a_id: map.C13SF1.winner_id,
-      team_b_id: map.C13SF2.winner_id,
-      source_label: 'Winner C13SF1 vs Winner C13SF2',
-    }),
-    createPlayoffMatch({
-      code: 'P15',
-      division_id: divisionId,
-      phase: 2,
-      round: 3,
-      bracket_type: 'placement-15-16',
-      team_a_id: map.C13SF1.loser_id,
-      team_b_id: map.C13SF2.loser_id,
-      source_label: 'Loser C13SF1 vs Loser C13SF2',
-    }),
-  ]
-
-  if (includeThirdPlace) {
-    games.push(
-      createPlayoffMatch({
-        code: 'BRONZE',
-        division_id: divisionId,
-        phase: 2,
-        round: 3,
-        bracket_type: 'third-place',
-        team_a_id: map.CSF1.loser_id,
-        team_b_id: map.CSF2.loser_id,
-        source_label: 'Loser CSF1 vs Loser CSF2',
-      })
-    )
-  }
-
-  return games
-}
-
-/**
- * Optional helper:
- * Assign already-generated concrete playoff matches to a fresh set of slots.
- */
-export function assignPlayoffMatchesToSlots({
-  matches,
-  venues = [],
-  startTime,
-  endTime,
-  lunchBreakStart,
-  lunchBreakEnd,
-  gameDurationMinutes = 90,
-  breakBetweenGamesMinutes = 30,
-  minRestBetweenTeamGames = 90,
-}) {
-  if (!startTime || venues.length === 0) {
-    return { slots: [], matches: [], conflicts: [] }
-  }
-
-  const slotDurationMinutes = gameDurationMinutes + breakBetweenGamesMinutes
-  const start = new Date(startTime)
-  const end = endTime
-    ? new Date(endTime)
-    : new Date(start.getTime() + 10 * 60 * 60 * 1000)
-
-  const lunchStart = lunchBreakStart ? new Date(lunchBreakStart) : null
-  const lunchEnd = lunchBreakEnd ? new Date(lunchBreakEnd) : null
-
-  const timeRounds = buildTimeRounds({
-    venues,
-    start,
-    end,
-    lunchStart,
-    lunchEnd,
-    gameDurationMinutes,
-    slotDurationMinutes,
-  })
-
-  const matchesToAssign = [...matches].sort((a, b) => {
-    if ((a.round ?? 1) !== (b.round ?? 1)) return (a.round ?? 1) - (b.round ?? 1)
-    return String(a.code ?? '').localeCompare(String(b.code ?? ''))
-  })
-
-  const assignedMatches = []
-  const teamLastEnd = {}
-  const minRestMs = minRestBetweenTeamGames * 60 * 1000
-
-  for (const match of matchesToAssign) {
-    let assigned = false
-
-    for (const round of timeRounds) {
-      const roundStartMs = round.time.getTime()
-      const aLast = teamLastEnd[match.team_a_id]
-      const bLast = teamLastEnd[match.team_b_id]
-
-      if (aLast && roundStartMs - aLast < minRestMs) continue
-      if (bLast && roundStartMs - bLast < minRestMs) continue
-
-      const slot = round.slots.find(s => !s._assigned)
-      if (!slot) continue
-
-      slot._assigned = true
-
-      const slotEndMs = new Date(slot.scheduled_end).getTime()
-      teamLastEnd[match.team_a_id] = slotEndMs
-      teamLastEnd[match.team_b_id] = slotEndMs
-
-      assignedMatches.push({
-        ...match,
-        slot_id: slot.id,
-        venue_id: slot.venue_id,
-        match_number: assignedMatches.length + 1,
-      })
-
-      assigned = true
-      break
-    }
-
-    if (!assigned) {
-      assignedMatches.push({
-        ...match,
-        slot_id: null,
-        venue_id: null,
-        match_number: assignedMatches.length + 1,
-      })
-    }
-  }
-
-  const slots = timeRounds.flatMap(r => r.slots)
-  const conflicts = validateAssignedMatches(assignedMatches, slots, minRestBetweenTeamGames)
-
-  return {
-    slots,
-    matches: assignedMatches,
-    conflicts,
-  }
-}
-
-/**
- * Utility to create a concrete playoff match.
- */
-function createPlayoffMatch({
-  code,
-  division_id,
-  phase,
-  round,
-  bracket_type,
-  team_a_id,
-  team_b_id,
-  source_label = null,
-}) {
-  return {
-    id: crypto.randomUUID(),
-    code,
-    division_id,
-    pool_id: null,
-    team_a_id,
-    team_b_id,
-    slot_id: null,
-    venue_id: null,
-    round,
-    match_number: null,
-    phase,
-    bracket_type,
-    source_label,
-    status: 'scheduled',
-  }
-}
-
-function validate4PoolStandings(standingsByPool) {
-  for (const pool of ['A', 'B', 'C', 'D']) {
-    if (!Array.isArray(standingsByPool[pool])) {
-      throw new Error(`Missing standings for pool ${pool}`)
-    }
-    if (standingsByPool[pool].length < 4) {
-      throw new Error(`Pool ${pool} must have 4 ranked teams`)
-    }
-  }
-}
-
-function getSeed(standingsByPool, poolName, rank) {
-  const row = standingsByPool[poolName].find(r => Number(r.rank) === Number(rank))
-  if (!row) {
-    throw new Error(`Missing ${poolName}${rank} in standings`)
-  }
-  if (!row.team_id) {
-    throw new Error(`${poolName}${rank} is missing team_id`)
-  }
-  return row
-}
-
-function mapByCode(matches) {
-  const out = {}
-  for (const match of matches) {
-    if (match?.code) out[match.code] = match
-  }
-  return out
-}
-
-function requireMatchCodes(map, codes) {
-  for (const code of codes) {
-    const match = map[code]
-    if (!match) {
-      throw new Error(`Missing required completed match: ${code}`)
-    }
-    if (!match.winner_id || !match.loser_id) {
-      throw new Error(`Completed match ${code} must include winner_id and loser_id`)
-    }
-  }
-}
-
-function buildTimeRounds({
-  venues,
-  start,
-  end,
-  lunchStart,
-  lunchEnd,
-  gameDurationMinutes,
-  slotDurationMinutes,
-}) {
-  const rounds = []
-  let cursor = new Date(start)
-
-  while (cursor < end) {
-    if (lunchStart && lunchEnd && cursor >= lunchStart && cursor < lunchEnd) {
-      cursor = new Date(lunchEnd)
-      continue
-    }
-
-    const slotEnd = new Date(cursor.getTime() + gameDurationMinutes * 60 * 1000)
-    if (slotEnd > end) break
-
-    rounds.push({
-      time: new Date(cursor),
-      slots: venues.map(venue => ({
-        id: crypto.randomUUID(),
-        venue_id: venue.id,
-        scheduled_start: new Date(cursor).toISOString(),
-        scheduled_end: slotEnd.toISOString(),
-        _assigned: false,
-      })),
-    })
-
-    cursor = new Date(cursor.getTime() + slotDurationMinutes * 60 * 1000)
-  }
-
-  return rounds
-}
-
-function validateAssignedMatches(matches, slots, minRestMinutes) {
-  const conflicts = []
-  const slotMap = Object.fromEntries(slots.map(s => [s.id, s]))
-  const teamGames = {}
-
-  for (const match of matches) {
-    if (!match.slot_id) {
-      conflicts.push({
-        type: 'unscheduled',
-        severity: 'error',
-        teamId: match.team_a_id,
-        matchIds: [match.id],
-        message: 'A playoff game could not be scheduled - not enough time slots',
-      })
-      continue
-    }
-
-    for (const teamId of [match.team_a_id, match.team_b_id]) {
-      if (!teamGames[teamId]) teamGames[teamId] = []
-      teamGames[teamId].push(match)
-    }
-  }
-
-  for (const [teamId, games] of Object.entries(teamGames)) {
-    const sorted = games
-      .filter(g => g.slot_id && slotMap[g.slot_id])
-      .sort((a, b) => {
-        const aStart = new Date(slotMap[a.slot_id].scheduled_start).getTime()
-        const bStart = new Date(slotMap[b.slot_id].scheduled_start).getTime()
-        return aStart - bStart
-      })
-
-    for (let i = 1; i < sorted.length; i++) {
-      const prevEnd = new Date(slotMap[sorted[i - 1].slot_id].scheduled_end).getTime()
-      const nextStart = new Date(slotMap[sorted[i].slot_id].scheduled_start).getTime()
-      const restMin = (nextStart - prevEnd) / 60000
-
-      if (restMin < minRestMinutes) {
-        conflicts.push({
-          type: 'rest_time',
-          severity: restMin < 30 ? 'error' : 'warning',
-          teamId,
-          matchIds: [sorted[i - 1].id, sorted[i].id],
-          message: `A team has only ${Math.round(restMin)} min rest between playoff games (minimum ${minRestMinutes} min)`,
-        })
+        setStandings(st ?? [])
+      } else {
+        setStandings([])
       }
+
+      setLoading(false)
+    }
+
+    load()
+  }, [tournamentId])
+
+  async function generateBracket(division, { skipConfirm = false } = {}) {
+    setGenerating(division.id)
+    setError(null)
+
+    try {
+      const divStandings = standings.filter(s => s.division_id === division.id)
+
+      if (divStandings.length === 0) {
+        setError('No standings found for ' + division.name + '.')
+        setGenerating(null)
+        return
+      }
+
+      const { data: existingMatches } = await supabase
+        .from('matches')
+        .select('id, status')
+        .eq('division_id', division.id)
+        .in('bracket_type', ['play_in', 'championship', 'consolation'])
+
+      const completedCount = (existingMatches ?? []).filter(m => m.status === 'complete').length
+      const scheduledCount = (existingMatches ?? []).filter(m => m.status === 'scheduled').length
+
+      if (existingMatches?.length > 0 && !skipConfirm) {
+        setGenerating(null)
+        setConfirmModal({
+          division,
+          completedCount,
+          scheduledCount,
+        })
+        return
+      }
+
+      await seed16TeamClassificationBracket({
+        tournamentId,
+        divisionId: division.id,
+        clearExisting: true,
+      })
+
+      await resolveBracketSources({
+        tournamentId,
+        divisionId: division.id,
+      })
+
+      const { data: seededMatches, error: seededErr } = await supabase
+        .from('matches')
+        .select('id, bracket_type')
+        .eq('division_id', division.id)
+        .in('bracket_type', ['play_in', 'championship', 'consolation'])
+
+      if (seededErr) throw seededErr
+
+      const publicBracketMatches = (seededMatches ?? []).filter(
+        m => m.bracket_type === 'championship' || m.bracket_type === 'consolation'
+      )
+
+      setGenerated(prev => ({
+        ...prev,
+        [division.id]: {
+          rounds: 3,
+          teams: 16,
+          matches: publicBracketMatches.length,
+        },
+      }))
+
+      setResultModal({
+        division,
+        rounds: 3,
+        teams: 16,
+        matches: publicBracketMatches.length,
+      })
+    } catch (err) {
+      setError('Failed to generate bracket for ' + division.name + ': ' + err.message)
+      console.error(err)
+    } finally {
+      setGenerating(null)
     }
   }
 
-  return conflicts
+  if (loading) return <PageLoader />
+
+  return (
+    <div style={{ maxWidth: 720 }}>
+      <div className="flex items-center gap-3">
+        <Link to={'/director/' + tournamentId} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
+          <ChevronLeft size={20} />
+        </Link>
+        <div>
+          <h1 className="text-xl font-bold text-[var(--text-primary)]">Generate Brackets</h1>
+          <p className="text-sm text-[var(--text-muted)]">{tournament?.name}</p>
+        </div>
+      </div>
+
+      {error && (
+        <div className="p-3 bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] rounded-lg text-sm text-[#f87171] flex gap-2">
+          <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" /> {error}
+        </div>
+      )}
+
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 flex gap-2">
+        <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" />
+        <div>
+          Generate brackets after pool play is complete. This creates play-in, championship, and consolation matches
+          seeded from current standings. The public bracket page only shows championship and consolation brackets.
+          Existing bracket games for a division will be replaced.
+        </div>
+      </div>
+
+      {divisions.length === 0 ? (
+        <div className="text-center py-12 text-[var(--text-muted)]">
+          <p>No divisions found</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {divisions.map(div => {
+            const divStandings = standings.filter(s => s.division_id === div.id)
+            const byPool = {}
+
+            for (const s of divStandings) {
+              if (!byPool[s.pool_id]) byPool[s.pool_id] = []
+              byPool[s.pool_id].push(s)
+            }
+
+            const numPools = Object.keys(byPool).length
+            const rankedTeams = Object.values(byPool).flat()
+            const isReady = numPools >= 2 && rankedTeams.length >= 8
+            const result = generated[div.id]
+            const poolsComplete = Object.values(byPool).every(
+              p => p.length > 0 && p.every(t => t.games_played > 0)
+            )
+
+            return (
+              <div key={div.id} className="border border-[var(--border)] rounded-2xl overflow-hidden">
+                <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between gap-4">
+                  <div>
+                    <h2 className="font-bold text-[var(--text-primary)]">{div.name}</h2>
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5 capitalize">
+                      {div.format_type?.replace(/_/g, ' ')} · {numPools} pool{numPools !== 1 ? 's' : ''}
+                      {' · 1st to championship · 4th to consolation · 2nd/3rd to play-in'}
+                    </p>
+                  </div>
+
+                  {result ? (
+                    <div className="flex items-center gap-2 text-green-600 text-sm font-medium">
+                      <Check size={16} />
+                      Generated ({result.teams} teams, {result.matches} bracket games)
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => generateBracket(div)}
+                      disabled={!isReady || generating === div.id}
+                      className="btn-primary btn btn-sm disabled:opacity-40"
+                    >
+                      {generating === div.id ? (
+                        <>
+                          <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Zap size={14} /> Generate bracket
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                <div className="px-5 py-3">
+                  {!isReady ? (
+                    <p className="text-sm text-amber-600 flex items-center gap-1.5">
+                      <AlertTriangle size={13} /> Need pool standings before generating this bracket
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {!poolsComplete && (
+                        <p className="text-xs text-amber-600 flex items-center gap-1.5 mb-2">
+                          <AlertTriangle size={11} /> Some pool games not yet complete - bracket will use current standings
+                        </p>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-3">
+                        {Object.entries(byPool).map(([poolId, teams]) => (
+                          <div key={poolId}>
+                            <p className="text-xs font-semibold text-[var(--text-muted)] mb-1">
+                              {teams[0]?.pool_name}
+                            </p>
+                            {teams.slice(0, 4).map((t, idx) => (
+                              <div
+                                key={t.team_id}
+                                className={`flex items-center gap-2 py-1 text-xs ${
+                                  idx === 0
+                                    ? 'text-[var(--text-primary)]'
+                                    : idx === 3
+                                      ? 'text-[var(--text-primary)]'
+                                      : 'text-[var(--text-secondary)]'
+                                }`}
+                              >
+                                <span className="w-4 text-right text-[var(--text-muted)]">{idx + 1}</span>
+                                <div
+                                  className="w-2 h-2 rounded-full"
+                                  style={{ backgroundColor: t.primary_color ?? '#e5e7eb' }}
+                                />
+                                <span className={idx === 0 || idx === 3 ? 'font-semibold' : ''}>
+                                  {t.team_short_name ?? t.team_name}
+                                </span>
+                                <span className="text-[var(--text-muted)] ml-auto">
+                                  {t.wins}-{t.losses}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {result && (
+                  <div className="px-5 py-3 border-t border-[var(--border)]">
+                    <Link
+                      to={'/t/' + tournament?.slug + '/bracket/' + div.id}
+                      className="text-sm text-[var(--accent)] hover:underline flex items-center gap-1"
+                    >
+                      <Trophy size={13} /> View bracket
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {confirmModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 50,
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--bg-raised)',
+              border: '1px solid var(--border-mid)',
+              borderRadius: 16,
+              width: '100%',
+              maxWidth: 440,
+              padding: 24,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: '50%',
+                  background: 'rgba(234,179,8,0.12)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <AlertTriangle size={18} style={{ color: '#fde047' }} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Regenerate bracket?
+                </h2>
+                <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {confirmModal.division.name}
+                </p>
+              </div>
+            </div>
+
+            {confirmModal.completedCount > 0 ? (
+              <div
+                style={{
+                  padding: '12px 14px',
+                  background: 'rgba(239,68,68,0.08)',
+                  border: '1px solid rgba(239,68,68,0.2)',
+                  borderRadius: 10,
+                  marginBottom: 16,
+                }}
+              >
+                <p style={{ fontSize: 13, fontWeight: 600, color: '#f87171', marginBottom: 4 }}>
+                  Warning: {confirmModal.completedCount} completed game{confirmModal.completedCount !== 1 ? 's' : ''} will be deleted
+                </p>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  All scores and results for this play-in / bracket structure will be permanently lost.
+                </p>
+              </div>
+            ) : (
+              <div
+                style={{
+                  padding: '12px 14px',
+                  background: 'var(--bg-hover)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 10,
+                  marginBottom: 16,
+                }}
+              >
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                  {confirmModal.scheduledCount} scheduled game{confirmModal.scheduledCount !== 1 ? 's' : ''} will be replaced with a fresh structure seeded from current standings.
+                </p>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setConfirmModal(null)} className="btn btn-ghost" style={{ flex: 1 }}>
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const d = confirmModal.division
+                  setConfirmModal(null)
+                  await generateBracket(d, { skipConfirm: true })
+                }}
+                className={confirmModal.completedCount > 0 ? 'btn btn-danger' : 'btn btn-primary'}
+                style={{ flex: 1 }}
+              >
+                {confirmModal.completedCount > 0 ? 'Delete & regenerate' : 'Regenerate bracket'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {resultModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 50,
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--bg-raised)',
+              border: '1px solid var(--border-mid)',
+              borderRadius: 16,
+              width: '100%',
+              maxWidth: 400,
+              padding: 24,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: '50%',
+                  background: 'rgba(34,197,94,0.12)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Check size={20} style={{ color: '#4ade80' }} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Bracket created!
+                </h2>
+                <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {resultModal.division.name}
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 20 }}>
+              {[
+                ['Teams', resultModal.teams],
+                ['Rounds', resultModal.rounds],
+                ['Games', resultModal.matches],
+              ].map(([label, val]) => (
+                <div
+                  key={label}
+                  style={{
+                    background: 'var(--bg-hover)',
+                    borderRadius: 10,
+                    padding: '12px 8px',
+                    textAlign: 'center',
+                  }}
+                >
+                  <p
+                    style={{
+                      fontFamily: 'DM Mono, monospace',
+                      fontSize: 22,
+                      fontWeight: 500,
+                      color: 'var(--text-primary)',
+                      lineHeight: 1,
+                    }}
+                  >
+                    {val}
+                  </p>
+                  <p
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                      color: 'var(--text-muted)',
+                      marginTop: 5,
+                    }}
+                  >
+                    {label}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16, textAlign: 'center' }}>
+              Play-in and bracket games are now seeded from current standings.
+            </p>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setResultModal(null)} className="btn btn-ghost" style={{ flex: 1 }}>
+                Done
+              </button>
+              <button
+                onClick={() => {
+                  setResultModal(null)
+                  navigate('/t/' + tournament?.slug + '/bracket/' + resultModal.division.id)
+                }}
+                className="btn btn-primary"
+                style={{ flex: 1 }}
+              >
+                <Trophy size={14} /> View bracket
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
