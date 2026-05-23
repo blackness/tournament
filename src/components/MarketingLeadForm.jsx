@@ -115,7 +115,9 @@ async function handleSubmit(e) {
     }
   }
   return (
-    <section className="rounded-3xl border border-[var(--border)] bg-[var(--bg-surface)] p-6 sm:p-8">
+    <section
+  id="contact"
+  className="rounded-3xl border border-[var(--border)] bg-[var(--bg-surface)] p-6 sm:p-8">
       <div className="max-w-2xl">
         <h2 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">
           Bring AthleteOS to your tournament
