@@ -78,46 +78,8 @@ export function BracketPage() {
 
       setDivision(div)
 
-      const { data: matches, error } = await supabase
-        .from('matches')
-        .select(`
-          id,
-          match_code,
-          bracket_type,
-          round_label,
-          display_label,
-          placement_min,
-          placement_max,
-          source_a_type,
-          source_a_ref,
-          source_b_type,
-          source_b_ref,
-          score_a,
-          score_b,
-          status,
-          winner_id,
-          team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
-          team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
-          venue:venues(name, short_name),
-          time_slot:time_slots(scheduled_start)
-        `)
-        .eq('division_id', divisionId)
-        .in('bracket_type', ['championship', 'consolation'])
-        .order('match_code')
-
-      if (error) {
-        console.error(error)
-        setBracket(null)
-        setLoading(false)
-        return
-      }
-
-      if ((matches ?? []).length > 0) {
-        setBracket(layoutDualBracket(matches ?? []))
-      } else {
-        setBracket(null)
-      }
-
+      const nextBracket = await loadBestBracketForDivision(divisionId)
+      setBracket(nextBracket)
       setLoading(false)
     }
 
@@ -132,40 +94,14 @@ export function BracketPage() {
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*',
           schema: 'public',
           table: 'matches',
           filter: 'division_id=eq.' + divisionId,
         },
         async () => {
-          const { data: matches } = await supabase
-            .from('matches')
-            .select(`
-              id,
-              match_code,
-              bracket_type,
-              round_label,
-              display_label,
-              placement_min,
-              placement_max,
-              source_a_type,
-              source_a_ref,
-              source_b_type,
-              source_b_ref,
-              score_a,
-              score_b,
-              status,
-              winner_id,
-              team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
-              team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
-              venue:venues(name, short_name),
-              time_slot:time_slots(scheduled_start)
-            `)
-            .eq('division_id', divisionId)
-            .in('bracket_type', ['championship', 'consolation'])
-            .order('match_code')
-
-          setBracket(layoutDualBracket(matches ?? []))
+          const nextBracket = await loadBestBracketForDivision(divisionId)
+          setBracket(nextBracket)
         }
       )
       .subscribe()
@@ -480,6 +416,76 @@ export function BracketPage() {
   )
 }
 
+async function loadBestBracketForDivision(divisionId) {
+  const { data: bracketMatches, error } = await supabase
+    .from('matches')
+    .select(`
+      id,
+      match_code,
+      bracket_type,
+      round_label,
+      display_label,
+      placement_min,
+      placement_max,
+      source_a_type,
+      source_a_ref,
+      source_b_type,
+      source_b_ref,
+      score_a,
+      score_b,
+      status,
+      winner_id,
+      team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
+      team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
+      venue:venues(name, short_name),
+      time_slot:time_slots(scheduled_start)
+    `)
+    .eq('division_id', divisionId)
+    .in('bracket_type', ['championship', 'consolation'])
+    .order('match_code')
+
+  if (error) {
+    console.error(error)
+    return null
+  }
+
+  if ((bracketMatches ?? []).length > 0) {
+    return layoutDualBracket(bracketMatches ?? [])
+  }
+
+  const { data: legacyMatches, error: legacyError } = await supabase
+    .from('matches')
+    .select(`
+      id,
+      round_label,
+      score_a,
+      score_b,
+      status,
+      winner_id,
+      phase,
+      match_number,
+      team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
+      team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
+      venue:venues(name, short_name),
+      time_slot:time_slots(scheduled_start)
+    `)
+    .eq('division_id', divisionId)
+    .eq('phase', 2)
+    .is('bracket_type', null)
+    .neq('status', 'cancelled')
+
+  if (legacyError) {
+    console.error(legacyError)
+    return null
+  }
+
+  if ((legacyMatches ?? []).length > 0) {
+    return layoutLegacyBracket(legacyMatches ?? [])
+  }
+
+  return null
+}
+
 function BracketNode({ node, primaryColor, themeColors }) {
   const { x, y, match, team_a, team_b, team_a_source, team_b_source, label } = node
   const isLive = match?.status === 'in_progress'
@@ -648,11 +654,9 @@ function prettifySource(source) {
 
 function sourceLabel(type, ref) {
   if (!type || !ref) return 'TBD'
-
   if (type === 'pool_place') return prettifySource(ref)
   if (type === 'winner') return `Winner ${ref}`
   if (type === 'loser') return `Loser ${ref}`
-
   return ref
 }
 
@@ -688,6 +692,13 @@ function matchPosition(matchCode) {
   }
 
   return 1
+}
+
+function compareMatches(a, b) {
+  const ao = roundOrder(a.match_code)
+  const bo = roundOrder(b.match_code)
+  if (ao !== bo) return ao - bo
+  return matchPosition(a.match_code) - matchPosition(b.match_code)
 }
 
 function layoutDualBracket(matches) {
@@ -792,9 +803,7 @@ function layoutSingleBracket({ matches, offsetX = 0, offsetY = 0, mirrored = fal
       const midX = mirrored ? sX - H_GAP / 2 : sX + H_GAP / 2
 
       edges.push({
-        d: mirrored
-          ? `M${sX} ${sY} H${midX} V${tY} H${tX}`
-          : `M${sX} ${sY} H${midX} V${tY} H${tX}`,
+        d: `M${sX} ${sY} H${midX} V${tY} H${tX}`,
       })
     }
   }
@@ -838,11 +847,154 @@ function layoutSingleBracket({ matches, offsetX = 0, offsetY = 0, mirrored = fal
   return { nodes, edges, titles, svgH, champion, second, third }
 }
 
-function compareMatches(a, b) {
-  const ao = roundOrder(a.match_code)
-  const bo = roundOrder(b.match_code)
-  if (ao !== bo) return ao - bo
-  return matchPosition(a.match_code) - matchPosition(b.match_code)
+function layoutLegacyBracket(matches) {
+  const semiMatches = matches.filter(m =>
+    (m.round_label ?? '').toLowerCase().includes('semi')
+  )
+
+  const goldMatch = matches.find(m =>
+    (m.round_label ?? '').toLowerCase().includes('gold')
+  )
+
+  const bronzeMatch = matches.find(m =>
+    (m.round_label ?? '').toLowerCase().includes('bronze')
+  )
+
+  const fifthMatch = matches.find(m =>
+    (m.round_label ?? '').toLowerCase().includes('5th')
+  )
+
+  const leftX = PADDING
+  const midX = PADDING + (NODE_W + H_GAP)
+
+  const topY = PADDING + TITLE_Y_PAD + 20
+  const gapY = NODE_H + 42
+
+  const semi1 = semiMatches[0]
+  const semi2 = semiMatches[1]
+
+  const nodes = []
+  const edges = []
+
+  if (semi1) {
+    nodes.push({
+      id: semi1.id,
+      x: leftX,
+      y: topY,
+      match: semi1,
+      team_a: semi1.team_a,
+      team_b: semi1.team_b,
+      team_a_source: null,
+      team_b_source: null,
+      label: 'Semi Final',
+    })
+  }
+
+  if (semi2) {
+    nodes.push({
+      id: semi2.id,
+      x: leftX,
+      y: topY + gapY * 2,
+      match: semi2,
+      team_a: semi2.team_a,
+      team_b: semi2.team_b,
+      team_a_source: null,
+      team_b_source: null,
+      label: 'Semi Final',
+    })
+  }
+
+  if (goldMatch) {
+    nodes.push({
+      id: goldMatch.id,
+      x: midX,
+      y: topY + gapY,
+      match: goldMatch,
+      team_a: goldMatch.team_a,
+      team_b: goldMatch.team_b,
+      team_a_source: semi1 ? 'Winner SF1' : null,
+      team_b_source: semi2 ? 'Winner SF2' : null,
+      label: 'Gold Medal Game',
+    })
+  }
+
+  if (bronzeMatch) {
+    nodes.push({
+      id: bronzeMatch.id,
+      x: midX,
+      y: topY + gapY * 2.2,
+      match: bronzeMatch,
+      team_a: bronzeMatch.team_a,
+      team_b: bronzeMatch.team_b,
+      team_a_source: semi1 ? 'Loser SF1' : null,
+      team_b_source: semi2 ? 'Loser SF2' : null,
+      label: 'Bronze Medal Game',
+    })
+  }
+
+  if (semi1 && goldMatch) {
+    const sX = leftX + NODE_W
+    const sY = topY + NODE_H / 2
+    const tX = midX
+    const tY = topY + gapY + NODE_H / 2
+    const mid = sX + H_GAP / 2
+    edges.push({ d: `M${sX} ${sY} H${mid} V${tY} H${tX}` })
+  }
+
+  if (semi2 && goldMatch) {
+    const sX = leftX + NODE_W
+    const sY = topY + gapY * 2 + NODE_H / 2
+    const tX = midX
+    const tY = topY + gapY + NODE_H / 2
+    const mid = sX + H_GAP / 2
+    edges.push({ d: `M${sX} ${sY} H${mid} V${tY} H${tX}` })
+  }
+
+  if (fifthMatch) {
+    nodes.push({
+      id: fifthMatch.id,
+      x: midX,
+      y: topY + gapY * 3.5,
+      match: fifthMatch,
+      team_a: fifthMatch.team_a,
+      team_b: fifthMatch.team_b,
+      team_a_source: null,
+      team_b_source: null,
+      label: '5th Place Game',
+    })
+  }
+
+  let champion = null
+  let second = null
+  let third = null
+
+  if (goldMatch?.status === 'complete' && goldMatch.winner_id) {
+    champion = goldMatch.team_a?.id === goldMatch.winner_id ? goldMatch.team_a : goldMatch.team_b
+    second = goldMatch.team_a?.id === goldMatch.winner_id ? goldMatch.team_b : goldMatch.team_a
+  }
+
+  if (bronzeMatch?.status === 'complete' && bronzeMatch.winner_id) {
+    third = bronzeMatch.team_a?.id === bronzeMatch.winner_id ? bronzeMatch.team_a : bronzeMatch.team_b
+  }
+
+  return {
+    nodes,
+    edges,
+    titles: [
+      {
+        id: 'legacy-title',
+        x: PADDING,
+        y: PADDING,
+        label: 'Legacy Bracket',
+        anchor: 'start',
+      },
+    ],
+    svgW: midX + NODE_W + PADDING,
+    svgH: topY + gapY * 5 + NODE_H + PADDING,
+    champion,
+    second,
+    third,
+  }
 }
 
 function nodeXForBracket(round, offsetX = 0, mirrored = false) {
