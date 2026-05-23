@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { MarketingLeadForm } from '../components/MarketingLeadForm'
 import {
   CalendarDays,
   Trophy,
@@ -182,6 +183,7 @@ export function MarketingHomePage() {
             </Link>
           </div>
         </div>
+        <MarketingLeadForm />
       </section>
     </div>
   )
