@@ -27,6 +27,7 @@ function resolveColors() {
     textPrimary: get('--text-primary') || '#f0f0f2',
     border: get('--border') || '#2a2a32',
     bgSurface: get('--bg-surface') || '#111114',
+    bgBase: get('--bg-base') || '#0a0a0c',
   }
 }
 
@@ -45,6 +46,7 @@ export function BracketPage() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [zoom, setZoom] = useState(1)
+  const [mobileFocusedRound, setMobileFocusedRound] = useState(null)
   const containerRef = useRef(null)
 
   const themeColors = useThemeColors()
@@ -113,15 +115,7 @@ export function BracketPage() {
 
   if (notFound) {
     return (
-      <div
-        style={{
-          maxWidth: 600,
-          margin: '0 auto',
-          padding: '64px 20px',
-          textAlign: 'center',
-          color: 'var(--text-muted)',
-        }}
-      >
+      <div style={{ maxWidth: 600, margin: '0 auto', padding: '64px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
         <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)' }}>
           Division not found
         </p>
@@ -140,17 +134,14 @@ export function BracketPage() {
     champion,
     second,
     third,
+    championshipNodes = [],
+    consolationNodes = [],
+    championshipLayout = null,
+    consolationLayout = null,
   } = bracket ?? {}
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: 'var(--bg-base)',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column' }}>
       <div
         style={{
           background: 'var(--bg-surface)',
@@ -192,15 +183,11 @@ export function BracketPage() {
               >
                 {division?.name} Bracket
               </h1>
-              {tournament && (
-                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>
-                  {tournament.name}
-                </p>
-              )}
+              {tournament && <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>{tournament.name}</p>}
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <div className="hidden md:flex" style={{ alignItems: 'center', gap: 8, flexShrink: 0 }}>
             {tournament && (
               <div style={{ display: 'flex', gap: 6, marginRight: 8 }}>
                 <Link
@@ -251,15 +238,7 @@ export function BracketPage() {
               <ZoomOut size={15} />
             </button>
 
-            <span
-              style={{
-                fontSize: 12,
-                color: 'var(--text-muted)',
-                width: 40,
-                textAlign: 'center',
-                fontFamily: 'monospace',
-              }}
-            >
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', width: 40, textAlign: 'center', fontFamily: 'monospace' }}>
               {Math.round(zoom * 100)}%
             </span>
 
@@ -303,13 +282,7 @@ export function BracketPage() {
                   </p>
                   <Link
                     to={'/t/' + tournament?.slug + '/team/' + champion.id}
-                    style={{
-                      fontSize: 16,
-                      fontWeight: 700,
-                      color: 'var(--text-primary)',
-                      letterSpacing: '-0.02em',
-                      textDecoration: 'none',
-                    }}
+                    style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em', textDecoration: 'none' }}
                   >
                     {champion.name}
                   </Link>
@@ -325,12 +298,7 @@ export function BracketPage() {
                     </p>
                     <Link
                       to={'/t/' + tournament?.slug + '/team/' + second.id}
-                      style={{
-                        fontSize: 14,
-                        fontWeight: 600,
-                        color: 'var(--text-secondary)',
-                        textDecoration: 'none',
-                      }}
+                      style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', textDecoration: 'none' }}
                     >
                       {second.name}
                     </Link>
@@ -347,12 +315,7 @@ export function BracketPage() {
                     </p>
                     <Link
                       to={'/t/' + tournament?.slug + '/team/' + third.id}
-                      style={{
-                        fontSize: 14,
-                        fontWeight: 600,
-                        color: 'var(--text-secondary)',
-                        textDecoration: 'none',
-                      }}
+                      style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', textDecoration: 'none' }}
                     >
                       {third.name}
                     </Link>
@@ -376,40 +339,62 @@ export function BracketPage() {
             </p>
           </div>
         ) : (
-          <div
-            style={{
-              transformOrigin: 'top left',
-              transform: 'scale(' + zoom + ')',
-              width: svgW,
-              height: svgH,
-              transition: 'transform 0.15s',
-            }}
-          >
-            <svg width={svgW} height={svgH} xmlns="http://www.w3.org/2000/svg">
-              {titles.map(t => (
-                <text
-                  key={t.id}
-                  x={t.x}
-                  y={t.y}
-                  textAnchor={t.anchor}
-                  fontSize={16}
-                  fontWeight="700"
-                  fill={themeColors.textPrimary}
-                  style={{ fontFamily: 'DM Sans, system-ui', letterSpacing: '-0.02em' }}
-                >
-                  {t.label}
-                </text>
-              ))}
+          <>
+            <div className="md:hidden">
+              {mobileFocusedRound ? (
+                <MobileFocusedRoundView
+                  focusedRound={mobileFocusedRound}
+                  tournamentSlug={tournament?.slug}
+                  onBack={() => setMobileFocusedRound(null)}
+                />
+              ) : (
+                <MobileOverviewView
+                  championshipLayout={championshipLayout}
+                  consolationLayout={consolationLayout}
+                  themeColors={themeColors}
+                  primaryColor={color}
+                  onSelectRound={setMobileFocusedRound}
+                />
+              )}
+            </div>
 
-              {edges.map((e, i) => (
-                <path key={i} d={e.d} fill="none" stroke={themeColors.border} strokeWidth={2} />
-              ))}
+            <div className="hidden md:block">
+              <div
+                style={{
+                  transformOrigin: 'top left',
+                  transform: 'scale(' + zoom + ')',
+                  width: svgW,
+                  height: svgH,
+                  transition: 'transform 0.15s',
+                }}
+              >
+                <svg width={svgW} height={svgH} xmlns="http://www.w3.org/2000/svg">
+                  {titles.map(t => (
+                    <text
+                      key={t.id}
+                      x={t.x}
+                      y={t.y}
+                      textAnchor={t.anchor}
+                      fontSize={16}
+                      fontWeight="700"
+                      fill={themeColors.textPrimary}
+                      style={{ fontFamily: 'DM Sans, system-ui', letterSpacing: '-0.02em' }}
+                    >
+                      {t.label}
+                    </text>
+                  ))}
 
-              {nodes.map(node => (
-                <BracketNode key={node.id} node={node} primaryColor={color} themeColors={themeColors} />
-              ))}
-            </svg>
-          </div>
+                  {edges.map((e, i) => (
+                    <path key={i} d={e.d} fill="none" stroke={themeColors.border} strokeWidth={2} />
+                  ))}
+
+                  {nodes.map(node => (
+                    <BracketNode key={node.id} node={node} primaryColor={color} themeColors={themeColors} />
+                  ))}
+                </svg>
+              </div>
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -500,16 +485,53 @@ function BracketNode({ node, primaryColor, themeColors }) {
 
   return (
     <g>
-      <rect x={x} y={y} width={NODE_W} height={NODE_H} rx={11} ry={11} fill={cardFill} stroke={cardStroke} strokeWidth={strokeW} />
+      <rect
+        x={x}
+        y={y}
+        width={NODE_W}
+        height={NODE_H}
+        rx={11}
+        ry={11}
+        fill={cardFill}
+        stroke={cardStroke}
+        strokeWidth={strokeW}
+      />
 
-      {(isFinal || isBronze) && (
+      {node.match_code && (
+        <g>
+          <rect
+            x={x + 10}
+            y={y - 10}
+            rx={8}
+            ry={8}
+            width={34}
+            height={18}
+            fill={themeColors.bgBase}
+            stroke={themeColors.border}
+            strokeWidth={1}
+          />
+          <text
+            x={x + 27}
+            y={y + 2}
+            textAnchor="middle"
+            fontSize={9}
+            fontWeight="700"
+            fill={themeColors.textMuted}
+            style={{ fontFamily: 'DM Sans, system-ui', letterSpacing: '0.08em' }}
+          >
+            {node.match_code}
+          </text>
+        </g>
+      )}
+
+      {(isFinal || isBronze || label) && (
         <text
           x={x + NODE_W / 2}
           y={y - 6}
           textAnchor="middle"
           fontSize={9}
           fontWeight="700"
-          fill={isFinal ? primaryColor : '#b45309'}
+          fill={isFinal ? primaryColor : isBronze ? '#b45309' : themeColors.textMuted}
           style={{ fontFamily: 'DM Sans, system-ui', textTransform: 'uppercase', letterSpacing: '0.08em' }}
         >
           {label}
@@ -633,6 +655,300 @@ function NodeTeamRow({ x, y, team, source, score, isWinner, isLoser, showScore, 
     </g>
   )
 }
+function normalizeLayoutForMobile(layout) {
+  if (!layout?.nodes?.length) return layout
+
+  const minX = Math.min(...layout.nodes.map(n => n.x))
+  const minY = Math.min(...layout.nodes.map(n => n.y))
+
+  const shiftX = minX - PADDING
+  const shiftY = minY - (PADDING + TITLE_Y_PAD)
+
+  const nodes = layout.nodes.map(node => ({
+    ...node,
+    x: node.x - shiftX,
+    y: node.y - shiftY,
+  }))
+
+  const edges = layout.edges.map(edge => ({
+    ...edge,
+    d: shiftPath(edge.d, shiftX, shiftY),
+  }))
+
+  const maxRight = Math.max(...nodes.map(n => n.x + NODE_W))
+  const maxBottom = Math.max(...nodes.map(n => n.y + NODE_H))
+
+  return {
+    ...layout,
+    nodes,
+    edges,
+    svgW: maxRight + PADDING,
+    svgH: maxBottom + PADDING,
+  }
+}
+
+function shiftPath(path, shiftX, shiftY) {
+  return path
+    .replace(/M([0-9.-]+) ([0-9.-]+)/g, (_, x, y) => `M${Number(x) - shiftX} ${Number(y) - shiftY}`)
+    .replace(/H([0-9.-]+)/g, (_, x) => `H${Number(x) - shiftX}`)
+    .replace(/V([0-9.-]+)/g, (_, y) => `V${Number(y) - shiftY}`)
+}
+
+function MobileOverviewView({ championshipLayout, consolationLayout, themeColors, primaryColor, onSelectRound }) {
+  return (
+    <div className="space-y-5">
+      <MobileOverviewBracket
+        title="Championship Bracket"
+        layout={championshipLayout}
+        themeColors={themeColors}
+        primaryColor={primaryColor}
+        bracketType="championship"
+        onSelectRound={onSelectRound}
+      />
+
+      <MobileOverviewBracket
+        title="Consolation Bracket"
+        layout={consolationLayout}
+        themeColors={themeColors}
+        primaryColor={primaryColor}
+        bracketType="consolation"
+        onSelectRound={onSelectRound}
+      />
+    </div>
+  )
+}
+
+function MobileOverviewBracket({ title, layout, themeColors, primaryColor, bracketType, onSelectRound }) {
+  if (!layout?.nodes?.length) return null
+
+  const mobileLayout = normalizeLayoutForMobile(layout)
+  const rounds = getRoundsFromNodes(mobileLayout.nodes)
+  const scale = 0.32
+  const scaledW = mobileLayout.svgW * scale
+  const scaledH = mobileLayout.svgH * scale
+
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-base font-bold text-[var(--text-primary)]">{title}</h2>
+        <span className="text-[11px] text-[var(--text-muted)]">Tap a round</span>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {rounds.map(round => (
+          <button
+            key={round.round}
+            onClick={() =>
+              onSelectRound({
+                bracketType,
+                round: round.round,
+                title: round.title,
+                matches: round.matches,
+              })
+            }
+            className="rounded-full border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--text-secondary)]"
+          >
+            {round.title}
+          </button>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto overflow-y-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-base)] p-2">
+        <div style={{ width: scaledW, height: scaledH, minWidth: scaledW }}>
+          <div
+            style={{
+              transformOrigin: 'top left',
+              transform: `scale(${scale})`,
+              width: mobileLayout.svgW,
+              height: mobileLayout.svgH,
+            }}
+          >
+            <svg width={mobileLayout.svgW} height={mobileLayout.svgH} xmlns="http://www.w3.org/2000/svg">
+              {mobileLayout.edges.map((e, i) => (
+                <path key={i} d={e.d} fill="none" stroke={themeColors.border} strokeWidth={2} />
+              ))}
+
+              {mobileLayout.nodes.map(node => (
+                <BracketNode key={node.id} node={node} primaryColor={primaryColor} themeColors={themeColors} />
+              ))}
+            </svg>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+function MobileFocusedRoundView({ focusedRound, tournamentSlug, onBack }) {
+  return (
+    <div className="space-y-5">
+      <button
+        onClick={onBack}
+        className="inline-flex items-center rounded-xl border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--text-secondary)]"
+      >
+        ← Back to full bracket
+      </button>
+
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+          {focusedRound.bracketType === 'championship' ? 'Championship Bracket' : 'Consolation Bracket'}
+        </p>
+        <h2 className="mt-1 text-xl font-bold text-[var(--text-primary)]">
+          {focusedRound.title}
+        </h2>
+      </div>
+
+      <div className="space-y-3">
+        {focusedRound.matches.map(node => (
+          <MobileFocusedMatchCard key={node.id} node={node} tournamentSlug={tournamentSlug} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MobileFocusedMatchCard({ node, tournamentSlug }) {
+  const { match, team_a, team_b, team_a_source, team_b_source, label, match_code } = node
+  const isDone = match?.status === 'complete' || match?.status === 'forfeit'
+  const winnerId = match?.winner_id
+
+  return (
+    <div className="relative rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-4">
+      {match_code && (
+        <div className="absolute -top-2 left-3 rounded-full border border-[var(--border)] bg-[var(--bg-base)] px-2 py-0.5 text-[10px] font-bold tracking-wide text-[var(--text-muted)]">
+          {match_code}
+        </div>
+      )}
+
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+          {label}
+        </div>
+        <MobileStatusBadge status={match?.status} />
+      </div>
+
+      <div className="space-y-2">
+        <MobileTeamRow
+          team={team_a}
+          source={team_a_source}
+          score={match?.score_a}
+          isWinner={isDone && winnerId && team_a && winnerId === team_a.id}
+          isLoser={isDone && winnerId && team_a && winnerId !== team_a.id}
+          tournamentSlug={tournamentSlug}
+        />
+        <MobileTeamRow
+          team={team_b}
+          source={team_b_source}
+          score={match?.score_b}
+          isWinner={isDone && winnerId && team_b && winnerId === team_b.id}
+          isLoser={isDone && winnerId && team_b && winnerId !== team_b.id}
+          tournamentSlug={tournamentSlug}
+        />
+      </div>
+
+      {match?.time_slot?.scheduled_start && (
+        <div className="mt-3 text-[11px] text-[var(--text-muted)]">
+          {new Date(match.time_slot.scheduled_start).toLocaleTimeString('en-CA', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: 'America/Toronto',
+          })}
+          {match?.venue?.short_name ? ' · ' + match.venue.short_name : ''}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MobileTeamRow({ team, source, score, isWinner, isLoser, tournamentSlug }) {
+  const name = team ? team.short_name ?? team.name ?? 'TBD' : prettifySource(source)
+  const href = team?.id ? `/t/${tournamentSlug}/team/${team.id}` : null
+
+  return (
+    <div
+      className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-base)] px-3 py-2"
+      style={{ opacity: isLoser ? 0.45 : 1 }}
+    >
+      <div className="min-w-0 flex items-center gap-2">
+        <div
+          className="h-2.5 w-2.5 rounded-full"
+          style={{ backgroundColor: team?.primary_color ?? 'var(--text-muted)' }}
+        />
+        {href ? (
+          <a
+            href={href}
+            className="truncate text-sm font-medium text-[var(--text-primary)] underline decoration-[rgba(232,255,71,0.3)]"
+          >
+            {name}
+          </a>
+        ) : (
+          <span className={`truncate text-sm font-medium ${isWinner ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'}`}>
+            {name}
+          </span>
+        )}
+      </div>
+
+      {score !== undefined && score !== null && (
+        <span className={`text-sm font-bold tabular-nums ${isWinner ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'}`}>
+          {score}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function MobileStatusBadge({ status }) {
+  if (status === 'in_progress') {
+    return (
+      <span className="rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-[10px] font-semibold text-green-500">
+        Live
+      </span>
+    )
+  }
+
+  if (status === 'complete' || status === 'forfeit') {
+    return (
+      <span className="rounded-full border border-[var(--border)] bg-[var(--bg-base)] px-2 py-0.5 text-[10px] font-semibold text-[var(--text-muted)]">
+        Final
+      </span>
+    )
+  }
+
+  return (
+    <span className="rounded-full border border-[var(--border)] bg-[var(--bg-base)] px-2 py-0.5 text-[10px] font-semibold text-[var(--text-muted)]">
+      Scheduled
+    </span>
+  )
+}
+
+function getRoundsFromNodes(nodes) {
+  const grouped = {}
+
+  for (const node of nodes) {
+    if (!node?.round) continue
+    if (!grouped[node.round]) grouped[node.round] = []
+    grouped[node.round].push(node)
+  }
+
+  return Object.entries(grouped)
+    .map(([round, matches]) => ({
+      round: Number(round),
+      title: mobileRoundTitle(Number(round)),
+      matches: matches.sort((a, b) => {
+        const ao = matchPosition(a.match_code ?? '')
+        const bo = matchPosition(b.match_code ?? '')
+        return ao - bo
+      }),
+    }))
+    .sort((a, b) => a.round - b.round)
+}
+
+function mobileRoundTitle(round) {
+  if (round === 1) return 'Quarter-finals'
+  if (round === 2) return 'Semi-finals'
+  if (round === 3) return 'Finals'
+  return `Round ${round}`
+}
 
 function prettifySource(source) {
   if (!source) return 'TBD'
@@ -641,11 +957,9 @@ function prettifySource(source) {
   if (/^2[A-Z]$/.test(source)) return `2nd ${source.slice(1)}`
   if (/^3[A-Z]$/.test(source)) return `3rd ${source.slice(1)}`
   if (/^4[A-Z]$/.test(source)) return `4th ${source.slice(1)}`
-
   if (/^X\d+$/.test(source)) return source
   if (/^P\d+$/.test(source)) return source
   if (/^C\d+$/.test(source)) return source
-
   if (source.startsWith('Winner ')) return source
   if (source.startsWith('Loser ')) return source
 
@@ -658,6 +972,29 @@ function sourceLabel(type, ref) {
   if (type === 'winner') return `Winner ${ref}`
   if (type === 'loser') return `Loser ${ref}`
   return ref
+}
+
+function friendlyMatchLabel(match) {
+  const code = match?.match_code
+
+  if (!code) return match?.display_label ?? match?.round_label ?? 'Match'
+
+  if (/^P[1-4]$/.test(code)) return 'Quarter-final'
+  if (/^P[5-6]$/.test(code)) return 'Semi-final'
+  if (/^P[7-8]$/.test(code)) return 'Placement Semi-final'
+  if (code === 'P9') return 'Gold Medal Game'
+  if (code === 'P10') return 'Bronze Medal Game'
+  if (code === 'P11') return '5th Place Game'
+  if (code === 'P12') return '7th Place Game'
+
+  if (/^C[1-4]$/.test(code)) return 'Quarter-final'
+  if (/^C[5-8]$/.test(code)) return 'Placement Semi-final'
+  if (code === 'C9') return '9th Place Game'
+  if (code === 'C10') return '11th Place Game'
+  if (code === 'C11') return '13th Place Game'
+  if (code === 'C12') return '15th Place Game'
+
+  return match?.display_label ?? match?.round_label ?? code
 }
 
 function roundOrder(matchCode) {
@@ -723,6 +1060,7 @@ function layoutDualBracket(matches) {
     mirrored: false,
     title: 'Championship Bracket',
     titleAlign: 'start',
+    bracketType: 'championship',
   })
 
   const consLayout = layoutSingleBracket({
@@ -732,6 +1070,7 @@ function layoutDualBracket(matches) {
     mirrored: true,
     title: 'Consolation Bracket',
     titleAlign: 'end',
+    bracketType: 'consolation',
   })
 
   const nodes = [...champLayout.nodes, ...consLayout.nodes]
@@ -749,10 +1088,14 @@ function layoutDualBracket(matches) {
     champion: champLayout.champion,
     second: champLayout.second,
     third: champLayout.third,
+    championshipNodes: champLayout.nodes,
+    consolationNodes: consLayout.nodes,
+    championshipLayout: champLayout,
+    consolationLayout: consLayout,
   }
 }
 
-function layoutSingleBracket({ matches, offsetX = 0, offsetY = 0, mirrored = false, title = '', titleAlign = 'start' }) {
+function layoutSingleBracket({ matches, offsetX = 0, offsetY = 0, mirrored = false, title = '', titleAlign = 'start', bracketType = null }) {
   const grouped = {
     1: matches.filter(m => roundOrder(m.match_code) === 1),
     2: matches.filter(m => roundOrder(m.match_code) === 2),
@@ -772,8 +1115,9 @@ function layoutSingleBracket({ matches, offsetX = 0, offsetY = 0, mirrored = fal
         team_b: m.team_b,
         team_a_source: sourceLabel(m.source_a_type, m.source_a_ref),
         team_b_source: sourceLabel(m.source_b_type, m.source_b_ref),
-        label: m.display_label ?? m.round_label,
+        label: friendlyMatchLabel(m),
         match_code: m.match_code,
+        bracket_type: bracketType ?? m.bracket_type,
       }))
   }
 
@@ -826,6 +1170,7 @@ function layoutSingleBracket({ matches, offsetX = 0, offsetY = 0, mirrored = fal
 
   const maxNodes = Math.max(...Object.values(rounds).map(r => r.length), 0)
   const svgH = offsetY + PADDING * 2 + TITLE_Y_PAD + maxNodes * (NODE_H + V_GAP) - V_GAP
+  const svgW = PADDING * 2 + 3 * NODE_W + 2 * H_GAP
 
   const titleX =
     titleAlign === 'end'
@@ -844,7 +1189,7 @@ function layoutSingleBracket({ matches, offsetX = 0, offsetY = 0, mirrored = fal
       ]
     : []
 
-  return { nodes, edges, titles, svgH, champion, second, third }
+  return { nodes, edges, titles, svgH, svgW, champion, second, third, bracketType }
 }
 
 function layoutLegacyBracket(matches) {

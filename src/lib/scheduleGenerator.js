@@ -74,59 +74,85 @@ export function generateSchedule(config) {
     endTime,
     lunchBreakStart,
     lunchBreakEnd,
+    scheduleDays = [],
     gameDurationMinutes = 90,
     breakBetweenGamesMinutes = 30,
     minRestBetweenTeamGames = 90,
     tournamentId,
   } = config
 
-  if (!startTime || venues.length === 0) {
+  const crypto = globalThis.crypto
+  const slotDuration = gameDurationMinutes + breakBetweenGamesMinutes
+
+  if (venues.length === 0) {
     return { slots: [], matches: [], conflicts: [] }
   }
 
-  const crypto = globalThis.crypto
-  const slotDuration = gameDurationMinutes + breakBetweenGamesMinutes
-  const start = new Date(startTime)
-  const end = endTime ? new Date(endTime) : new Date(start.getTime() + 10 * 60 * 60 * 1000)
-  const lunchStart = lunchBreakStart ? new Date(lunchBreakStart) : null
-  const lunchEnd = lunchBreakEnd ? new Date(lunchBreakEnd) : null
+  const normalizedDays =
+    scheduleDays.length > 0
+      ? scheduleDays
+          .filter(day => day.startTime)
+          .map(day => ({
+            start: new Date(day.startTime),
+            end: day.endTime
+              ? new Date(day.endTime)
+              : new Date(new Date(day.startTime).getTime() + 10 * 60 * 60 * 1000),
+            lunchStart: day.lunchBreakStart ? new Date(day.lunchBreakStart) : null,
+            lunchEnd: day.lunchBreakEnd ? new Date(day.lunchBreakEnd) : null,
+          }))
+      : startTime
+        ? [
+            {
+              start: new Date(startTime),
+              end: endTime
+                ? new Date(endTime)
+                : new Date(new Date(startTime).getTime() + 10 * 60 * 60 * 1000),
+              lunchStart: lunchBreakStart ? new Date(lunchBreakStart) : null,
+              lunchEnd: lunchBreakEnd ? new Date(lunchBreakEnd) : null,
+            },
+          ]
+        : []
 
-  // Build time rounds -- all venues play simultaneously within each round
+  if (normalizedDays.length === 0) {
+    return { slots: [], matches: [], conflicts: [] }
+  }
+
   const timeRounds = []
-  let cursor = new Date(start)
 
-  while (cursor < end) {
-    if (lunchStart && lunchEnd && cursor >= lunchStart && cursor < lunchEnd) {
-      cursor = new Date(lunchEnd)
-      continue
+  for (const day of normalizedDays) {
+    let cursor = new Date(day.start)
+
+    while (cursor < day.end) {
+      if (day.lunchStart && day.lunchEnd && cursor >= day.lunchStart && cursor < day.lunchEnd) {
+        cursor = new Date(day.lunchEnd)
+        continue
+      }
+
+      const slotEnd = new Date(cursor.getTime() + gameDurationMinutes * 60 * 1000)
+      if (slotEnd > day.end) break
+
+      timeRounds.push({
+        time: new Date(cursor),
+        slots: venues.map(venue => ({
+          id: crypto.randomUUID(),
+          venue_id: venue.id,
+          scheduled_start: cursor.toISOString(),
+          scheduled_end: slotEnd.toISOString(),
+          _assigned: false,
+        })),
+      })
+
+      cursor = new Date(cursor.getTime() + slotDuration * 60 * 1000)
     }
-
-    const slotEnd = new Date(cursor.getTime() + gameDurationMinutes * 60 * 1000)
-    if (slotEnd > end) break
-
-    timeRounds.push({
-      time: new Date(cursor),
-      slots: venues.map(venue => ({
-        id: crypto.randomUUID(),
-        venue_id: venue.id,
-        scheduled_start: cursor.toISOString(),
-        scheduled_end: slotEnd.toISOString(),
-        _assigned: false,
-      })),
-    })
-
-    cursor = new Date(cursor.getTime() + slotDuration * 60 * 1000)
   }
 
   const slots = timeRounds.flatMap(r => r.slots)
 
-  // Assign a home venue to each pool for field affinity
   const poolHomeVenue = {}
   pools.forEach((pool, i) => {
     poolHomeVenue[pool.id] = venues[i % venues.length]?.id ?? venues[0]?.id
   })
 
-  // Generate all matchups, sorted by round so rounds fill across all pools before moving on
   const allMatchups = []
   for (const pool of pools) {
     const matchups = generatePoolMatchups(pool)
@@ -159,7 +185,6 @@ export function generateSchedule(config) {
       if (aLast && slotTimeMs - aLast < minRestMs) continue
       if (bLast && slotTimeMs - bLast < minRestMs) continue
 
-      // Prefer home venue, fall back to any free slot in this round
       const slot =
         round.slots.find(s => !s._assigned && s.venue_id === matchup.home_venue) ??
         round.slots.find(s => !s._assigned)
@@ -205,7 +230,6 @@ export function generateSchedule(config) {
 
   return { slots, matches, conflicts }
 }
-
 /**
  * Generate round-robin matchups for a pool.
  * Uses the director-preferred template for 4-team pools.
@@ -443,7 +467,7 @@ export function applyScheduleDelay(slots, fromTime, offsetMinutes, venueId = nul
 /**
  * Tiebreaker calculation - returns teams sorted by tiebreaker order.
  */
-export function applyTiebreakers(teamStats, headToHead, tiebreakerOrder) {
+export function applyTiebreakers(teamStats, headToHead, tiebreakerOrder, discFlipOrder = {}) {
   return [...teamStats].sort((a, b) => {
     for (const rule of tiebreakerOrder) {
       let diff = 0
@@ -454,18 +478,26 @@ export function applyTiebreakers(teamStats, headToHead, tiebreakerOrder) {
           if (h2h !== undefined) diff = h2h > 0 ? -1 : h2h < 0 ? 1 : 0
           break
         }
-        case 'point_diff':
-          diff = (b.point_diff ?? 0) - (a.point_diff ?? 0)
+
+        case 'wins':
+          diff = (b.wins ?? 0) - (a.wins ?? 0)
           break
-        case 'points_scored':
-          diff = (b.points_scored ?? 0) - (a.points_scored ?? 0)
-          break
+
         case 'points_against':
           diff = (a.points_against ?? 0) - (b.points_against ?? 0)
           break
-        case 'sotg':
-          diff = (b.sotg_average ?? 0) - (a.sotg_average ?? 0)
+
+        case 'points_scored':
+          diff = (b.points_scored ?? 0) - (a.points_scored ?? 0)
           break
+
+        case 'disc_flip': {
+          const aOrder = discFlipOrder?.[a.team_id] ?? 0
+          const bOrder = discFlipOrder?.[b.team_id] ?? 0
+          diff = aOrder - bOrder
+          break
+        }
+
         default:
           break
       }
@@ -476,7 +508,6 @@ export function applyTiebreakers(teamStats, headToHead, tiebreakerOrder) {
     return 0
   })
 }
-
 /**
  * Generate a single-elimination bracket from pool standings.
  */

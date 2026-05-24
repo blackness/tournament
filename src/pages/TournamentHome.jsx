@@ -216,15 +216,28 @@ export function TournamentHome() {
 
   const fmtTime = iso =>
     iso
-      ? new Date(iso).toLocaleTimeString('en-CA', {
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true,
-          timeZone: 'America/Toronto',
-        })
+      ? new Date(iso)
+          .toLocaleTimeString('en-CA', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: 'America/Toronto',
+          })
+          .replace(' AM', 'am')
+          .replace(' PM', 'pm')
       : ''
 
-const fmtDateRange = (start, end) => {
+  const fmtVenueTime = match => {
+    const venue = match?.venue?.name ?? null
+    const time = match?.time_slot?.scheduled_start ? fmtTime(match.time_slot.scheduled_start) : null
+
+    if (venue && time) return `${venue} @ ${time}`
+    if (venue) return venue
+    if (time) return time
+    return ''
+  }
+
+  const fmtDateRange = (start, end) => {
     if (!start) return ''
 
     const startDate = new Date(start + 'T12:00')
@@ -262,7 +275,6 @@ const fmtDateRange = (start, end) => {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-base)' }}>
-      {/* Header */}
       <div style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)' }}>
         <div style={{ maxWidth: 640, margin: '0 auto', padding: '20px 20px 0' }}>
           <Link
@@ -368,7 +380,6 @@ const fmtDateRange = (start, end) => {
             </div>
           </div>
 
-          {/* Nav tabs */}
           <div style={{ display: 'flex', overflowX: 'auto' }}>
             {[
               myTeamEnabled ? ['My Team', null] : null,
@@ -417,7 +428,6 @@ const fmtDateRange = (start, end) => {
       </div>
 
       <div style={{ maxWidth: 640, margin: '0 auto', padding: '16px 20px 80px' }}>
-        {/* Staff banner */}
         {user && (
           <Link
             to={`/t/${slug}/gameday`}
@@ -440,7 +450,6 @@ const fmtDateRange = (start, end) => {
           </Link>
         )}
 
-        {/* Live ticker */}
         {liveMatches.length > 0 && (
           <div style={{ marginBottom: 20 }}>
             <p
@@ -466,7 +475,6 @@ const fmtDateRange = (start, end) => {
           </div>
         )}
 
-        {/* MY TEAM */}
         {showMyTeam && (
           <MyTeamView
             myTeam={myTeam}
@@ -477,11 +485,11 @@ const fmtDateRange = (start, end) => {
             divId={divId}
             color={color}
             fmtTime={fmtTime}
+            fmtVenueTime={fmtVenueTime}
             onClear={clearPreference}
           />
         )}
 
-        {/* SPECTATOR */}
         {showBrowsing && (
           <BrowsingView
             matches={matches}
@@ -490,6 +498,7 @@ const fmtDateRange = (start, end) => {
             divId={divId}
             color={color}
             fmtTime={fmtTime}
+            fmtVenueTime={fmtVenueTime}
             onPickTeam={() => {
               setIsBrowsing(false)
               setShowPicker(true)
@@ -497,9 +506,15 @@ const fmtDateRange = (start, end) => {
           />
         )}
 
-        {/* OVERVIEW */}
         {showOverview && (
-          <OverviewView matches={matches} slug={slug} divId={divId} color={color} fmtTime={fmtTime} />
+          <OverviewView
+            matches={matches}
+            slug={slug}
+            divId={divId}
+            color={color}
+            fmtTime={fmtTime}
+            fmtVenueTime={fmtVenueTime}
+          />
         )}
 
         {myTeamEnabled && showPicker && !showMyTeam && !showBrowsing && (
@@ -509,7 +524,6 @@ const fmtDateRange = (start, end) => {
         )}
       </div>
 
-      {/* TEAM PICKER OVERLAY */}
       {showPicker && myTeamEnabled && (
         <div
           style={{
@@ -724,7 +738,7 @@ const fmtDateRange = (start, end) => {
   )
 }
 
-function MyTeamView({ myTeam, myStanding, myMatches, heroMatch, slug, divId, color, fmtTime, onClear }) {
+function MyTeamView({ myTeam, myStanding, myMatches, heroMatch, slug, divId, color, fmtTime, fmtVenueTime, onClear }) {
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -811,7 +825,7 @@ function MyTeamView({ myTeam, myStanding, myMatches, heroMatch, slug, divId, col
         )}
       </div>
 
-      {heroMatch && <HeroMatchCard match={heroMatch} myTeamId={myTeam.id} color={color} fmtTime={fmtTime} />}
+      {heroMatch && <HeroMatchCard match={heroMatch} myTeamId={myTeam.id} color={color} fmtTime={fmtTime} fmtVenueTime={fmtVenueTime} />}
 
       <div style={{ marginTop: 18 }}>
         <p
@@ -839,6 +853,7 @@ function MyTeamView({ myTeam, myStanding, myMatches, heroMatch, slug, divId, col
                 match={m}
                 myTeamId={myTeam.id}
                 fmtTime={fmtTime}
+                fmtVenueTime={fmtVenueTime}
                 isHero={m.id === heroMatch?.id && m.status !== 'complete' && m.status !== 'forfeit'}
               />
             ))
@@ -875,7 +890,7 @@ function MyTeamView({ myTeam, myStanding, myMatches, heroMatch, slug, divId, col
   )
 }
 
-function BrowsingView({ matches, liveMatches, slug, divId, color, fmtTime, onPickTeam }) {
+function BrowsingView({ matches, liveMatches, slug, divId, color, fmtTime, fmtVenueTime, onPickTeam }) {
   const display = liveMatches.length > 0 ? liveMatches : matches.filter(m => m.status === 'scheduled').slice(0, 8)
 
   return (
@@ -926,7 +941,7 @@ function BrowsingView({ matches, liveMatches, slug, divId, color, fmtTime, onPic
                       </span>
                     )}
                     <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                      {fmtTime(m.time_slot?.scheduled_start)} · {m.venue?.short_name ?? m.venue?.name}
+                      {fmtVenueTime(m)}
                     </span>
                   </div>
 
@@ -994,7 +1009,7 @@ function BrowsingView({ matches, liveMatches, slug, divId, color, fmtTime, onPic
   )
 }
 
-function OverviewView({ matches, slug, divId, color, fmtTime }) {
+function OverviewView({ matches, slug, divId, color, fmtTime, fmtVenueTime }) {
   const upcoming = matches.filter(m => m.status === 'scheduled').slice(0, 6)
 
   return (
@@ -1075,8 +1090,18 @@ function OverviewView({ matches, slug, divId, color, fmtTime }) {
                     </span>
                   )}
                 </div>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>
-                  {m.venue?.short_name}
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--text-muted)',
+                    flexShrink: 0,
+                    maxWidth: 150,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {m.venue?.name}
                 </span>
               </Link>
             ))}
@@ -1093,7 +1118,7 @@ function OverviewView({ matches, slug, divId, color, fmtTime }) {
   )
 }
 
-function HeroMatchCard({ match: m, myTeamId, color, fmtTime }) {
+function HeroMatchCard({ match: m, myTeamId, color, fmtTime, fmtVenueTime }) {
   const isLive = m.status === 'in_progress'
   const isDone = m.status === 'complete' || m.status === 'forfeit'
   const isMyA = m.team_a?.id === myTeamId
@@ -1147,7 +1172,7 @@ function HeroMatchCard({ match: m, myTeamId, color, fmtTime }) {
               }}
             >
               <Clock size={11} />
-              {fmtTime(m.time_slot?.scheduled_start)} · {m.venue?.short_name ?? m.venue?.name}
+              {fmtVenueTime(m)}
             </span>
           )}
           {m.round_label && <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0' }}>{m.round_label}</p>}
@@ -1178,7 +1203,7 @@ function HeroMatchCard({ match: m, myTeamId, color, fmtTime }) {
           </p>
           {!isLive && (
             <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>
-              {m.venue?.short_name} · {fmtTime(m.time_slot?.scheduled_start)}
+              {fmtVenueTime(m)}
             </p>
           )}
         </div>
@@ -1227,7 +1252,7 @@ function HeroMatchCard({ match: m, myTeamId, color, fmtTime }) {
   )
 }
 
-function MatchRow({ match: m, myTeamId, fmtTime, isHero }) {
+function MatchRow({ match: m, myTeamId, fmtTime, fmtVenueTime, isHero }) {
   const isLive = m.status === 'in_progress'
   const isDone = m.status === 'complete' || m.status === 'forfeit'
   const isMyA = m.team_a?.id === myTeamId
@@ -1258,7 +1283,7 @@ function MatchRow({ match: m, myTeamId, fmtTime, isHero }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
           {isLive && <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--live)', letterSpacing: '0.08em' }}>LIVE</span>}
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            {fmtTime(m.time_slot?.scheduled_start)} · {m.venue?.short_name ?? m.venue?.name}
+            {fmtVenueTime(m)}
           </span>
         </div>
         <p
@@ -1357,7 +1382,7 @@ function LiveMatchCard({ match: m }) {
           <span className="live-dot" /> LIVE
         </span>
         <span style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'center' }}>
-          {m.venue?.short_name ?? ''}
+          {m.venue?.name ?? ''}
         </span>
       </div>
 

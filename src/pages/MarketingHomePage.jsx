@@ -19,7 +19,7 @@ export function MarketingHomePage() {
         <div className="max-w-6xl mx-auto px-6 py-20 md:py-28 relative">
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold border border-blue-100 mb-5">
-              Built for school and multi-field tournaments
+              Built for tournaments for any sport
             </div>
 
             <h1 className="text-4xl md:text-6xl font-black tracking-tight leading-tight">
@@ -28,18 +28,8 @@ export function MarketingHomePage() {
 
             <p className="mt-5 text-lg md:text-xl text-[var(--text-secondary)] max-w-2xl leading-relaxed">
               AthleteOS helps tournament directors set up events faster, manage changes live,
-              and give coaches, players, and spectators a better tournament-day experience.
+              and gives coaches, players, and spectators a better tournament-day experience.
             </p>
-
-            <div className="mt-8 flex flex-wrap gap-3">
-              <Link to="/director/new" className="btn-primary btn px-5 py-3 text-sm">
-                Start a tournament
-                <ArrowRight size={16} />
-              </Link>
-              <Link to="/tournaments" className="btn-secondary btn px-5 py-3 text-sm">
-                View live tournaments
-              </Link>
-            </div>
 
             <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-[var(--text-muted)]">
               <div className="flex items-center gap-2">
@@ -173,15 +163,6 @@ export function MarketingHomePage() {
           <p className="mt-4 text-[var(--text-secondary)] max-w-2xl mx-auto">
             Launch a cleaner, more professional tournament experience for directors, coaches, players, and spectators.
           </p>
-
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Link to="/director/new" className="btn-primary btn px-5 py-3 text-sm">
-              Start a tournament
-            </Link>
-            <Link to="/tournaments" className="btn-secondary btn px-5 py-3 text-sm">
-              See live tournaments
-            </Link>
-          </div>
         </div>
         <MarketingLeadForm />
       </section>

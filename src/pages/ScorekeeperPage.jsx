@@ -8,6 +8,9 @@ import {
   Plus, Clock, UserPlus, Upload
 } from 'lucide-react'
 import { PinGate, checkScorekeeperAuth } from '../lib/scorekeeperAuth'
+import { handleMatchCompletionForOFSAA, rebuildAfterStandingsFinalize,
+} from '../services/tournaments/ofsaaUltimateService'
+
 
 const SCREEN = { PRE: 'pre', LIVE: 'live', POST: 'post' }
 const PLAYER_PICKER_TIMEOUT = 10000 // 10 seconds to pick player
@@ -36,7 +39,7 @@ export function ScorekeeperPage() {
         .from('matches')
         .select(`
           id, score_a, score_b, status, cap_status, winner_id,
-          tournament_id, scorekeeper_pin,
+          tournament_id, division_id, scorekeeper_pin,
           team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
           team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
           venue:venues(name, short_name),
@@ -100,35 +103,63 @@ export function ScorekeeperPage() {
     setScreen(SCREEN.LIVE)
   }
 
-  async function endGame(forceTie = false) {
+async function endGame(forceTie = false) {
     const scoreA   = match.score_a ?? 0
     const scoreB   = match.score_b ?? 0
     const isTie    = forceTie || scoreA === scoreB
     const winnerId = isTie ? null
                    : scoreA > scoreB ? match.team_a?.id : match.team_b?.id
+
     const { error } = await supabase.from('matches').update({
-      status: 'complete', winner_id: winnerId,
+      status: 'complete',
+      winner_id: winnerId,
       completed_at: new Date().toISOString(),
     }).eq('id', matchId)
-    if (error) { setError(error.message); return }
+
+    if (error) {
+      setError(error.message)
+      return
+    }
 
     // Insert a game_end event so the standings trigger fires
     const seq = (events[events.length - 1]?.sequence ?? 0) + 1
     await supabase.from('game_events').insert({
-      match_id:        matchId,
-      stat_id:         'game_end',
-      team_id:         winnerId ?? match.team_a?.id,
-      score_a_after:   scoreA,
-      score_b_after:   scoreB,
+      match_id: matchId,
+      stat_id: 'game_end',
+      team_id: winnerId ?? match.team_a?.id,
+      score_a_after: scoreA,
+      score_b_after: scoreB,
       event_timestamp: new Date().toISOString(),
-      sequence:        seq,
-      source:          'manual',
+      sequence: seq,
+      source: 'manual',
     })
+
+    try {
+      if (match?.tournament_id && match?.division_id && match?.id) {
+        await handleMatchCompletionForOFSAA(
+          match.tournament_id,
+          match.division_id,
+          match.id
+        )
+
+        setTimeout(async () => {
+          try {
+            await rebuildAfterStandingsFinalize(
+              match.tournament_id,
+              match.division_id
+            )
+          } catch (rebuildError) {
+            console.error('[OFSAA standings rebuild failed]', rebuildError)
+          }
+        }, 750)
+      }
+    } catch (propagationError) {
+      console.error('[OFSAA bracket propagation failed]', propagationError)
+    }
 
     setMatch(prev => ({ ...prev, status: 'complete', winner_id: winnerId }))
     setScreen(SCREEN.POST)
   }
-
   // -- Core event recording ---------------------------------------------------
   async function recordEvent(teamId, statId, opts = {}) {
     if (!teamId) { setError('Team not identified'); return }

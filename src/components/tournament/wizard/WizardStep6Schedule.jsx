@@ -28,11 +28,35 @@ export function WizardStep6Schedule({ onNext, onBack }) {
   const [checkingExisting, setCheckingExisting] = useState(true)
   const [existingScheduleCount, setExistingScheduleCount] = useState(0)
   const [formError, setFormError] = useState(null)
+  const [tournamentDays, setTournamentDays] = useState([])
+  const [loadingTournamentDays, setLoadingTournamentDays] = useState(false)
 
   function toLocalInputFormat(val) {
     if (!val) return ''
     if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(val)) return val
     return val.slice(0, 16)
+  }
+
+  const hasTournamentDays = tournamentDays.length > 0
+
+  function formatDayLabel(day) {
+    const date = new Date(day.event_date + 'T12:00')
+    const dateLabel = date.toLocaleDateString('en-CA', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    })
+
+    const timeLabel = new Date(`${day.event_date}T${day.start_time}`)
+      .toLocaleTimeString('en-CA', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      })
+      .replace(' AM', 'am')
+      .replace(' PM', 'pm')
+
+    return `Day ${day.day_index} · ${dateLabel} · Starts ${timeLabel}`
   }
 
   useEffect(() => {
@@ -50,6 +74,40 @@ export function WizardStep6Schedule({ onNext, onBack }) {
       })
     }
   }, [startDate])
+
+  useEffect(() => {
+    let active = true
+
+    async function loadTournamentDays() {
+      if (!tournamentId) {
+        if (active) setTournamentDays([])
+        return
+      }
+
+      setLoadingTournamentDays(true)
+
+      const { data, error } = await supabase
+        .from('tournament_days')
+        .select('id, day_index, event_date, start_time')
+        .eq('tournament_id', tournamentId)
+        .order('day_index')
+
+      if (!active) return
+
+      if (error) {
+        setTournamentDays([])
+      } else {
+        setTournamentDays(data ?? [])
+      }
+
+      setLoadingTournamentDays(false)
+    }
+
+    loadTournamentDays()
+    return () => {
+      active = false
+    }
+  }, [tournamentId])
 
   useEffect(() => {
     let active = true
@@ -84,7 +142,7 @@ export function WizardStep6Schedule({ onNext, onBack }) {
     }
   }, [tournamentId])
 
-  function doGenerate() {
+  async function doGenerate() {
     const s = useWizardStore.getState()
     const liveVenues = s.venues
     const livePools = s.pools
@@ -93,7 +151,7 @@ export function WizardStep6Schedule({ onNext, onBack }) {
     const liveConfig = s.scheduleConfig
     const liveStart = liveConfig.startTime || (s.startDate ? s.startDate + 'T09:00' : null)
 
-    if (!liveStart) {
+    if (!liveStart && !hasTournamentDays) {
       setFormError('Set a start time first')
       return
     }
@@ -137,13 +195,29 @@ export function WizardStep6Schedule({ onNext, onBack }) {
         qrSlug: v.qrSlug,
       }))
 
+      const scheduleDays = (tournamentDays ?? []).map(day => {
+        const start = new Date(`${day.event_date}T${day.start_time}`)
+
+        return {
+          eventDate: day.event_date,
+          startTime: start.toISOString(),
+          endTime: new Date(start.getTime() + 10 * 60 * 60 * 1000).toISOString(),
+          lunchBreakStart: null,
+          lunchBreakEnd: null,
+        }
+      })
+
       const result = generateSchedule({
         pools: allPools,
         venues: venueList,
-        startTime: liveStart,
-        endTime: liveConfig.endTime || (s.startDate ? s.startDate + 'T18:00' : null),
-        lunchBreakStart: liveConfig.lunchBreakStart,
-        lunchBreakEnd: liveConfig.lunchBreakEnd,
+        scheduleDays,
+        startTime: scheduleDays.length === 0 ? liveStart : null,
+        endTime:
+          scheduleDays.length === 0
+            ? (liveConfig.endTime || (s.startDate ? s.startDate + 'T18:00' : null))
+            : null,
+        lunchBreakStart: scheduleDays.length === 0 ? liveConfig.lunchBreakStart : null,
+        lunchBreakEnd: scheduleDays.length === 0 ? liveConfig.lunchBreakEnd : null,
         gameDurationMinutes: liveConfig.gameDurationMinutes,
         breakBetweenGamesMinutes: liveConfig.breakBetweenGamesMinutes,
         minRestBetweenTeamGames: liveConfig.minRestBetweenTeamGames,
@@ -202,6 +276,7 @@ export function WizardStep6Schedule({ onNext, onBack }) {
       if (tournamentUpdateErr) {
         throw new Error('Failed to save tournament schedule settings: ' + tournamentUpdateErr.message)
       }
+
       const { data: dbTeams } = await db.teams.byTournament(tournamentId)
       const { data: dbVenues } = await db.venues.byTournament(tournamentId)
 
@@ -465,113 +540,190 @@ export function WizardStep6Schedule({ onNext, onBack }) {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="field-group">
-              <label className="field-label flex items-center gap-1">
-                <Clock size={13} />
-                Day start *
-              </label>
-              <input
-                type="datetime-local"
-                className="field-input"
-                value={toLocalInputFormat(scheduleConfig.startTime)}
-                onChange={e => setScheduleConfig({ startTime: e.target.value })}
-              />
-            </div>
+          {hasTournamentDays ? (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)]">
+                <p className="text-sm font-semibold text-[var(--text-secondary)] mb-2">
+                  Tournament days
+                </p>
 
-            <div className="field-group">
-              <label className="field-label flex items-center gap-1">
-                <Clock size={13} />
-                Day end
-              </label>
-              <input
-                type="datetime-local"
-                className="field-input"
-                value={toLocalInputFormat(scheduleConfig.endTime)}
-                onChange={e => setScheduleConfig({ endTime: e.target.value })}
-              />
-            </div>
+                {loadingTournamentDays ? (
+                  <p className="text-sm text-[var(--text-muted)]">Loading tournament days…</p>
+                ) : tournamentDays.length > 0 ? (
+                  <div className="space-y-2">
+                    {tournamentDays.map(day => (
+                      <div
+                        key={day.id}
+                        className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-raised)] px-3 py-2"
+                      >
+                        <Clock size={14} className="text-[var(--text-muted)] flex-shrink-0" />
+                        <span className="text-sm text-[var(--text-primary)]">
+                          {formatDayLabel(day)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-[var(--text-muted)]">No tournament days configured.</p>
+                )}
 
-            <div className="field-group">
-              <label className="field-label">Game duration (min)</label>
-              <input
-                type="number"
-                min={20}
-                max={180}
-                step={5}
-                className="field-input"
-                value={scheduleConfig.gameDurationMinutes}
-                onChange={e => setScheduleConfig({ gameDurationMinutes: Number(e.target.value) })}
-              />
-            </div>
+                <p className="text-xs text-[var(--text-muted)] mt-3">
+                  Day start times are managed from tournament day configuration and used during schedule generation.
+                </p>
+              </div>
 
-            <div className="field-group">
-              <label className="field-label">Break between games (min)</label>
-              <input
-                type="number"
-                min={0}
-                max={60}
-                step={5}
-                className="field-input"
-                value={scheduleConfig.breakBetweenGamesMinutes}
-                onChange={e => setScheduleConfig({ breakBetweenGamesMinutes: Number(e.target.value) })}
-              />
-            </div>
-
-            <div className="field-group col-span-2">
-              <label className="field-label">Min rest between team games (min)</label>
-              <input
-                type="number"
-                min={30}
-                max={240}
-                step={15}
-                className="field-input"
-                value={scheduleConfig.minRestBetweenTeamGames}
-                onChange={e => setScheduleConfig({ minRestBetweenTeamGames: Number(e.target.value) })}
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="flex items-center gap-2 cursor-pointer mb-2">
-              <input
-                type="checkbox"
-                checked={!!scheduleConfig.lunchBreakStart}
-                onChange={e =>
-                  setScheduleConfig({
-                    lunchBreakStart: e.target.checked ? (startDate ? startDate + 'T12:00' : '') : null,
-                    lunchBreakEnd: e.target.checked ? (startDate ? startDate + 'T13:00' : '') : null,
-                  })
-                }
-                className="rounded border-[var(--border)] text-[var(--accent)]"
-              />
-              <span className="text-sm font-medium text-[var(--text-secondary)]">Lunch break</span>
-            </label>
-
-            {scheduleConfig.lunchBreakStart && (
-              <div className="grid grid-cols-2 gap-4 ml-6">
+              <div className="grid grid-cols-2 gap-4">
                 <div className="field-group">
-                  <label className="field-label text-xs">Break start</label>
+                  <label className="field-label">Game duration (min)</label>
                   <input
-                    type="datetime-local"
-                    className="field-input text-sm"
-                    value={toLocalInputFormat(scheduleConfig.lunchBreakStart)}
-                    onChange={e => setScheduleConfig({ lunchBreakStart: e.target.value })}
+                    type="number"
+                    min={20}
+                    max={180}
+                    step={5}
+                    className="field-input"
+                    value={scheduleConfig.gameDurationMinutes}
+                    onChange={e => setScheduleConfig({ gameDurationMinutes: Number(e.target.value) })}
                   />
                 </div>
 
                 <div className="field-group">
-                  <label className="field-label text-xs">Break end</label>
+                  <label className="field-label">Break between games (min)</label>
                   <input
-                    type="datetime-local"
-                    className="field-input text-sm"
-                    value={toLocalInputFormat(scheduleConfig.lunchBreakEnd)}
-                    onChange={e => setScheduleConfig({ lunchBreakEnd: e.target.value })}
+                    type="number"
+                    min={0}
+                    max={60}
+                    step={5}
+                    className="field-input"
+                    value={scheduleConfig.breakBetweenGamesMinutes}
+                    onChange={e => setScheduleConfig({ breakBetweenGamesMinutes: Number(e.target.value) })}
+                  />
+                </div>
+
+                <div className="field-group col-span-2">
+                  <label className="field-label">Min rest between team games (min)</label>
+                  <input
+                    type="number"
+                    min={30}
+                    max={240}
+                    step={15}
+                    className="field-input"
+                    value={scheduleConfig.minRestBetweenTeamGames}
+                    onChange={e => setScheduleConfig({ minRestBetweenTeamGames: Number(e.target.value) })}
                   />
                 </div>
               </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="field-group">
+                <label className="field-label flex items-center gap-1">
+                  <Clock size={13} />
+                  Day start *
+                </label>
+                <input
+                  type="datetime-local"
+                  className="field-input"
+                  value={toLocalInputFormat(scheduleConfig.startTime)}
+                  onChange={e => setScheduleConfig({ startTime: e.target.value })}
+                />
+              </div>
+
+              <div className="field-group">
+                <label className="field-label flex items-center gap-1">
+                  <Clock size={13} />
+                  Day end
+                </label>
+                <input
+                  type="datetime-local"
+                  className="field-input"
+                  value={toLocalInputFormat(scheduleConfig.endTime)}
+                  onChange={e => setScheduleConfig({ endTime: e.target.value })}
+                />
+              </div>
+
+              <div className="field-group">
+                <label className="field-label">Game duration (min)</label>
+                <input
+                  type="number"
+                  min={20}
+                  max={180}
+                  step={5}
+                  className="field-input"
+                  value={scheduleConfig.gameDurationMinutes}
+                  onChange={e => setScheduleConfig({ gameDurationMinutes: Number(e.target.value) })}
+                />
+              </div>
+
+              <div className="field-group">
+                <label className="field-label">Break between games (min)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={60}
+                  step={5}
+                  className="field-input"
+                  value={scheduleConfig.breakBetweenGamesMinutes}
+                  onChange={e => setScheduleConfig({ breakBetweenGamesMinutes: Number(e.target.value) })}
+                />
+              </div>
+
+              <div className="field-group col-span-2">
+                <label className="field-label">Min rest between team games (min)</label>
+                <input
+                  type="number"
+                  min={30}
+                  max={240}
+                  step={15}
+                  className="field-input"
+                  value={scheduleConfig.minRestBetweenTeamGames}
+                  onChange={e => setScheduleConfig({ minRestBetweenTeamGames: Number(e.target.value) })}
+                />
+              </div>
+            </div>
+          )}
+
+          {!hasTournamentDays && (
+            <div>
+              <label className="flex items-center gap-2 cursor-pointer mb-2">
+                <input
+                  type="checkbox"
+                  checked={!!scheduleConfig.lunchBreakStart}
+                  onChange={e =>
+                    setScheduleConfig({
+                      lunchBreakStart: e.target.checked ? (startDate ? startDate + 'T12:00' : '') : null,
+                      lunchBreakEnd: e.target.checked ? (startDate ? startDate + 'T13:00' : '') : null,
+                    })
+                  }
+                  className="rounded border-[var(--border)] text-[var(--accent)]"
+                />
+                <span className="text-sm font-medium text-[var(--text-secondary)]">Lunch break</span>
+              </label>
+
+              {scheduleConfig.lunchBreakStart && (
+                <div className="grid grid-cols-2 gap-4 ml-6">
+                  <div className="field-group">
+                    <label className="field-label text-xs">Break start</label>
+                    <input
+                      type="datetime-local"
+                      className="field-input text-sm"
+                      value={toLocalInputFormat(scheduleConfig.lunchBreakStart)}
+                      onChange={e => setScheduleConfig({ lunchBreakStart: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <label className="field-label text-xs">Break end</label>
+                    <input
+                      type="datetime-local"
+                      className="field-input text-sm"
+                      value={toLocalInputFormat(scheduleConfig.lunchBreakEnd)}
+                      onChange={e => setScheduleConfig({ lunchBreakEnd: e.target.value })}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="divider" />
 
