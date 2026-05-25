@@ -134,8 +134,6 @@ export function BracketPage() {
     champion,
     second,
     third,
-    championshipNodes = [],
-    consolationNodes = [],
     championshipLayout = null,
     consolationLayout = null,
   } = bracket ?? {}
@@ -420,6 +418,8 @@ async function loadBestBracketForDivision(divisionId) {
       score_b,
       status,
       winner_id,
+      round,
+      match_number,
       team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
       team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
       venue:venues(name, short_name),
@@ -427,7 +427,7 @@ async function loadBestBracketForDivision(divisionId) {
     `)
     .eq('division_id', divisionId)
     .in('bracket_type', ['championship', 'consolation'])
-    .order('match_code')
+    .order('match_number')
 
   if (error) {
     console.error(error)
@@ -655,6 +655,7 @@ function NodeTeamRow({ x, y, team, source, score, isWinner, isLoser, showScore, 
     </g>
   )
 }
+
 function normalizeLayoutForMobile(layout) {
   if (!layout?.nodes?.length) return layout
 
@@ -778,6 +779,7 @@ function MobileOverviewBracket({ title, layout, themeColors, primaryColor, brack
     </section>
   )
 }
+
 function MobileFocusedRoundView({ focusedRound, tournamentSlug, onBack }) {
   return (
     <div className="space-y-5">
@@ -934,11 +936,7 @@ function getRoundsFromNodes(nodes) {
     .map(([round, matches]) => ({
       round: Number(round),
       title: mobileRoundTitle(Number(round)),
-      matches: matches.sort((a, b) => {
-        const ao = matchPosition(a.match_code ?? '')
-        const bo = matchPosition(b.match_code ?? '')
-        return ao - bo
-      }),
+      matches: matches.sort((a, b) => matchPosition(a.match) - matchPosition(b.match)),
     }))
     .sort((a, b) => a.round - b.round)
 }
@@ -953,13 +951,21 @@ function mobileRoundTitle(round) {
 function prettifySource(source) {
   if (!source) return 'TBD'
 
-  if (/^1[A-Z]$/.test(source)) return `1st ${source.slice(1)}`
-  if (/^2[A-Z]$/.test(source)) return `2nd ${source.slice(1)}`
-  if (/^3[A-Z]$/.test(source)) return `3rd ${source.slice(1)}`
-  if (/^4[A-Z]$/.test(source)) return `4th ${source.slice(1)}`
-  if (/^X\d+$/.test(source)) return source
+  if (/^[A-Z][1-4]$/.test(source)) {
+    const pool = source[0]
+    const place = source[1]
+    const placeText =
+      place === '1' ? '1st' :
+      place === '2' ? '2nd' :
+      place === '3' ? '3rd' :
+      place === '4' ? '4th' :
+      place
+
+    return `${placeText} ${pool}`
+  }
+
   if (/^P\d+$/.test(source)) return source
-  if (/^C\d+$/.test(source)) return source
+  if (/^X\d+$/.test(source)) return source
   if (source.startsWith('Winner ')) return source
   if (source.startsWith('Loser ')) return source
 
@@ -976,75 +982,74 @@ function sourceLabel(type, ref) {
 
 function friendlyMatchLabel(match) {
   const code = match?.match_code
-
   if (!code) return match?.display_label ?? match?.round_label ?? 'Match'
 
-  if (/^P[1-4]$/.test(code)) return 'Quarter-final'
-  if (/^P[5-6]$/.test(code)) return 'Semi-final'
-  if (/^P[7-8]$/.test(code)) return 'Placement Semi-final'
-  if (code === 'P9') return 'Gold Medal Game'
-  if (code === 'P10') return 'Bronze Medal Game'
-  if (code === 'P11') return '5th Place Game'
-  if (code === 'P12') return '7th Place Game'
-
-  if (/^C[1-4]$/.test(code)) return 'Quarter-final'
-  if (/^C[5-8]$/.test(code)) return 'Placement Semi-final'
-  if (code === 'C9') return '9th Place Game'
-  if (code === 'C10') return '11th Place Game'
-  if (code === 'C11') return '13th Place Game'
-  if (code === 'C12') return '15th Place Game'
-
-  return match?.display_label ?? match?.round_label ?? code
-}
-
-function roundOrder(matchCode) {
-  if (!matchCode) return 99
-
-  if (/^P[1-4]$/.test(matchCode)) return 1
-  if (/^P[5-8]$/.test(matchCode)) return 2
-  if (/^P(9|10|11|12)$/.test(matchCode)) return 3
-
-  if (/^C[1-4]$/.test(matchCode)) return 1
-  if (/^C[5-8]$/.test(matchCode)) return 2
-  if (/^C(9|10|11|12)$/.test(matchCode)) return 3
-
-  return 99
-}
-
-function matchPosition(matchCode) {
-  if (!matchCode) return 1
-
-  const n = Number(matchCode.replace(/[^\d]/g, ''))
-
-  if (matchCode.startsWith('P')) {
-    if (n >= 1 && n <= 4) return n
-    if (n >= 5 && n <= 8) return n - 4
-    if (n >= 9 && n <= 12) return n - 8
+  const custom = {
+    P17: '5th Place Game',
+    P18: '7th Place Game',
+    P19: '11th Place Game',
+    P20: '9th Place Game',
+    P21: '13th Place Game',
+    P22: '15th Place Game',
+    P23: 'Bronze Medal Game',
+    P24: 'Gold Medal Game',
   }
 
-  if (matchCode.startsWith('C')) {
-    if (n >= 1 && n <= 4) return n
-    if (n >= 5 && n <= 8) return n - 4
-    if (n >= 9 && n <= 12) return n - 8
+  return custom[code] ?? match?.round_label ?? match?.display_label ?? code
+}
+
+function roundOrder(match) {
+  const code = match?.match_code
+  if (!code) return match?.round ?? 99
+
+  if (['P1','P2','P3','P4','P5','P6','P7','P8'].includes(code)) return 1
+  if (['P9','P10','P11','P12','P13','P14','P15','P16'].includes(code)) return 2
+  if (['P17','P18','P19','P20','P21','P22','P23','P24'].includes(code)) return 3
+
+  return match?.round ?? 99
+}
+
+function matchPosition(match) {
+  const code = match?.match_code
+  if (!code) return match?.match_number ?? 999
+
+  const order = {
+    // Consolation quarterfinals
+    P1: 1, P2: 2, P3: 3, P4: 4,
+
+    // Championship quarterfinals
+    P5: 1, P6: 2, P7: 3, P8: 4,
+
+    // Consolation semis
+    P9: 1, P10: 2, P11: 3, P12: 4,
+
+    // Championship semis
+    P13: 1, P14: 2, P15: 3, P16: 4,
+
+    // Consolation finals
+    P20: 1, P19: 2, P21: 3, P22: 4,
+
+    // Championship finals
+    P24: 1, P23: 2, P17: 3, P18: 4,
   }
 
-  return 1
+  return order[code] ?? match?.match_number ?? 999
 }
 
 function compareMatches(a, b) {
-  const ao = roundOrder(a.match_code)
-  const bo = roundOrder(b.match_code)
+  const ao = roundOrder(a)
+  const bo = roundOrder(b)
   if (ao !== bo) return ao - bo
-  return matchPosition(a.match_code) - matchPosition(b.match_code)
+  return matchPosition(a) - matchPosition(b)
 }
 
 function layoutDualBracket(matches) {
   const championshipMatches = matches
-    .filter(m => m.bracket_type === 'championship')
+    .filter(m => ['P5','P6','P7','P8','P13','P14','P15','P16','P17','P18','P23','P24'].includes(m.match_code))
     .sort(compareMatches)
 
   const consolationMatches = matches
-    .filter(m => m.bracket_type === 'consolation')
+    .filter(m => ['P1','P2','P3','P4','P9','P10','P11','P12','P19','P20','P21','P22'].includes(m.match_code))
     .sort(compareMatches)
 
   const roundsCount = 3
@@ -1079,15 +1084,31 @@ function layoutDualBracket(matches) {
   const svgW = totalWidth
   const svgH = Math.max(champLayout.svgH, consLayout.svgH)
 
+  const gold = matches.find(m => m.match_code === 'P24')
+  const bronze = matches.find(m => m.match_code === 'P23')
+
+  let champion = null
+  let second = null
+  let third = null
+
+  if (gold?.status === 'complete' && gold.winner_id) {
+    champion = gold.team_a?.id === gold.winner_id ? gold.team_a : gold.team_b
+    second = gold.team_a?.id === gold.winner_id ? gold.team_b : gold.team_a
+  }
+
+  if (bronze?.status === 'complete' && bronze.winner_id) {
+    third = bronze.team_a?.id === bronze.winner_id ? bronze.team_a : bronze.team_b
+  }
+
   return {
     nodes,
     edges,
     titles,
     svgW,
     svgH,
-    champion: champLayout.champion,
-    second: champLayout.second,
-    third: champLayout.third,
+    champion,
+    second,
+    third,
     championshipNodes: champLayout.nodes,
     consolationNodes: consLayout.nodes,
     championshipLayout: champLayout,
@@ -1097,28 +1118,26 @@ function layoutDualBracket(matches) {
 
 function layoutSingleBracket({ matches, offsetX = 0, offsetY = 0, mirrored = false, title = '', titleAlign = 'start', bracketType = null }) {
   const grouped = {
-    1: matches.filter(m => roundOrder(m.match_code) === 1),
-    2: matches.filter(m => roundOrder(m.match_code) === 2),
-    3: matches.filter(m => roundOrder(m.match_code) === 3),
+    1: matches.filter(m => roundOrder(m) === 1).sort(compareMatches),
+    2: matches.filter(m => roundOrder(m) === 2).sort(compareMatches),
+    3: matches.filter(m => roundOrder(m) === 3).sort(compareMatches),
   }
 
   const rounds = {}
   for (const roundNum of [1, 2, 3]) {
-    rounds[roundNum] = grouped[roundNum]
-      .sort((a, b) => matchPosition(a.match_code) - matchPosition(b.match_code))
-      .map((m, idx) => ({
-        id: m.id,
-        match: m,
-        round: roundNum,
-        position: idx + 1,
-        team_a: m.team_a,
-        team_b: m.team_b,
-        team_a_source: sourceLabel(m.source_a_type, m.source_a_ref),
-        team_b_source: sourceLabel(m.source_b_type, m.source_b_ref),
-        label: friendlyMatchLabel(m),
-        match_code: m.match_code,
-        bracket_type: bracketType ?? m.bracket_type,
-      }))
+    rounds[roundNum] = grouped[roundNum].map((m, idx) => ({
+      id: m.id,
+      match: m,
+      round: roundNum,
+      position: idx + 1,
+      team_a: m.team_a,
+      team_b: m.team_b,
+      team_a_source: sourceLabel(m.source_a_type, m.source_a_ref),
+      team_b_source: sourceLabel(m.source_b_type, m.source_b_ref),
+      label: friendlyMatchLabel(m),
+      match_code: m.match_code,
+      bracket_type: bracketType ?? m.bracket_type,
+    }))
   }
 
   const flatNodes = Object.values(rounds).flat()
@@ -1152,22 +1171,6 @@ function layoutSingleBracket({ matches, offsetX = 0, offsetY = 0, mirrored = fal
     }
   }
 
-  let champion = null
-  let second = null
-  let third = null
-
-  const gold = matches.find(m => m.match_code === 'P9')
-  const bronze = matches.find(m => m.match_code === 'P10')
-
-  if (gold?.status === 'complete' && gold.winner_id) {
-    champion = gold.team_a?.id === gold.winner_id ? gold.team_a : gold.team_b
-    second = gold.team_a?.id === gold.winner_id ? gold.team_b : gold.team_a
-  }
-
-  if (bronze?.status === 'complete' && bronze.winner_id) {
-    third = bronze.team_a?.id === bronze.winner_id ? bronze.team_a : bronze.team_b
-  }
-
   const maxNodes = Math.max(...Object.values(rounds).map(r => r.length), 0)
   const svgH = offsetY + PADDING * 2 + TITLE_Y_PAD + maxNodes * (NODE_H + V_GAP) - V_GAP
   const svgW = PADDING * 2 + 3 * NODE_W + 2 * H_GAP
@@ -1189,7 +1192,7 @@ function layoutSingleBracket({ matches, offsetX = 0, offsetY = 0, mirrored = fal
       ]
     : []
 
-  return { nodes, edges, titles, svgH, svgW, champion, second, third, bracketType }
+  return { nodes, edges, titles, svgH, svgW, bracketType }
 }
 
 function layoutLegacyBracket(matches) {

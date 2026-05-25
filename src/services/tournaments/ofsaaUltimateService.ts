@@ -5,7 +5,7 @@ import {
   type StandingsByPool,
   advanceWinnerAndLoser,
   populateMatchParticipants,
-} from './formats/ofsaaUltimateResolver'
+} from './formats/ofsaaBracketResolver'
 
 type StandingsRow = {
   pool_id: string

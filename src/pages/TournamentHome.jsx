@@ -4,6 +4,9 @@ import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/LoadingSpinner'
 import { ChevronRight, MapPin, Calendar, ChevronLeft, Clock, Trophy, Search, X } from 'lucide-react'
+import { isFavorite, toggleFavorite } from './TeamPage'
+import { buildMatchesByCode, resolveMatchParticipants } from '../lib/matchParticipants'
+import { loadStandingsByPool } from '../lib/standingsByPool'
 
 const teamKey = slug => `myteam_${slug}`
 const browsingKey = slug => `browsing_${slug}`
@@ -18,6 +21,7 @@ export function TournamentHome() {
   const [teams, setTeams] = useState([])
   const [matches, setMatches] = useState([])
   const [standings, setStandings] = useState([])
+  const [standingsByPool, setStandingsByPool] = useState({})
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
 
@@ -46,11 +50,27 @@ export function TournamentHome() {
 
         const { data: m } = await supabase
           .from('matches')
-          .select(`id, status, score_a, score_b, round_label, pool_id, phase, bracket_position,
+          .select(`
+            id,
+            status,
+            score_a,
+            score_b,
+            winner_id,
+            round_label,
+            pool_id,
+            phase,
+            bracket_position,
+            match_code,
+            bracket_type,
+            source_a_type,
+            source_a_ref,
+            source_b_type,
+            source_b_ref,
             team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
             team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
             venue:venues(name, short_name, youtube_url),
-            time_slot:time_slots(scheduled_start)`)
+            time_slot:time_slots(scheduled_start)
+          `)
           .eq('tournament_id', t.id)
           .neq('status', 'cancelled')
           .order('time_slot(scheduled_start)')
@@ -74,6 +94,13 @@ export function TournamentHome() {
             .order('rank')
 
           setStandings(st ?? [])
+
+          let mergedStandings = {}
+          for (const div of t.divisions) {
+            const map = await loadStandingsByPool(div.id)
+            mergedStandings = { ...mergedStandings, ...map }
+          }
+          setStandingsByPool(mergedStandings)
         }
 
         if (t.myteam_enabled !== false) {
@@ -126,20 +153,48 @@ export function TournamentHome() {
           table: 'matches',
           filter: 'tournament_id=eq.' + tournament.id,
         },
-        payload => {
-          setMatches(prev =>
-            prev.map(m =>
-              m.id === payload.new.id
-                ? { ...m, score_a: payload.new.score_a, score_b: payload.new.score_b, status: payload.new.status }
-                : m
-            )
-          )
+        async () => {
+          const { data: m } = await supabase
+            .from('matches')
+            .select(`
+              id,
+              status,
+              score_a,
+              score_b,
+              winner_id,
+              round_label,
+              pool_id,
+              phase,
+              bracket_position,
+              match_code,
+              bracket_type,
+              source_a_type,
+              source_a_ref,
+              source_b_type,
+              source_b_ref,
+              team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
+              team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
+              venue:venues(name, short_name, youtube_url),
+              time_slot:time_slots(scheduled_start)
+            `)
+            .eq('tournament_id', tournament.id)
+            .neq('status', 'cancelled')
+            .order('time_slot(scheduled_start)')
+
+          setMatches(m ?? [])
+
+          let mergedStandings = {}
+          for (const div of divisions ?? []) {
+            const map = await loadStandingsByPool(div.id)
+            mergedStandings = { ...mergedStandings, ...map }
+          }
+          setStandingsByPool(mergedStandings)
         }
       )
       .subscribe()
 
     return () => supabase.removeChannel(ch)
-  }, [tournament?.id])
+  }, [tournament?.id, divisions])
 
   function pickTeam(team) {
     setMyTeam(team)
@@ -199,14 +254,39 @@ export function TournamentHome() {
   const myTeamEnabled = tournament.myteam_enabled !== false
   const liveMatches = matches.filter(m => m.status === 'in_progress')
   const tournamentDone = ['review', 'complete', 'archived'].includes(tournament?.status)
+  const matchesByCode = buildMatchesByCode(matches)
 
   if (tournamentDone && divId) {
     window.location.replace('/t/' + slug + '/bracket/' + divId)
     return <PageLoader />
   }
 
-  const myMatches = myTeam ? matches.filter(m => m.team_a?.id === myTeam.id || m.team_b?.id === myTeam.id) : []
-  const heroMatch = myMatches.find(m => m.status === 'in_progress') ?? myMatches.find(m => m.status === 'scheduled')
+  const resolvedMyMatches = myTeam
+    ? matches
+        .map(match => {
+          const resolved = resolveMatchParticipants({
+            match,
+            standingsByPool,
+            matchesByCode,
+            seedsLocked: false,
+          })
+
+          return { match, resolved }
+        })
+        .filter(({ resolved }) =>
+          resolved.a.team?.id === myTeam.id || resolved.b.team?.id === myTeam.id
+        )
+    : []
+
+  const myMatches = resolvedMyMatches.map(x => ({
+    ...x.match,
+    __resolved: x.resolved,
+  }))
+
+  const heroMatch =
+    myMatches.find(m => m.status === 'in_progress') ??
+    myMatches.find(m => m.status === 'scheduled')
+
   const myStanding = myTeam ? standings.find(s => s.team_id === myTeam.id) : null
 
   const filteredTeams = teams.filter(t =>
@@ -1121,10 +1201,15 @@ function OverviewView({ matches, slug, divId, color, fmtTime, fmtVenueTime }) {
 function HeroMatchCard({ match: m, myTeamId, color, fmtTime, fmtVenueTime }) {
   const isLive = m.status === 'in_progress'
   const isDone = m.status === 'complete' || m.status === 'forfeit'
-  const isMyA = m.team_a?.id === myTeamId
+  const resolved = m.__resolved
+  const resolvedA = resolved?.a?.team ?? m.team_a
+  const resolvedB = resolved?.b?.team ?? m.team_b
+  const isProjectedMatch = !!resolved?.isProjected
+
+  const isMyA = resolvedA?.id === myTeamId
   const my = isMyA ? (m.score_a ?? 0) : (m.score_b ?? 0)
   const th = isMyA ? (m.score_b ?? 0) : (m.score_a ?? 0)
-  const opp = isMyA ? m.team_b : m.team_a
+  const opp = isMyA ? resolvedB : resolvedA
   const won = isDone && my > th
   const lost = isDone && my < th
 
@@ -1134,8 +1219,14 @@ function HeroMatchCard({ match: m, myTeamId, color, fmtTime, fmtVenueTime }) {
       style={{
         display: 'block',
         textDecoration: 'none',
-        background: 'var(--bg-surface)',
-        border: `2px solid ${isLive ? 'rgba(34,197,94,0.4)' : color + '40'}`,
+        background: isProjectedMatch ? 'rgba(245,158,11,0.06)' : 'var(--bg-surface)',
+        border: `2px solid ${
+          isLive
+            ? 'rgba(34,197,94,0.4)'
+            : isProjectedMatch
+            ? 'rgba(245,158,11,0.45)'
+            : color + '40'
+        }`,
         borderRadius: 16,
         padding: '18px 20px',
         position: 'relative',
@@ -1175,6 +1266,26 @@ function HeroMatchCard({ match: m, myTeamId, color, fmtTime, fmtVenueTime }) {
               {fmtVenueTime(m)}
             </span>
           )}
+
+          {isProjectedMatch && (
+            <div style={{ marginTop: 6 }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: '#f59e0b',
+                  background: 'rgba(245,158,11,0.12)',
+                  padding: '3px 8px',
+                  borderRadius: 999,
+                }}
+              >
+                {m.bracket_type === 'play_in' ? 'Projected Crossover' : 'Projected'}
+              </span>
+            </div>
+          )}
+
           {m.round_label && <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0' }}>{m.round_label}</p>}
         </div>
 
@@ -1255,10 +1366,15 @@ function HeroMatchCard({ match: m, myTeamId, color, fmtTime, fmtVenueTime }) {
 function MatchRow({ match: m, myTeamId, fmtTime, fmtVenueTime, isHero }) {
   const isLive = m.status === 'in_progress'
   const isDone = m.status === 'complete' || m.status === 'forfeit'
-  const isMyA = m.team_a?.id === myTeamId
+  const resolved = m.__resolved
+  const resolvedA = resolved?.a?.team ?? m.team_a
+  const resolvedB = resolved?.b?.team ?? m.team_b
+  const isProjectedMatch = !!resolved?.isProjected
+
+  const isMyA = resolvedA?.id === myTeamId
   const my = isMyA ? (m.score_a ?? 0) : (m.score_b ?? 0)
   const th = isMyA ? (m.score_b ?? 0) : (m.score_a ?? 0)
-  const opp = isMyA ? m.team_b : m.team_a
+  const opp = isMyA ? resolvedB : resolvedA
   const won = isDone && my > th
   const lost = isDone && my < th
 
@@ -1272,8 +1388,14 @@ function MatchRow({ match: m, myTeamId, fmtTime, fmtVenueTime, isHero }) {
         alignItems: 'center',
         justifyContent: 'space-between',
         padding: '12px 14px',
-        background: 'var(--bg-surface)',
-        border: `1px solid ${isLive ? 'rgba(34,197,94,0.3)' : 'var(--border)'}`,
+        background: isProjectedMatch ? 'rgba(245,158,11,0.06)' : 'var(--bg-surface)',
+        border: `1px solid ${
+          isLive
+            ? 'rgba(34,197,94,0.3)'
+            : isProjectedMatch
+            ? 'rgba(245,158,11,0.45)'
+            : 'var(--border)'
+        }`,
         borderRadius: 12,
         textDecoration: 'none',
         gap: 10,
@@ -1299,6 +1421,26 @@ function MatchRow({ match: m, myTeamId, fmtTime, fmtVenueTime, isHero }) {
         >
           vs {opp?.name ?? 'TBD'}
         </p>
+
+        {isProjectedMatch && (
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              color: '#f59e0b',
+              background: 'rgba(245,158,11,0.12)',
+              padding: '2px 6px',
+              borderRadius: 20,
+              marginTop: 4,
+              display: 'inline-block',
+            }}
+          >
+            {m.bracket_type === 'play_in' ? 'Projected Crossover' : 'Projected'}
+          </span>
+        )}
+
         {m.round_label && m.phase === 2 && (
           <span
             style={{
