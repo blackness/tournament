@@ -5,6 +5,7 @@ import { PageLoader } from '../components/ui/LoadingSpinner'
 import { ChevronLeft, MapPin, ChevronRight } from 'lucide-react'
 import { buildMatchesByCode, resolveMatchParticipants } from '../lib/matchParticipants'
 import { loadStandingsByPool } from '../lib/standingsByPool'
+import { getMatchHighlight } from '../lib/highlights/matchHighlights'
 
 const TABS = [
   { key: 'live', label: 'Live' },
@@ -55,11 +56,14 @@ export function SchedulePage() {
     if (!storageKey) return
 
     try {
-      localStorage.setItem(storageKey, JSON.stringify({
-        tab,
-        quickView,
-        fieldFilter,
-      }))
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          tab,
+          quickView,
+          fieldFilter,
+        })
+      )
     } catch (err) {
       console.warn('Failed to save schedule view state', err)
     }
@@ -102,8 +106,8 @@ export function SchedulePage() {
           source_a_ref,
           source_b_type,
           source_b_ref,
-          team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
-          team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
+          team_a:tournament_teams!team_a_id(id, name, short_name, seed, primary_color),
+          team_b:tournament_teams!team_b_id(id, name, short_name, seed, primary_color),
           venue:venues(id, name, short_name, youtube_url),
           division:divisions(id, name),
           pool:pools(id, name),
@@ -172,7 +176,7 @@ export function SchedulePage() {
           event: 'UPDATE',
           schema: 'public',
           table: 'matches',
-          filter: 'tournament_id=eq.' + tournament.id
+          filter: 'tournament_id=eq.' + tournament.id,
         },
         async payload => {
           const updated = payload.new
@@ -196,8 +200,8 @@ export function SchedulePage() {
               source_a_ref,
               source_b_type,
               source_b_ref,
-              team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
-              team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
+              team_a:tournament_teams!team_a_id(id, name, short_name, seed, primary_color),
+              team_b:tournament_teams!team_b_id(id, name, short_name, seed, primary_color),
               venue:venues(id, name, short_name, youtube_url),
               division:divisions(id, name),
               pool:pools(id, name),
@@ -234,12 +238,15 @@ export function SchedulePage() {
     return () => supabase.removeChannel(channel)
   }, [tournament?.id])
 
-  const byTab = useMemo(() => ({
-    live: matches.filter(m => m.status === 'in_progress'),
-    unplayed: matches.filter(m => m.status === 'scheduled' && m.time_slot?.scheduled_start),
-    finished: matches.filter(m => ['complete', 'forfeit'].includes(m.status)),
-    all: matches,
-  }), [matches])
+  const byTab = useMemo(
+    () => ({
+      live: matches.filter(m => m.status === 'in_progress'),
+      unplayed: matches.filter(m => m.status === 'scheduled' && m.time_slot?.scheduled_start),
+      finished: matches.filter(m => ['complete', 'forfeit'].includes(m.status)),
+      all: matches,
+    }),
+    [matches]
+  )
 
   const matchesByCode = useMemo(() => buildMatchesByCode(matches), [matches])
 
@@ -268,27 +275,27 @@ export function SchedulePage() {
     filtered = filtered.filter(m => m.venue?.id === fieldFilter)
   }
 
-const showFeatured = quickView == null && tab !== 'finished'
-const featuredMatches = showFeatured ? getFeaturedMatches(filtered) : []
-const featuredIds = new Set(featuredMatches.map(m => m.id))
+  const showFeatured = quickView == null && tab !== 'finished'
+  const featuredMatches = showFeatured ? getFeaturedMatches(filtered) : []
+  const featuredIds = new Set(featuredMatches.map(m => m.id))
 
-const groupedMatches = showFeatured
-  ? filtered.filter(m => !featuredIds.has(m.id))
-  : filtered
+  const groupedMatches = showFeatured
+    ? filtered.filter(m => !featuredIds.has(m.id))
+    : filtered
 
-const groups = groupByTime(groupedMatches, tab === 'finished')
+  const groups = groupByTime(groupedMatches, tab === 'finished')
 
-if (loading) return <PageLoader />
+  if (loading) return <PageLoader />
 
-if (!tournament) {
-  return (
-    <div style={{ textAlign: 'center', padding: '64px 20px', color: 'var(--text-muted)' }}>
-      Tournament not found
-    </div>
-  )
-}
+  if (!tournament) {
+    return (
+      <div style={{ textAlign: 'center', padding: '64px 20px', color: 'var(--text-muted)' }}>
+        Tournament not found
+      </div>
+    )
+  }
 
-const currentFieldLabel =
+  const currentFieldLabel =
     fieldFilter === 'all'
       ? 'All Fields'
       : venues.find(v => v.id === fieldFilter)?.short_name ||
@@ -378,7 +385,7 @@ const currentFieldLabel =
                 <CompactToggle
                   key={item.key}
                   active={quickView === item.key}
-                  onClick={() => setQuickView(prev => prev === item.key ? null : item.key)}
+                  onClick={() => setQuickView(prev => (prev === item.key ? null : item.key))}
                   label={item.label}
                 />
               ))}
@@ -414,9 +421,13 @@ const currentFieldLabel =
         {filtered.length === 0 && (
           <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
             <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-              {tab === 'live' ? 'No games live right now' :
-               tab === 'unplayed' ? 'No upcoming games' :
-               tab === 'finished' ? 'No completed games yet' : 'No games'}
+              {tab === 'live'
+                ? 'No games live right now'
+                : tab === 'unplayed'
+                ? 'No upcoming games'
+                : tab === 'finished'
+                ? 'No completed games yet'
+                : 'No games'}
             </p>
           </div>
         )}
@@ -462,11 +473,7 @@ const currentFieldLabel =
 }
 
 function CompactControlRow({ children }) {
-  return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-      {children}
-    </div>
-  )
+  return <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{children}</div>
 }
 
 function CompactToggle({ active, onClick, label, count, showLiveDot = false }) {
@@ -522,6 +529,8 @@ function GameCard({ match: m, featured = false, standingsByPool = {}, matchesByC
   const teamA = m.team_a
   const teamB = m.team_b
   const hasStream = !!m.venue?.youtube_url
+  const hasAssignedTeams = !!(m.team_a?.id && m.team_b?.id)
+  const specialHighlight = getMatchHighlight(m.match_code)
 
   const isBracketMatch = !!m.match_code || !!m.bracket_type
 
@@ -534,21 +543,30 @@ function GameCard({ match: m, featured = false, standingsByPool = {}, matchesByC
       ? 'Consolation'
       : null
 
-  const resolved = resolveMatchParticipants({
-    match: m,
-    standingsByPool,
-    matchesByCode,
-    seedsLocked: false,
-  })
+  const resolved = hasAssignedTeams
+    ? null
+    : resolveMatchParticipants({
+        match: m,
+        standingsByPool,
+        matchesByCode,
+        seedsLocked: false,
+      })
 
-  const displayTeams = {
-    a: resolved.a.primary,
-    b: resolved.b.primary,
-    subA: resolved.a.secondary,
-    subB: resolved.b.secondary,
-  }
+  const displayTeams = hasAssignedTeams
+    ? {
+        a: formatSeedName(m.team_a),
+        b: formatSeedName(m.team_b),
+        subA: null,
+        subB: null,
+      }
+    : {
+        a: resolved?.a?.primary,
+        b: resolved?.b?.primary,
+        subA: resolved?.a?.secondary,
+        subB: resolved?.b?.secondary,
+      }
 
-  const isProjectedMatch = resolved.isProjected
+  const isProjectedMatch = hasAssignedTeams ? false : !!resolved?.isProjected
 
   return (
     <div style={{ position: 'relative' }}>
@@ -592,7 +610,9 @@ function GameCard({ match: m, featured = false, standingsByPool = {}, matchesByC
         to={'/score/' + m.id}
         style={{
           display: 'block',
-          background: isProjectedMatch
+          background: specialHighlight
+            ? specialHighlight.bg
+            : isProjectedMatch
             ? 'rgba(245,158,11,0.06)'
             : featured
             ? 'var(--bg-raised)'
@@ -600,6 +620,8 @@ function GameCard({ match: m, featured = false, standingsByPool = {}, matchesByC
           border: `1px solid ${
             isLive
               ? 'rgba(34,197,94,0.3)'
+              : specialHighlight
+              ? specialHighlight.border
               : isProjectedMatch
               ? 'rgba(245,158,11,0.45)'
               : featured
@@ -609,9 +631,14 @@ function GameCard({ match: m, featured = false, standingsByPool = {}, matchesByC
           borderRadius: 14,
           overflow: 'hidden',
           textDecoration: 'none',
+          boxShadow: specialHighlight ? `0 6px 20px ${specialHighlight.shadow}` : 'none',
         }}
       >
-        {isLive && <div style={{ height: 2, background: 'var(--live)' }} />}
+        {isLive ? (
+          <div style={{ height: 2, background: 'var(--live)' }} />
+        ) : specialHighlight ? (
+          <div style={{ height: 2, background: specialHighlight.color }} />
+        ) : null}
 
         <div style={{ padding: '14px 16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, fontSize: 12 }}>
@@ -659,6 +686,26 @@ function GameCard({ match: m, featured = false, standingsByPool = {}, matchesByC
             )}
           </div>
 
+          {specialHighlight && (
+            <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  color: specialHighlight.color,
+                  background: specialHighlight.badgeBg,
+                  border: `1px solid ${specialHighlight.border}`,
+                  padding: '3px 8px',
+                  borderRadius: 999,
+                }}
+              >
+                {specialHighlight.label}
+              </span>
+            </div>
+          )}
+
           {isProjectedMatch && (
             <div style={{ marginBottom: 8 }}>
               <span
@@ -680,7 +727,7 @@ function GameCard({ match: m, featured = false, standingsByPool = {}, matchesByC
 
           {isBracketMatch && (
             <div style={{ marginBottom: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: hasAssignedTeams ? 0 : 4 }}>
                 {bracketBadge && (
                   <span
                     style={{
@@ -688,24 +735,25 @@ function GameCard({ match: m, featured = false, standingsByPool = {}, matchesByC
                       fontWeight: 700,
                       letterSpacing: '0.06em',
                       textTransform: 'uppercase',
-                      color: 'var(--accent)',
-                      background: 'var(--accent-dim)',
+                      color: specialHighlight ? specialHighlight.color : 'var(--accent)',
+                      background: specialHighlight ? specialHighlight.badgeBg : 'var(--accent-dim)',
                       padding: '3px 8px',
                       borderRadius: 999,
+                      border: specialHighlight ? `1px solid ${specialHighlight.border}` : 'none',
                     }}
                   >
                     {bracketBadge}
                   </span>
                 )}
 
-                {m.round_label && (
+                {m.round_label && !hasAssignedTeams && (
                   <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
                     {m.round_label}
                   </span>
                 )}
               </div>
 
-              {m.display_label && (
+              {m.display_label && !hasAssignedTeams && (
                 <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                   {m.display_label}
                 </div>
@@ -724,13 +772,13 @@ function GameCard({ match: m, featured = false, standingsByPool = {}, matchesByC
               <DisplayTeamPill
                 primary={displayTeams.a}
                 secondary={displayTeams.subA}
-                color={resolved.a.team?.primary_color ?? teamA?.primary_color}
+                color={hasAssignedTeams ? m.team_a?.primary_color : resolved?.a?.team?.primary_color}
               />
               <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>vs</span>
               <DisplayTeamPill
                 primary={displayTeams.b}
                 secondary={displayTeams.subB}
-                color={resolved.b.team?.primary_color ?? teamB?.primary_color}
+                color={hasAssignedTeams ? m.team_b?.primary_color : resolved?.b?.team?.primary_color}
               />
               <ChevronRight size={13} style={{ color: 'var(--text-muted)', flexShrink: 0, marginLeft: 'auto' }} />
             </div>
@@ -742,6 +790,8 @@ function GameCard({ match: m, featured = false, standingsByPool = {}, matchesByC
 }
 
 function TeamScore({ team, score, winner, right }) {
+  const label = formatSeedName(team)
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexDirection: right ? 'row-reverse' : 'row' }}>
       <div
@@ -765,7 +815,7 @@ function TeamScore({ team, score, winner, right }) {
           textAlign: right ? 'right' : 'left',
         }}
       >
-        {team?.name ?? 'TBD'}
+        {label}
       </span>
       <span
         style={{
@@ -827,6 +877,12 @@ function DisplayTeamPill({ primary, secondary, color }) {
   )
 }
 
+function formatSeedName(team) {
+  if (!team) return 'TBD'
+  const base = team.name ?? team.short_name ?? 'TBD'
+  return team.seed != null ? `(${team.seed}) ${base}` : base
+}
+
 function groupByTime(matches, reverse = false) {
   const groups = {}
 
@@ -876,6 +932,7 @@ function groupByTime(matches, reverse = false) {
     return reverse ? b.sortValue - a.sortValue : a.sortValue - b.sortValue
   })
 }
+
 function formatVenueTime(match) {
   const venue = match?.venue?.name ?? null
   const time = match?.time_slot?.scheduled_start ? formatTime(match.time_slot.scheduled_start) : null
@@ -924,16 +981,15 @@ function formatGroupTime(d) {
 
 function getMatchDate(match) {
   if (!match?.time_slot?.scheduled_start) return null
-  return new Date(match.time_slot.scheduled_start)
-    .toLocaleDateString('en-CA', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      timeZone: 'America/Toronto',
-    })
+  return new Date(match.time_slot.scheduled_start).toLocaleDateString('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'America/Toronto',
+  })
 }
 
 function getFeaturedMatches(matches) {
-  const featuredCodes = ['P24', 'P23', 'P17', 'P18']
+  const featuredCodes = ['P24', 'P23', 'P20', 'P21']
   return matches.filter(m => featuredCodes.includes(m.match_code))
 }

@@ -56,9 +56,9 @@ export default function App() {
 
           {/* ── Public routes ───────────────────────────────────────────── */}
 <Route element={<PublicLayout />}>
-  <Route index element={<MarketingHomePage />} />
-  <Route path="/home"                              element={<MarketingHomePage />} />
-  <Route path="/tournaments"                       element={<TournamentList />} />
+  <Route index element={<Navigate to="/t/ofsaa-ultimate-2026" replace />} />
+  <Route path="/home#contact" element={<MarketingHomePage />} />
+  <Route path="/tournaments" element={<TournamentList />} />
   <Route path="/t/:slug"                           element={<TournamentHome />} />
   <Route path="/t/:slug/standings/:divisionId"     element={<StandingsPage />} />
   <Route path="/t/:slug/bracket/:divisionId"       element={<BracketPage />} />

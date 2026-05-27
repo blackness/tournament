@@ -7,6 +7,8 @@ import { ChevronRight, MapPin, Calendar, ChevronLeft, Clock, Trophy, Search, X }
 import { isFavorite, toggleFavorite } from './TeamPage'
 import { buildMatchesByCode, resolveMatchParticipants } from '../lib/matchParticipants'
 import { loadStandingsByPool } from '../lib/standingsByPool'
+import { ActiveSessionTracker } from '../components/analytics/ActiveSessionTracker'
+import { getMatchHighlight } from '../lib/highlights/matchHighlights'
 
 const teamKey = slug => `myteam_${slug}`
 const browsingKey = slug => `browsing_${slug}`
@@ -57,6 +59,7 @@ export function TournamentHome() {
             score_b,
             winner_id,
             round_label,
+            display_label,
             pool_id,
             phase,
             bracket_position,
@@ -66,8 +69,8 @@ export function TournamentHome() {
             source_a_ref,
             source_b_type,
             source_b_ref,
-            team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
-            team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
+            team_a:tournament_teams!team_a_id(id, name, short_name, seed, primary_color),
+            team_b:tournament_teams!team_b_id(id, name, short_name, seed, primary_color),
             venue:venues(name, short_name, youtube_url),
             time_slot:time_slots(scheduled_start)
           `)
@@ -79,7 +82,7 @@ export function TournamentHome() {
 
         const { data: tm } = await supabase
           .from('tournament_teams')
-          .select('id, name, short_name, primary_color, pool_id, pool:pools(name)')
+          .select('id, name, short_name, seed, primary_color, pool_id, pool:pools(name)')
           .eq('tournament_id', t.id)
           .order('name')
 
@@ -163,6 +166,7 @@ export function TournamentHome() {
               score_b,
               winner_id,
               round_label,
+              display_label,
               pool_id,
               phase,
               bracket_position,
@@ -172,8 +176,8 @@ export function TournamentHome() {
               source_a_ref,
               source_b_type,
               source_b_ref,
-              team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
-              team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
+              team_a:tournament_teams!team_a_id(id, name, short_name, seed, primary_color),
+              team_b:tournament_teams!team_b_id(id, name, short_name, seed, primary_color),
               venue:venues(name, short_name, youtube_url),
               time_slot:time_slots(scheduled_start)
             `)
@@ -182,6 +186,17 @@ export function TournamentHome() {
             .order('time_slot(scheduled_start)')
 
           setMatches(m ?? [])
+
+          if (divisions?.length > 0) {
+            const { data: st } = await supabase
+              .from('pool_standings_display')
+              .select('*')
+              .in('division_id', divisions.map(d => d.id))
+              .order('pool_id')
+              .order('rank')
+
+            setStandings(st ?? [])
+          }
 
           let mergedStandings = {}
           for (const div of divisions ?? []) {
@@ -264,12 +279,20 @@ export function TournamentHome() {
   const resolvedMyMatches = myTeam
     ? matches
         .map(match => {
-          const resolved = resolveMatchParticipants({
-            match,
-            standingsByPool,
-            matchesByCode,
-            seedsLocked: false,
-          })
+          const hasAssignedTeams = !!(match.team_a?.id && match.team_b?.id)
+
+          const resolved = hasAssignedTeams
+            ? {
+                a: { team: match.team_a },
+                b: { team: match.team_b },
+                isProjected: false,
+              }
+            : resolveMatchParticipants({
+                match,
+                standingsByPool,
+                matchesByCode,
+                seedsLocked: false,
+              })
 
           return { match, resolved }
         })
@@ -355,6 +378,14 @@ export function TournamentHome() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-base)' }}>
+      {tournament?.id && (
+        <ActiveSessionTracker
+          tournamentId={tournament.id}
+          page="tournament_home"
+          userId={user?.id ?? null}
+        />
+      )}
+
       <div style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)' }}>
         <div style={{ maxWidth: 640, margin: '0 auto', padding: '20px 20px 0' }}>
           <Link
@@ -905,7 +936,15 @@ function MyTeamView({ myTeam, myStanding, myMatches, heroMatch, slug, divId, col
         )}
       </div>
 
-      {heroMatch && <HeroMatchCard match={heroMatch} myTeamId={myTeam.id} color={color} fmtTime={fmtTime} fmtVenueTime={fmtVenueTime} />}
+      {heroMatch && (
+        <HeroMatchCard
+          match={heroMatch}
+          myTeamId={myTeam.id}
+          color={color}
+          fmtTime={fmtTime}
+          fmtVenueTime={fmtVenueTime}
+        />
+      )}
 
       <div style={{ marginTop: 18 }}>
         <p
@@ -1026,7 +1065,7 @@ function BrowsingView({ matches, liveMatches, slug, divId, color, fmtTime, fmtVe
                   </div>
 
                   <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-                    {m.team_a?.short_name ?? m.team_a?.name ?? 'TBD'} vs {m.team_b?.short_name ?? m.team_b?.name ?? 'TBD'}
+                    {formatSeedName(m.team_a)} vs {formatSeedName(m.team_b)}
                   </p>
 
                   {m.round_label && !m.round_label.startsWith('Pool') && (
@@ -1149,7 +1188,7 @@ function OverviewView({ matches, slug, divId, color, fmtTime, fmtVenueTime }) {
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {m.team_a?.short_name ?? 'TBD'} vs {m.team_b?.short_name ?? 'TBD'}
+                    {formatSeedName(m.team_a)} vs {formatSeedName(m.team_b)}
                   </p>
                   {m.round_label && !m.round_label.startsWith('Pool') && (
                     <span
@@ -1204,7 +1243,9 @@ function HeroMatchCard({ match: m, myTeamId, color, fmtTime, fmtVenueTime }) {
   const resolved = m.__resolved
   const resolvedA = resolved?.a?.team ?? m.team_a
   const resolvedB = resolved?.b?.team ?? m.team_b
-  const isProjectedMatch = !!resolved?.isProjected
+  const hasAssignedTeams = !!(m.team_a?.id && m.team_b?.id)
+  const isProjectedMatch = hasAssignedTeams ? false : !!resolved?.isProjected
+  const specialHighlight = getMatchHighlight(m.match_code)
 
   const isMyA = resolvedA?.id === myTeamId
   const my = isMyA ? (m.score_a ?? 0) : (m.score_b ?? 0)
@@ -1219,10 +1260,16 @@ function HeroMatchCard({ match: m, myTeamId, color, fmtTime, fmtVenueTime }) {
       style={{
         display: 'block',
         textDecoration: 'none',
-        background: isProjectedMatch ? 'rgba(245,158,11,0.06)' : 'var(--bg-surface)',
+        background: specialHighlight
+          ? specialHighlight.bg
+          : isProjectedMatch
+          ? 'rgba(245,158,11,0.06)'
+          : 'var(--bg-surface)',
         border: `2px solid ${
           isLive
             ? 'rgba(34,197,94,0.4)'
+            : specialHighlight
+            ? specialHighlight.border
             : isProjectedMatch
             ? 'rgba(245,158,11,0.45)'
             : color + '40'
@@ -1232,9 +1279,19 @@ function HeroMatchCard({ match: m, myTeamId, color, fmtTime, fmtVenueTime }) {
         position: 'relative',
         overflow: 'hidden',
         marginBottom: 4,
+        boxShadow: specialHighlight ? `0 6px 20px ${specialHighlight.shadow}` : 'none',
       }}
     >
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: isLive ? 'var(--live)' : color }} />
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 3,
+          background: isLive ? 'var(--live)' : specialHighlight ? specialHighlight.color : color,
+        }}
+      />
 
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
         <div>
@@ -1267,6 +1324,26 @@ function HeroMatchCard({ match: m, myTeamId, color, fmtTime, fmtVenueTime }) {
             </span>
           )}
 
+          {specialHighlight && (
+            <div style={{ marginTop: 6 }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: specialHighlight.color,
+                  background: specialHighlight.badgeBg,
+                  border: `1px solid ${specialHighlight.border}`,
+                  padding: '3px 8px',
+                  borderRadius: 999,
+                }}
+              >
+                {specialHighlight.label}
+              </span>
+            </div>
+          )}
+
           {isProjectedMatch && (
             <div style={{ marginTop: 6 }}>
               <span
@@ -1286,7 +1363,17 @@ function HeroMatchCard({ match: m, myTeamId, color, fmtTime, fmtVenueTime }) {
             </div>
           )}
 
-          {m.round_label && <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0' }}>{m.round_label}</p>}
+          {m.round_label && (
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0' }}>
+              {m.round_label}
+            </p>
+          )}
+
+          {isProjectedMatch && m.display_label && (
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0' }}>
+              {m.display_label}
+            </p>
+          )}
         </div>
 
         {isDone && (
@@ -1310,7 +1397,7 @@ function HeroMatchCard({ match: m, myTeamId, color, fmtTime, fmtVenueTime }) {
         <div>
           <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 2px' }}>vs</p>
           <p style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-            {opp?.name ?? 'TBD'}
+            {formatSeedName(opp)}
           </p>
           {!isLive && (
             <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>
@@ -1335,7 +1422,15 @@ function HeroMatchCard({ match: m, myTeamId, color, fmtTime, fmtVenueTime }) {
               <span style={{ color: 'var(--text-muted)', fontSize: 28 }}> – </span>
               <span style={{ color: th > my ? '#f87171' : 'inherit' }}>{th}</span>
             </p>
-            <p style={{ fontSize: 9, color: 'var(--text-muted)', margin: '4px 0 0', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            <p
+              style={{
+                fontSize: 9,
+                color: 'var(--text-muted)',
+                margin: '4px 0 0',
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+              }}
+            >
               us – them
             </p>
           </div>
@@ -1369,7 +1464,9 @@ function MatchRow({ match: m, myTeamId, fmtTime, fmtVenueTime, isHero }) {
   const resolved = m.__resolved
   const resolvedA = resolved?.a?.team ?? m.team_a
   const resolvedB = resolved?.b?.team ?? m.team_b
-  const isProjectedMatch = !!resolved?.isProjected
+  const hasAssignedTeams = !!(m.team_a?.id && m.team_b?.id)
+  const isProjectedMatch = hasAssignedTeams ? false : !!resolved?.isProjected
+  const specialHighlight = getMatchHighlight(m.match_code)
 
   const isMyA = resolvedA?.id === myTeamId
   const my = isMyA ? (m.score_a ?? 0) : (m.score_b ?? 0)
@@ -1388,10 +1485,16 @@ function MatchRow({ match: m, myTeamId, fmtTime, fmtVenueTime, isHero }) {
         alignItems: 'center',
         justifyContent: 'space-between',
         padding: '12px 14px',
-        background: isProjectedMatch ? 'rgba(245,158,11,0.06)' : 'var(--bg-surface)',
+        background: specialHighlight
+          ? specialHighlight.bg
+          : isProjectedMatch
+          ? 'rgba(245,158,11,0.06)'
+          : 'var(--bg-surface)',
         border: `1px solid ${
           isLive
             ? 'rgba(34,197,94,0.3)'
+            : specialHighlight
+            ? specialHighlight.border
             : isProjectedMatch
             ? 'rgba(245,158,11,0.45)'
             : 'var(--border)'
@@ -1399,15 +1502,22 @@ function MatchRow({ match: m, myTeamId, fmtTime, fmtVenueTime, isHero }) {
         borderRadius: 12,
         textDecoration: 'none',
         gap: 10,
+        boxShadow: specialHighlight ? `0 6px 20px ${specialHighlight.shadow}` : 'none',
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-          {isLive && <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--live)', letterSpacing: '0.08em' }}>LIVE</span>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, flexWrap: 'wrap' }}>
+          {isLive && (
+            <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--live)', letterSpacing: '0.08em' }}>
+              LIVE
+            </span>
+          )}
+
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             {fmtVenueTime(m)}
           </span>
         </div>
+
         <p
           style={{
             fontSize: 14,
@@ -1419,46 +1529,72 @@ function MatchRow({ match: m, myTeamId, fmtTime, fmtVenueTime, isHero }) {
             whiteSpace: 'nowrap',
           }}
         >
-          vs {opp?.name ?? 'TBD'}
+          vs {formatSeedName(opp)}
         </p>
 
-        {isProjectedMatch && (
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: '0.06em',
-              textTransform: 'uppercase',
-              color: '#f59e0b',
-              background: 'rgba(245,158,11,0.12)',
-              padding: '2px 6px',
-              borderRadius: 20,
-              marginTop: 4,
-              display: 'inline-block',
-            }}
-          >
-            {m.bracket_type === 'play_in' ? 'Projected Crossover' : 'Projected'}
-          </span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+          {specialHighlight && (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                color: specialHighlight.color,
+                background: specialHighlight.badgeBg,
+                border: `1px solid ${specialHighlight.border}`,
+                padding: '2px 6px',
+                borderRadius: 20,
+                display: 'inline-block',
+              }}
+            >
+              {specialHighlight.label}
+            </span>
+          )}
 
-        {m.round_label && m.phase === 2 && (
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: '0.06em',
-              textTransform: 'uppercase',
-              color: 'var(--accent)',
-              background: 'var(--accent-dim)',
-              padding: '2px 6px',
-              borderRadius: 20,
-              marginTop: 2,
-              display: 'inline-block',
-            }}
-          >
-            {m.round_label}
-          </span>
-        )}
+          {isProjectedMatch && (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                color: '#f59e0b',
+                background: 'rgba(245,158,11,0.12)',
+                padding: '2px 6px',
+                borderRadius: 20,
+                display: 'inline-block',
+              }}
+            >
+              {m.bracket_type === 'play_in' ? 'Projected Crossover' : 'Projected'}
+            </span>
+          )}
+
+          {m.round_label && (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                color: specialHighlight ? specialHighlight.color : 'var(--accent)',
+                background: specialHighlight ? specialHighlight.badgeBg : 'var(--accent-dim)',
+                border: specialHighlight ? `1px solid ${specialHighlight.border}` : 'none',
+                padding: '2px 6px',
+                borderRadius: 20,
+                display: 'inline-block',
+              }}
+            >
+              {m.round_label}
+            </span>
+          )}
+
+          {isProjectedMatch && m.display_label && (
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              {m.display_label}
+            </span>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -1549,7 +1685,7 @@ function LiveMatchCard({ match: m }) {
               whiteSpace: 'nowrap',
             }}
           >
-            {teamA?.short_name ?? teamA?.name ?? 'TBD'}
+            {formatSeedName(teamA)}
           </span>
         </div>
 
@@ -1578,7 +1714,7 @@ function LiveMatchCard({ match: m }) {
               textAlign: 'right',
             }}
           >
-            {teamB?.short_name ?? teamB?.name ?? 'TBD'}
+            {formatSeedName(teamB)}
           </span>
           <div
             style={{
@@ -1639,4 +1775,10 @@ function QuickBtn({ to, label, icon, color }) {
       <ChevronRight size={14} style={{ color: 'var(--text-muted)' }} />
     </Link>
   )
+}
+
+function formatSeedName(team) {
+  if (!team) return 'TBD'
+  const base = team.name ?? team.short_name ?? 'TBD'
+  return team.seed != null ? `(${team.seed}) ${base}` : base
 }

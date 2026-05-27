@@ -35,10 +35,13 @@ export function TeamPage() {
       if (!t) { setLoading(false); return }
       setTeam(t)
 
+      const tournamentId = t.division?.tournament?.id
+
       const { data: m } = await supabase
         .from('team_schedule')
         .select(`
           match_id,
+          tournament_id,
           opponent_id,
           opponent_name,
           team_score,
@@ -58,6 +61,7 @@ export function TeamPage() {
           match_code
         `)
         .eq('team_id', teamId)
+        .eq('tournament_id', tournamentId)
         .order('scheduled_start', { ascending: true })
 
       setMatches(m ?? [])
@@ -80,6 +84,8 @@ export function TeamPage() {
           .is('deleted_at', null)
 
         setEvents(ev ?? [])
+      } else {
+        setEvents([])
       }
 
       const { data: dt } = await supabase

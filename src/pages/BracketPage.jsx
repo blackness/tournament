@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/LoadingSpinner'
 import { Trophy, ChevronLeft, ZoomIn, ZoomOut, Medal } from 'lucide-react'
+import { getMatchHighlight } from '../lib/highlights/matchHighlights'
 
 function useThemeColors() {
   const [colors, setColors] = useState(() => resolveColors())
@@ -32,12 +33,14 @@ function resolveColors() {
 }
 
 const NODE_W = 200
-const NODE_H = 72
+const NODE_H = 104
 const H_GAP = 80
-const V_GAP = 18
+const V_GAP = 30
 const PADDING = 48
-const BRACKET_GAP = 180
 const TITLE_Y_PAD = 30
+const TEAM_ROW_H = 34
+const TEAM_AREA_TOP = 24
+const TEAM_DIVIDER_Y = 58
 
 export function BracketPage() {
   const { slug, divisionId } = useParams()
@@ -47,6 +50,7 @@ export function BracketPage() {
   const [notFound, setNotFound] = useState(false)
   const [zoom, setZoom] = useState(1)
   const [mobileFocusedRound, setMobileFocusedRound] = useState(null)
+  const [desktopBracketTab, setDesktopBracketTab] = useState('championship')
   const containerRef = useRef(null)
 
   const themeColors = useThemeColors()
@@ -127,16 +131,23 @@ export function BracketPage() {
   const color = tournament?.primary_color ?? '#8b5cf6'
   const {
     nodes = [],
-    edges = [],
-    titles = [],
-    svgW = 600,
-    svgH = 400,
     champion,
     second,
     third,
     championshipLayout = null,
     consolationLayout = null,
   } = bracket ?? {}
+
+  const selectedDesktopLayout =
+    desktopBracketTab === 'championship'
+      ? championshipLayout
+      : consolationLayout
+
+  const desktopNodes = selectedDesktopLayout?.nodes ?? []
+  const desktopEdges = selectedDesktopLayout?.edges ?? []
+  const desktopTitles = selectedDesktopLayout?.titles ?? []
+  const desktopSvgW = selectedDesktopLayout?.svgW ?? 600
+  const desktopSvgH = selectedDesktopLayout?.svgH ?? 400
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column' }}>
@@ -258,69 +269,29 @@ export function BracketPage() {
         </div>
       </div>
 
-      {champion && (
-        <div style={{ background: color + '12', borderBottom: '1px solid ' + color + '25', padding: '16px 24px' }}>
+      {(champion || second || third) && (
+        <div
+          style={{
+            padding: '12px 20px 14px',
+            borderBottom: '1px solid var(--border)',
+            background:
+              'radial-gradient(circle at top, rgba(251,191,36,0.06), transparent 28%), linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.00) 100%)',
+          }}
+        >
           <div
             style={{
               maxWidth: 1400,
               margin: '0 auto',
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 20,
-              flexWrap: 'wrap',
+              justifyContent: 'center',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Trophy size={20} style={{ color: '#fbbf24', flexShrink: 0 }} />
-                <div>
-                  <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#fbbf24' }}>
-                    Champion
-                  </p>
-                  <Link
-                    to={'/t/' + tournament?.slug + '/team/' + champion.id}
-                    style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em', textDecoration: 'none' }}
-                  >
-                    {champion.name}
-                  </Link>
-                </div>
-              </div>
-
-              {second && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Medal size={18} style={{ color: '#94a3b8', flexShrink: 0 }} />
-                  <div>
-                    <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
-                      Runner-up
-                    </p>
-                    <Link
-                      to={'/t/' + tournament?.slug + '/team/' + second.id}
-                      style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', textDecoration: 'none' }}
-                    >
-                      {second.name}
-                    </Link>
-                  </div>
-                </div>
-              )}
-
-              {third && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Medal size={16} style={{ color: '#b45309', flexShrink: 0 }} />
-                  <div>
-                    <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
-                      3rd Place
-                    </p>
-                    <Link
-                      to={'/t/' + tournament?.slug + '/team/' + third.id}
-                      style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', textDecoration: 'none' }}
-                    >
-                      {third.name}
-                    </Link>
-                  </div>
-                </div>
-              )}
-            </div>
+            <CompactHeroPodium
+              tournamentSlug={tournament?.slug}
+              champion={champion}
+              second={second}
+              third={third}
+            />
           </div>
         </div>
       )}
@@ -357,17 +328,42 @@ export function BracketPage() {
             </div>
 
             <div className="hidden md:block">
+              <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {[
+                  ['championship', 'Championship Bracket'],
+                  ['consolation', 'Consolation Bracket'],
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setDesktopBracketTab(key)}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 999,
+                      border: `1px solid ${desktopBracketTab === key ? color : 'var(--border)'}`,
+                      background: desktopBracketTab === key ? color + '15' : 'var(--bg-surface)',
+                      color: desktopBracketTab === key ? color : 'var(--text-muted)',
+                      fontSize: 13,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
               <div
                 style={{
                   transformOrigin: 'top left',
                   transform: 'scale(' + zoom + ')',
-                  width: svgW,
-                  height: svgH,
+                  width: desktopSvgW,
+                  height: desktopSvgH,
                   transition: 'transform 0.15s',
                 }}
               >
-                <svg width={svgW} height={svgH} xmlns="http://www.w3.org/2000/svg">
-                  {titles.map(t => (
+                <svg width={desktopSvgW} height={desktopSvgH} xmlns="http://www.w3.org/2000/svg">
+                  {desktopTitles.map(t => (
                     <text
                       key={t.id}
                       x={t.x}
@@ -382,11 +378,11 @@ export function BracketPage() {
                     </text>
                   ))}
 
-                  {edges.map((e, i) => (
+                  {desktopEdges.map((e, i) => (
                     <path key={i} d={e.d} fill="none" stroke={themeColors.border} strokeWidth={2} />
                   ))}
 
-                  {nodes.map(node => (
+                  {desktopNodes.map(node => (
                     <BracketNode key={node.id} node={node} primaryColor={color} themeColors={themeColors} />
                   ))}
                 </svg>
@@ -394,6 +390,128 @@ export function BracketPage() {
             </div>
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+function CompactHeroPodium({ champion, second, third, tournamentSlug }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        gap: 8,
+        flexWrap: 'wrap',
+        justifyContent: 'center',
+      }}
+    >
+      {second && (
+        <CompactPodiumCard
+          medal="silver"
+          title="Silver"
+          team={second}
+          tournamentSlug={tournamentSlug}
+          icon={<Medal size={13} />}
+        />
+      )}
+
+      {champion && (
+        <CompactPodiumCard
+          medal="gold"
+          title="Gold"
+          team={champion}
+          tournamentSlug={tournamentSlug}
+          icon={<Trophy size={14} />}
+          featured
+        />
+      )}
+
+      {third && (
+        <CompactPodiumCard
+          medal="bronze"
+          title="Bronze"
+          team={third}
+          tournamentSlug={tournamentSlug}
+          icon={<Medal size={13} />}
+        />
+      )}
+    </div>
+  )
+}
+
+function CompactPodiumCard({ medal, title, team, tournamentSlug, icon, featured = false }) {
+  const styles = {
+    gold: {
+      color: '#fbbf24',
+      border: 'rgba(251,191,36,0.42)',
+      bg: 'linear-gradient(180deg, rgba(251,191,36,0.18) 0%, rgba(251,191,36,0.06) 100%)',
+      glow: '0 10px 22px rgba(251,191,36,0.14)',
+    },
+    silver: {
+      color: '#cbd5e1',
+      border: 'rgba(203,213,225,0.30)',
+      bg: 'linear-gradient(180deg, rgba(203,213,225,0.14) 0%, rgba(203,213,225,0.05) 100%)',
+      glow: '0 8px 18px rgba(148,163,184,0.10)',
+    },
+    bronze: {
+      color: '#d97706',
+      border: 'rgba(217,119,6,0.30)',
+      bg: 'linear-gradient(180deg, rgba(217,119,6,0.14) 0%, rgba(217,119,6,0.05) 100%)',
+      glow: '0 8px 18px rgba(180,83,9,0.10)',
+    },
+  }
+
+  const s = styles[medal]
+
+  return (
+    <div
+      style={{
+        minWidth: featured ? 160 : 130,
+        maxWidth: featured ? 180 : 150,
+        borderRadius: 14,
+        border: `1px solid ${s.border}`,
+        background: s.bg,
+        boxShadow: s.glow,
+        padding: featured ? '10px 12px' : '9px 11px',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ color: s.color, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          {icon}
+        </div>
+        <div
+          style={{
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: s.color,
+            lineHeight: 1,
+          }}
+        >
+          {title}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 8 }}>
+        <Link
+          to={`/t/${tournamentSlug}/team/${team.id}`}
+          style={{
+            textDecoration: 'none',
+            color: 'var(--text-primary)',
+            fontSize: featured ? 15 : 13,
+            fontWeight: featured ? 800 : 700,
+            letterSpacing: '-0.02em',
+            lineHeight: 1.05,
+            wordBreak: 'break-word',
+          }}
+        >
+          {team?.name}
+        </Link>
       </div>
     </div>
   )
@@ -476,12 +594,37 @@ function BracketNode({ node, primaryColor, themeColors }) {
   const isLive = match?.status === 'in_progress'
   const isDone = match?.status === 'complete' || match?.status === 'forfeit'
   const winnerId = match?.winner_id
-  const isFinal = (match?.placement_min === 1 && match?.placement_max === 2) || label === 'Gold Medal Game'
-  const isBronze = (match?.placement_min === 3 && match?.placement_max === 4) || label === 'Bronze Medal Game'
+  const highlight = getMatchHighlight(match?.match_code)
 
-  const cardStroke = isLive ? '#22c55e' : isFinal ? primaryColor : themeColors.border
-  const cardFill = isLive ? 'rgba(34,197,94,0.06)' : isFinal ? primaryColor + '0d' : themeColors.bgSurface
-  const strokeW = isLive || isFinal ? 1.5 : 1
+  const isFinal = match?.match_code === 'P24'
+  const isBronze = match?.match_code === 'P23'
+
+  const cardStroke = isLive
+    ? '#22c55e'
+    : highlight
+    ? highlight.border
+    : isFinal
+    ? primaryColor
+    : themeColors.border
+
+  const cardFill = isLive
+    ? 'rgba(34,197,94,0.06)'
+    : highlight
+    ? highlight.bg
+    : isFinal
+    ? primaryColor + '0d'
+    : themeColors.bgSurface
+
+  const strokeW = isLive || isFinal || highlight ? 1.5 : 1
+
+  const timeLabel = match?.time_slot?.scheduled_start
+    ? new Date(match.time_slot.scheduled_start).toLocaleTimeString('en-CA', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'America/Toronto',
+      }) + (match?.venue?.short_name ? ' · ' + match.venue.short_name : '')
+    : null
 
   return (
     <g>
@@ -507,7 +650,7 @@ function BracketNode({ node, primaryColor, themeColors }) {
             width={34}
             height={18}
             fill={themeColors.bgBase}
-            stroke={themeColors.border}
+            stroke={highlight ? highlight.border : themeColors.border}
             strokeWidth={1}
           />
           <text
@@ -516,7 +659,7 @@ function BracketNode({ node, primaryColor, themeColors }) {
             textAnchor="middle"
             fontSize={9}
             fontWeight="700"
-            fill={themeColors.textMuted}
+            fill={highlight ? highlight.color : themeColors.textMuted}
             style={{ fontFamily: 'DM Sans, system-ui', letterSpacing: '0.08em' }}
           >
             {node.match_code}
@@ -524,17 +667,25 @@ function BracketNode({ node, primaryColor, themeColors }) {
         </g>
       )}
 
-      {(isFinal || isBronze || label) && (
+      {label && (
         <text
           x={x + NODE_W / 2}
-          y={y - 6}
+          y={y + 16}
           textAnchor="middle"
           fontSize={9}
           fontWeight="700"
-          fill={isFinal ? primaryColor : isBronze ? '#b45309' : themeColors.textMuted}
-          style={{ fontFamily: 'DM Sans, system-ui', textTransform: 'uppercase', letterSpacing: '0.08em' }}
+          fill={
+            highlight
+              ? highlight.color
+              : isFinal
+              ? primaryColor
+              : isBronze
+              ? '#b45309'
+              : themeColors.textMuted
+          }
+          style={{ fontFamily: 'DM Sans, system-ui', letterSpacing: '0.08em' }}
         >
-          {label}
+          {label.toUpperCase()}
         </text>
       )}
 
@@ -546,55 +697,49 @@ function BracketNode({ node, primaryColor, themeColors }) {
 
       <NodeTeamRow
         x={x}
-        y={y}
+        y={y + TEAM_AREA_TOP}
         team={team_a}
         source={team_a_source}
         score={match?.score_a}
         isWinner={isDone && winnerId && team_a && winnerId === team_a.id}
         isLoser={isDone && winnerId && team_a && winnerId !== team_a.id}
         showScore={isLive || isDone}
-        primaryColor={primaryColor}
+        primaryColor={highlight?.color ?? primaryColor}
         themeColors={themeColors}
       />
 
       <line
         x1={x + 8}
-        y1={y + NODE_H / 2}
+        y1={y + TEAM_DIVIDER_Y}
         x2={x + NODE_W - 8}
-        y2={y + NODE_H / 2}
+        y2={y + TEAM_DIVIDER_Y}
         stroke={themeColors.border}
         strokeWidth={1}
       />
 
       <NodeTeamRow
         x={x}
-        y={y + NODE_H / 2}
+        y={y + TEAM_DIVIDER_Y}
         team={team_b}
         source={team_b_source}
         score={match?.score_b}
         isWinner={isDone && winnerId && team_b && winnerId === team_b.id}
         isLoser={isDone && winnerId && team_b && winnerId !== team_b.id}
         showScore={isLive || isDone}
-        primaryColor={primaryColor}
+        primaryColor={highlight?.color ?? primaryColor}
         themeColors={themeColors}
       />
 
-      {!isLive && !isDone && match?.time_slot?.scheduled_start && (
+      {timeLabel && (
         <text
           x={x + NODE_W / 2}
-          y={y + NODE_H + 13}
+          y={y + NODE_H - 10}
           textAnchor="middle"
           fontSize={9}
           fill={themeColors.textMuted}
           style={{ fontFamily: 'DM Sans, system-ui' }}
         >
-          {new Date(match.time_slot.scheduled_start).toLocaleTimeString('en-CA', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true,
-            timeZone: 'America/Toronto',
-          })}
-          {match?.venue?.short_name ? ' · ' + match.venue.short_name : ''}
+          {timeLabel}
         </text>
       )}
     </g>
@@ -602,7 +747,7 @@ function BracketNode({ node, primaryColor, themeColors }) {
 }
 
 function NodeTeamRow({ x, y, team, source, score, isWinner, isLoser, showScore, primaryColor, themeColors }) {
-  const rowH = NODE_H / 2
+  const rowH = TEAM_ROW_H
   const dotColor = team?.primary_color ?? themeColors.textMuted
   const opacity = isLoser ? 0.35 : 1
   const nameStr = team ? team.name ?? team.short_name ?? 'TBD' : prettifySource(source)
@@ -812,17 +957,35 @@ function MobileFocusedMatchCard({ node, tournamentSlug }) {
   const { match, team_a, team_b, team_a_source, team_b_source, label, match_code } = node
   const isDone = match?.status === 'complete' || match?.status === 'forfeit'
   const winnerId = match?.winner_id
+  const highlight = getMatchHighlight(match_code)
 
   return (
-    <div className="relative rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-4">
+    <div
+      className="relative rounded-2xl border p-4"
+      style={{
+        borderColor: highlight?.border ?? 'var(--border)',
+        background: highlight?.bg ?? 'var(--bg-surface)',
+        boxShadow: highlight ? `0 6px 20px ${highlight.shadow}` : 'none',
+      }}
+    >
       {match_code && (
-        <div className="absolute -top-2 left-3 rounded-full border border-[var(--border)] bg-[var(--bg-base)] px-2 py-0.5 text-[10px] font-bold tracking-wide text-[var(--text-muted)]">
+        <div
+          className="absolute -top-2 left-3 rounded-full border px-2 py-0.5 text-[10px] font-bold tracking-wide"
+          style={{
+            borderColor: highlight?.border ?? 'var(--border)',
+            background: 'var(--bg-base)',
+            color: highlight?.color ?? 'var(--text-muted)',
+          }}
+        >
           {match_code}
         </div>
       )}
 
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+        <div
+          className="text-[11px] font-semibold uppercase tracking-wide"
+          style={{ color: highlight?.color ?? 'var(--text-muted)' }}
+        >
           {label}
         </div>
         <MobileStatusBadge status={match?.status} />
@@ -884,7 +1047,7 @@ function MobileTeamRow({ team, source, score, isWinner, isLoser, tournamentSlug 
             {name}
           </a>
         ) : (
-          <span className={`truncate text-sm font-medium ${isWinner ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'}`}>
+          <span className="truncate text-sm font-medium text-[var(--text-primary)]">
             {name}
           </span>
         )}
@@ -982,15 +1145,15 @@ function sourceLabel(type, ref) {
 
 function friendlyMatchLabel(match) {
   const code = match?.match_code
-  if (!code) return match?.display_label ?? match?.round_label ?? 'Match'
+  if (!code) return match?.round_label ?? match?.display_label ?? 'Match'
 
   const custom = {
-    P17: '5th Place Game',
-    P18: '7th Place Game',
-    P19: '11th Place Game',
-    P20: '9th Place Game',
-    P21: '13th Place Game',
-    P22: '15th Place Game',
+    P17: '9th Place Game',
+    P18: '11th Place Game',
+    P19: '13th Place Game',
+    P20: '15th Place Game',
+    P21: '5th Place Game',
+    P22: '7th Place Game',
     P23: 'Bronze Medal Game',
     P24: 'Gold Medal Game',
   }
@@ -1014,23 +1177,12 @@ function matchPosition(match) {
   if (!code) return match?.match_number ?? 999
 
   const order = {
-    // Consolation quarterfinals
     P1: 1, P2: 2, P3: 3, P4: 4,
-
-    // Championship quarterfinals
     P5: 1, P6: 2, P7: 3, P8: 4,
-
-    // Consolation semis
     P9: 1, P10: 2, P11: 3, P12: 4,
-
-    // Championship semis
     P13: 1, P14: 2, P15: 3, P16: 4,
-
-    // Consolation finals
-    P20: 1, P19: 2, P21: 3, P22: 4,
-
-    // Championship finals
-    P24: 1, P23: 2, P17: 3, P18: 4,
+    P17: 1, P18: 2, P19: 3, P20: 4,
+    P24: 1, P23: 2, P21: 3, P22: 4,
   }
 
   return order[code] ?? match?.match_number ?? 999
@@ -1045,22 +1197,16 @@ function compareMatches(a, b) {
 
 function layoutDualBracket(matches) {
   const championshipMatches = matches
-    .filter(m => ['P5','P6','P7','P8','P13','P14','P15','P16','P17','P18','P23','P24'].includes(m.match_code))
+    .filter(m => ['P5','P6','P7','P8','P13','P14','P15','P16','P21','P22','P23','P24'].includes(m.match_code))
     .sort(compareMatches)
 
   const consolationMatches = matches
-    .filter(m => ['P1','P2','P3','P4','P9','P10','P11','P12','P19','P20','P21','P22'].includes(m.match_code))
+    .filter(m => ['P1','P2','P3','P4','P9','P10','P11','P12','P17','P18','P19','P20'].includes(m.match_code))
     .sort(compareMatches)
-
-  const roundsCount = 3
-  const singleBracketWidth = PADDING * 2 + roundsCount * NODE_W + (roundsCount - 1) * H_GAP
-  const totalWidth = singleBracketWidth * 2 + BRACKET_GAP
-  const leftOffsetX = 0
-  const rightOffsetX = singleBracketWidth + BRACKET_GAP
 
   const champLayout = layoutSingleBracket({
     matches: championshipMatches,
-    offsetX: leftOffsetX,
+    offsetX: 0,
     offsetY: 0,
     mirrored: false,
     title: 'Championship Bracket',
@@ -1070,19 +1216,15 @@ function layoutDualBracket(matches) {
 
   const consLayout = layoutSingleBracket({
     matches: consolationMatches,
-    offsetX: rightOffsetX,
+    offsetX: 0,
     offsetY: 0,
-    mirrored: true,
+    mirrored: false,
     title: 'Consolation Bracket',
-    titleAlign: 'end',
+    titleAlign: 'start',
     bracketType: 'consolation',
   })
 
   const nodes = [...champLayout.nodes, ...consLayout.nodes]
-  const edges = [...champLayout.edges, ...consLayout.edges]
-  const titles = [...champLayout.titles, ...consLayout.titles]
-  const svgW = totalWidth
-  const svgH = Math.max(champLayout.svgH, consLayout.svgH)
 
   const gold = matches.find(m => m.match_code === 'P24')
   const bronze = matches.find(m => m.match_code === 'P23')
@@ -1102,10 +1244,10 @@ function layoutDualBracket(matches) {
 
   return {
     nodes,
-    edges,
-    titles,
-    svgW,
-    svgH,
+    edges: [],
+    titles: [],
+    svgW: Math.max(champLayout.svgW, consLayout.svgW),
+    svgH: Math.max(champLayout.svgH, consLayout.svgH),
     champion,
     second,
     third,
@@ -1158,11 +1300,11 @@ function layoutSingleBracket({ matches, offsetX = 0, offsetY = 0, mirrored = fal
     const src2 = prevRoundNodes.find(n => n.position === (pos - 1) * 2 + 2)
 
     const tX = mirrored ? next.x + NODE_W : next.x
-    const tY = next.y + NODE_H / 2
+    const tY = next.y + TEAM_AREA_TOP + TEAM_ROW_H
 
     for (const src of [src1, src2].filter(Boolean)) {
       const sX = mirrored ? src.x : src.x + NODE_W
-      const sY = src.y + NODE_H / 2
+      const sY = src.y + TEAM_AREA_TOP + TEAM_ROW_H
       const midX = mirrored ? sX - H_GAP / 2 : sX + H_GAP / 2
 
       edges.push({
@@ -1282,18 +1424,18 @@ function layoutLegacyBracket(matches) {
 
   if (semi1 && goldMatch) {
     const sX = leftX + NODE_W
-    const sY = topY + NODE_H / 2
+    const sY = topY + TEAM_AREA_TOP + TEAM_ROW_H
     const tX = midX
-    const tY = topY + gapY + NODE_H / 2
+    const tY = topY + gapY + TEAM_AREA_TOP + TEAM_ROW_H
     const mid = sX + H_GAP / 2
     edges.push({ d: `M${sX} ${sY} H${mid} V${tY} H${tX}` })
   }
 
   if (semi2 && goldMatch) {
     const sX = leftX + NODE_W
-    const sY = topY + gapY * 2 + NODE_H / 2
+    const sY = topY + gapY * 2 + TEAM_AREA_TOP + TEAM_ROW_H
     const tX = midX
-    const tY = topY + gapY + NODE_H / 2
+    const tY = topY + gapY + TEAM_AREA_TOP + TEAM_ROW_H
     const mid = sX + H_GAP / 2
     edges.push({ d: `M${sX} ${sY} H${mid} V${tY} H${tX}` })
   }

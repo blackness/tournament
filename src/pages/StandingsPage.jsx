@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/LoadingSpinner'
-import { ChevronLeft, ChevronRight, RefreshCw, Heart } from 'lucide-react'
+import { ChevronLeft, RefreshCw, Heart } from 'lucide-react'
 import { isFavorite, toggleFavorite } from './TeamPage'
 
 export function StandingsPage() {
@@ -29,7 +29,7 @@ export function StandingsPage() {
   async function loadTeams() {
     const { data } = await supabase
       .from('tournament_teams')
-      .select('id, name, short_name, primary_color, pool_id')
+      .select('id, name, short_name, primary_color, pool_id, seed')
       .eq('division_id', divisionId)
       .order('seed', { ascending: true })
 
@@ -95,7 +95,6 @@ export function StandingsPage() {
 
   const tournament = division?.tournament
   const tiebreakerOrder = division?.tiebreaker_order ?? tournament?.tiebreaker_order ?? []
-  const advancesPerPool = division?.teams_advance_per_pool ?? 2
   const brandColor = tournament?.primary_color ?? '#8b5cf6'
 
   // Use standings rows only for stats, not for pool membership
@@ -161,6 +160,7 @@ export function StandingsPage() {
                 team_name: team.name,
                 team_short_name: team.short_name,
                 primary_color: team.primary_color,
+                seed: team.seed ?? null,
                 wins: stats?.wins ?? 0,
                 losses: stats?.losses ?? 0,
                 point_diff: stats?.point_diff ?? 0,
@@ -171,7 +171,6 @@ export function StandingsPage() {
               }
             })
             .sort((a, b) => {
-              // Prefer standings rank if available; otherwise seedless stable alpha
               if (a.rank != null && b.rank != null) return a.rank - b.rank
               if (a.rank != null) return -1
               if (b.rank != null) return 1
@@ -250,7 +249,6 @@ export function StandingsPage() {
                       </tr>
                     ) : (
                       poolTeams.map((row, idx) => {
-                        const advances = idx < advancesPerPool
                         const diff = row.point_diff ?? 0
 
                         return (
@@ -258,7 +256,7 @@ export function StandingsPage() {
                             key={row.team_id}
                             style={{
                               borderBottom: '1px solid var(--border)',
-                              background: advances ? brandColor + '08' : 'transparent',
+                              background: 'transparent',
                             }}
                           >
                             <td
@@ -287,17 +285,17 @@ export function StandingsPage() {
                                   to={'/t/' + slug + '/team/' + row.team_id}
                                   style={{
                                     fontSize: 14,
-                                    fontWeight: advances ? 600 : 500,
+                                    fontWeight: 500,
                                     color: 'var(--text-primary)',
                                     textDecoration: 'none',
                                   }}
                                   className="hover:text-[var(--accent)]"
                                 >
+                                  <span style={{ color: 'var(--text-muted)', fontWeight: 700, marginRight: 6 }}>
+                                    ({row.seed ?? '-'})
+                                  </span>
                                   {row.team_short_name ?? row.team_name}
                                 </Link>
-                                {advances && idx === advancesPerPool - 1 && (
-                                  <ChevronRight size={11} style={{ color: brandColor, marginLeft: 2 }} />
-                                )}
                               </div>
                             </td>
 
@@ -337,8 +335,8 @@ export function StandingsPage() {
                                   diff > 0
                                     ? '#4ade80'
                                     : diff < 0
-                                      ? '#f87171'
-                                      : 'var(--text-muted)',
+                                    ? '#f87171'
+                                    : 'var(--text-muted)',
                               }}
                             >
                               {diff > 0 ? '+' + diff : diff}
@@ -390,43 +388,76 @@ export function StandingsPage() {
                   </tbody>
                 </table>
               </div>
-
-              {poolTeams.length > 0 && (
-                <div
-                  style={{
-                    padding: '8px 18px',
-                    borderTop: '1px solid var(--border)',
-                    fontSize: 11,
-                    color: 'var(--text-muted)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 5,
-                  }}
-                >
-                  <ChevronRight size={11} style={{ color: brandColor }} />
-                  Top {advancesPerPool} advance to bracket
-                </div>
-              )}
             </div>
           )
         })
       )}
 
+      {/* Tournament format note */}
+      <div
+        style={{
+          marginTop: 16,
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 14,
+          padding: '14px 16px',
+        }}
+      >
+        <p
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: 'var(--text-muted)',
+            marginBottom: 8,
+          }}
+        >
+          Advancement
+        </p>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
+          1st place advances to Championship. 4th place advances to Consolation.
+          2nd and 3rd place play a crossover; winner advances to Championship and loser advances to Consolation.
+        </p>
+      </div>
+
+      {/* Tiebreaker note */}
+      <div
+        style={{
+          marginTop: 12,
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 14,
+          padding: '14px 16px',
+        }}
+      >
+        <p
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: 'var(--text-muted)',
+            marginBottom: 8,
+          }}
+        >
+          Tiebreakers
+        </p>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
+          {tiebreakerOrder.length > 0
+            ? tiebreakerOrder.map(t => TIEBREAKER_LABELS[t] ?? t).join(' > ')
+            : 'Tiebreakers will be applied according to tournament rules.'}
+        </p>
+      </div>
+
       {lastUpdated && (
-        <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'right', marginTop: 8 }}>
+        <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'right', marginTop: 10 }}>
           Updated{' '}
           {lastUpdated.toLocaleTimeString('en-CA', {
             hour: 'numeric',
             minute: '2-digit',
             second: '2-digit',
           })}
-        </p>
-      )}
-
-      {tiebreakerOrder.length > 0 && (
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 12 }}>
-          <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Tiebreakers: </span>
-          {tiebreakerOrder.map(t => TIEBREAKER_LABELS[t] ?? t).join(' > ')}
         </p>
       )}
     </div>
@@ -458,9 +489,8 @@ function FavButton({ teamId }) {
 
 const TIEBREAKER_LABELS = {
   head_to_head: 'Head-to-head',
-  point_diff: 'Point diff',
-  points_scored: 'Points scored',
-  points_against: 'Points against',
-  sotg: 'SOTG',
-  director: 'Director',
+  point_diff: 'Most wins',
+  points_scored: 'Least points against',
+  points_against: 'Points for',
+  sotg: 'Disk flip',
 }

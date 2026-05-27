@@ -57,7 +57,51 @@ function getPlayerNumber(row) {
     'Number',
     'number',
     '#',
+    'Jersey #',
+    'Uniform #',
   ])
+}
+
+function sortRoster(list) {
+  function parseJersey(value) {
+    const s = String(value ?? '').trim()
+
+    if (!s) {
+      return { type: 'empty', num: null, raw: '' }
+    }
+
+    if (/^\d+$/.test(s)) {
+      return {
+        type: 'numeric',
+        num: parseInt(s, 10),
+        raw: s,
+      }
+    }
+
+    return {
+      type: 'text',
+      num: null,
+      raw: s,
+    }
+  }
+
+  return [...(list ?? [])].sort((a, b) => {
+    const aj = parseJersey(a.number)
+    const bj = parseJersey(b.number)
+
+    if (aj.type === 'numeric' && bj.type === 'numeric') {
+      if (aj.num !== bj.num) return aj.num - bj.num
+      return aj.raw.localeCompare(bj.raw, undefined, { numeric: true, sensitivity: 'base' })
+    }
+
+    if (aj.type === 'numeric') return -1
+    if (bj.type === 'numeric') return 1
+
+    if (aj.type === 'text' && bj.type === 'empty') return -1
+    if (aj.type === 'empty' && bj.type === 'text') return 1
+
+    return aj.raw.localeCompare(bj.raw, undefined, { numeric: true, sensitivity: 'base' })
+  })
 }
 
 export function RosterManager() {
@@ -131,12 +175,12 @@ export function RosterManager() {
       .from('tournament_players')
       .select('id, name, number, is_eligible, tournament_team_id')
       .eq('tournament_team_id', teamId)
-      .order('number')
 
     if (error) throw error
 
-    setPlayers(prev => ({ ...prev, [teamId]: data ?? [] }))
-    return data ?? []
+    const sorted = sortRoster(data ?? [])
+    setPlayers(prev => ({ ...prev, [teamId]: sorted }))
+    return sorted
   }
 
   async function handleTeamSelect(teamId) {
@@ -232,7 +276,7 @@ export function RosterManager() {
 
     setPlayers(prev => ({
       ...prev,
-      [teamId]: [...(prev[teamId] ?? []), temp],
+      [teamId]: sortRoster([...(prev[teamId] ?? []), temp]),
     }))
   }
 
@@ -257,7 +301,7 @@ export function RosterManager() {
 
         setPlayers(prev => ({
           ...prev,
-          [teamId]: prev[teamId].map(p => (p.id === player.id ? data : p)),
+          [teamId]: sortRoster(prev[teamId].map(p => (p.id === player.id ? data : p))),
         }))
       } else {
         const { error } = await supabase
@@ -273,15 +317,17 @@ export function RosterManager() {
 
         setPlayers(prev => ({
           ...prev,
-          [teamId]: prev[teamId].map(p =>
-            p.id === player.id
-              ? {
-                  ...p,
-                  name: player.name.trim(),
-                  number: player.number?.trim() || null,
-                  is_eligible: player.is_eligible ?? true,
-                }
-              : p
+          [teamId]: sortRoster(
+            prev[teamId].map(p =>
+              p.id === player.id
+                ? {
+                    ...p,
+                    name: player.name.trim(),
+                    number: player.number?.trim() || null,
+                    is_eligible: player.is_eligible ?? true,
+                  }
+                : p
+            )
           ),
         }))
       }
@@ -299,7 +345,7 @@ export function RosterManager() {
       if (String(playerId).startsWith('new-')) {
         setPlayers(prev => ({
           ...prev,
-          [teamId]: prev[teamId].filter(p => p.id !== playerId),
+          [teamId]: sortRoster(prev[teamId].filter(p => p.id !== playerId)),
         }))
         return
       }
@@ -313,7 +359,7 @@ export function RosterManager() {
 
       setPlayers(prev => ({
         ...prev,
-        [teamId]: prev[teamId].filter(p => p.id !== playerId),
+        [teamId]: sortRoster(prev[teamId].filter(p => p.id !== playerId)),
       }))
 
       showMessage('Player deleted')
@@ -378,7 +424,7 @@ export function RosterManager() {
 
             setPlayers(prev => ({
               ...prev,
-              [teamId]: [...(prev[teamId] ?? []), ...(inserted ?? [])],
+              [teamId]: sortRoster([...(prev[teamId] ?? []), ...(inserted ?? [])]),
             }))
 
             showMessage(`Imported ${inserted?.length ?? 0} new players`)
@@ -615,7 +661,7 @@ export function RosterManager() {
       const rows = []
 
       for (const team of allTeams ?? []) {
-        const teamPlayers = allPlayers.filter(p => p.tournament_team_id === team.id)
+        const teamPlayers = sortRoster(allPlayers.filter(p => p.tournament_team_id === team.id))
 
         if (teamPlayers.length === 0) {
           rows.push([
@@ -756,7 +802,7 @@ export function RosterManager() {
           Team Name, Short Name, Coach, Color, Player Name, Player Number
         </span>
         <span style={{ marginLeft: 8 }}>
-          - also supports School, First Name, Last Name, and blank repeated school cells
+          - also supports School, First Name, Last Name, Jersey #, Uniform #, and blank repeated school cells
         </span>
       </div>
 
@@ -1206,7 +1252,7 @@ function PlayerRow({ player, onChange, onSave, onDelete, saving }) {
         value={player.number ?? ''}
         onChange={e => handleChange('number', e.target.value)}
         placeholder="#"
-        maxLength={4}
+        maxLength={6}
         style={{
           width: '100%',
           fontSize: 12,

@@ -62,7 +62,7 @@ export function PublicLayout() {
             </Link>
 
             <a
-              href="/#contact"
+              href="/home#contact"
               style={{ fontSize:13, color:'var(--text-secondary)', padding:'5px 10px', borderRadius:7, textDecoration:'none' }}
               className="hover:text-[var(--text-primary)] transition-colors"
             >
