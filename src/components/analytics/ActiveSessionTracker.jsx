@@ -18,24 +18,27 @@ export function ActiveSessionTracker({ tournamentId, page, userId = null }) {
     const sessionId = getSessionId()
     let cancelled = false
 
-    async function heartbeat() {
-      if (cancelled) return
+async function heartbeat() {
+  if (cancelled) return
 
-      await supabase
-        .from('active_sessions')
-        .upsert(
-          {
-            session_id: sessionId,
-            tournament_id: tournamentId,
-            page,
-            user_id,
-            user_agent: navigator.userAgent,
-            last_seen_at: new Date().toISOString(),
-          },
-          { onConflict: 'session_id' }
-        )
-    }
-
+  try {
+    await supabase
+      .from('active_sessions')
+      .upsert(
+        {
+          session_id: sessionId,
+          tournament_id: tournamentId,
+          page,
+          user_id: userId,
+          user_agent: navigator.userAgent,
+          last_seen_at: new Date().toISOString(),
+        },
+        { onConflict: 'session_id' }
+      )
+  } catch (err) {
+    console.error('ActiveSessionTracker heartbeat failed', err)
+  }
+}
     heartbeat()
     const interval = setInterval(heartbeat, 60000)
 

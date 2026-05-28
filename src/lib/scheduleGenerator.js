@@ -1,4 +1,4 @@
-// scheduleGenerator.js
+import { FORMAT_TYPES } from '../lib/constants'
 
 /**
  * Suggest how many pools to create for a given team count.
@@ -62,12 +62,52 @@ const FOUR_TEAM_POOL_TEMPLATE = [
   ],
 ]
 
+function generateSingleElimRound1Matchups(teamsInDivision, divisionId, tournamentId) {
+  const crypto = globalThis.crypto
+  if (!teamsInDivision || teamsInDivision.length < 2) return []
+
+  const seededTeams = [...teamsInDivision]
+  const size = Math.pow(2, Math.ceil(Math.log2(seededTeams.length)))
+
+  while (seededTeams.length < size) {
+    seededTeams.push(null)
+  }
+
+  const matchups = []
+
+  for (let i = 0; i < size / 2; i++) {
+    const top = seededTeams[i]
+    const bottom = seededTeams[size - 1 - i]
+
+    if (!top && !bottom) continue
+
+    // Skip pure byes for MVP round-1 scheduling
+    if (!top || !bottom) continue
+
+    matchups.push({
+      id: crypto.randomUUID(),
+      tournament_id: tournamentId ?? null,
+      division_id: divisionId,
+      pool_id: null,
+      team_a_id: top.dbId || top.id,
+      team_b_id: bottom.dbId || bottom.id,
+      round: 1,
+      match_number: null,
+      _structureType: 'single_elim',
+    })
+  }
+
+  return matchups
+}
+
 /**
  * Generate a full tournament schedule.
  * Full implementation - called by WizardStep6Schedule.
  */
 export function generateSchedule(config) {
   const {
+    divisions = [],
+    teams = [],
     pools = [],
     venues = [],
     startTime,
@@ -78,6 +118,7 @@ export function generateSchedule(config) {
     gameDurationMinutes = 90,
     breakBetweenGamesMinutes = 30,
     minRestBetweenTeamGames = 90,
+    generationMode = 'all',
     tournamentId,
   } = config
 
@@ -153,26 +194,81 @@ export function generateSchedule(config) {
     poolHomeVenue[pool.id] = venues[i % venues.length]?.id ?? venues[0]?.id
   })
 
+  console.log('generateSchedule divisions', divisions)
+  console.log('generateSchedule teams', teams)
+  console.log('generateSchedule pools', pools)
+  console.log('generateSchedule generationMode', generationMode)
+
   const allMatchups = []
+
+  // Pool-based matchups
   for (const pool of pools) {
     const matchups = generatePoolMatchups(pool)
     matchups.forEach(m =>
       allMatchups.push({
         ...m,
         tournament_id: tournamentId ?? null,
+        division_id: pool.divisionId ?? null,
         pool_id: pool.id,
         home_venue: poolHomeVenue[pool.id],
+        _structureType: 'pool',
       })
     )
   }
 
-  allMatchups.sort((a, b) => (a.round ?? 1) - (b.round ?? 1))
+  // Bracket-only single elimination divisions
+  for (const division of divisions) {
+    console.log('checking division for single elim scheduling', division)
+
+    if (division.formatType !== FORMAT_TYPES.SINGLE_ELIM) continue
+
+    const divisionTeams = teams.filter(t => t.divisionId === division.id)
+    console.log('single elim division teams', division.id, divisionTeams)
+
+    const matchups = generateSingleElimRound1Matchups(
+      divisionTeams,
+      division.id,
+      tournamentId
+    )
+
+    console.log('single elim round 1 matchups', division.id, matchups)
+
+    matchups.forEach((m, i) =>
+      allMatchups.push({
+        ...m,
+        division_id: division.id,
+        home_venue: venues[i % venues.length]?.id ?? venues[0]?.id ?? null,
+      })
+    )
+  }
+
+  console.log('allMatchups before sort', allMatchups)
+
+  allMatchups.sort((a, b) => {
+    const roundDiff = (a.round ?? 1) - (b.round ?? 1)
+    if (roundDiff !== 0) return roundDiff
+
+    const aKey = a.pool_id ?? a.division_id ?? ''
+    const bKey = b.pool_id ?? b.division_id ?? ''
+    return aKey.localeCompare(bKey)
+  })
+
+  let matchupsToSchedule = allMatchups
+
+  if (generationMode === 'game') {
+    matchupsToSchedule = allMatchups.slice(0, 1)
+  } else if (generationMode === 'round') {
+    const firstRound = allMatchups[0]?.round
+    matchupsToSchedule = allMatchups.filter(m => (m.round ?? 1) === firstRound)
+  }
+
+  console.log('matchupsToSchedule', matchupsToSchedule)
 
   const matches = []
   const teamLastSlot = {}
   const minRestMs = minRestBetweenTeamGames * 60 * 1000
 
-  for (const matchup of allMatchups) {
+  for (const matchup of matchupsToSchedule) {
     let assigned = false
 
     for (const round of timeRounds) {
@@ -198,7 +294,8 @@ export function generateSchedule(config) {
       matches.push({
         id: crypto.randomUUID(),
         tournament_id: matchup.tournament_id ?? null,
-        pool_id: matchup.pool_id,
+        division_id: matchup.division_id ?? null,
+        pool_id: matchup.pool_id ?? null,
         team_a_id: matchup.team_a_id,
         team_b_id: matchup.team_b_id,
         slot_id: slot.id,
@@ -215,7 +312,8 @@ export function generateSchedule(config) {
       matches.push({
         id: crypto.randomUUID(),
         tournament_id: matchup.tournament_id ?? null,
-        pool_id: matchup.pool_id,
+        division_id: matchup.division_id ?? null,
+        pool_id: matchup.pool_id ?? null,
         team_a_id: matchup.team_a_id,
         team_b_id: matchup.team_b_id,
         slot_id: null,
@@ -226,10 +324,18 @@ export function generateSchedule(config) {
     }
   }
 
-  const conflicts = validateSchedule(matches, slots, minRestBetweenTeamGames)
+  const usedSlotIds = new Set(matches.map(m => m.slot_id).filter(Boolean))
+  const usedSlots = slots.filter(s => usedSlotIds.has(s.id))
 
-  return { slots, matches, conflicts }
+  const conflicts = validateSchedule(matches, usedSlots, minRestBetweenTeamGames)
+
+  console.log('generateSchedule final matches', matches)
+  console.log('generateSchedule final slots', usedSlots)
+  console.log('generateSchedule final conflicts', conflicts)
+
+  return { slots: usedSlots, matches, conflicts }
 }
+
 /**
  * Generate round-robin matchups for a pool.
  * Uses the director-preferred template for 4-team pools.
@@ -508,6 +614,7 @@ export function applyTiebreakers(teamStats, headToHead, tiebreakerOrder, discFli
     return 0
   })
 }
+
 /**
  * Generate a single-elimination bracket from pool standings.
  */

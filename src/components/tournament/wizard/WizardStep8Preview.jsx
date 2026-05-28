@@ -1,22 +1,80 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWizardStore } from '../../../store/wizardStore'
-import { db } from '../../../lib/supabase'
+import { db, supabase } from '../../../lib/supabase'
 import { WizardNavButtons } from './WizardNavButtons'
-import { Check, Trophy, Users, MapPin, Calendar, Layers, ExternalLink } from 'lucide-react'
+import { Check, Trophy, Users, MapPin, Calendar, Layers, ExternalLink, Clock } from 'lucide-react'
 import { FORMAT_LABELS, TOURNAMENT_STATUS } from '../../../lib/constants'
 
 export function WizardStep8Preview({ onBack, isLast }) {
   const navigate = useNavigate()
   const {
-    name, slug, startDate, endDate, venueName, primaryColor,
-    divisions, venues, teams, pools, generatedMatches,
-    tournamentId, isPublished,
+    name,
+    slug,
+    startDate,
+    endDate,
+    venueName,
+    primaryColor,
+    divisions,
+    venues,
+    teams,
+    pools,
+    generatedMatches,
+    generatedSlots,
+    tournamentId,
+    isPublished,
     setPublished,
   } = useWizardStore()
 
   const [publishing, setPublishing] = useState(false)
-  const [error, setError]           = useState(null)
+  const [error, setError] = useState(null)
+  const [savedMatches, setSavedMatches] = useState([])
+  const [savedSlots, setSavedSlots] = useState([])
+
+  useEffect(() => {
+    let active = true
+
+    async function loadSavedSchedule() {
+      if (!tournamentId) {
+        if (active) {
+          setSavedMatches([])
+          setSavedSlots([])
+        }
+        return
+      }
+
+      const { data: slotData } = await db.timeSlots.byTournament(tournamentId)
+
+      const { data: matchData } = await supabase
+        .from('matches')
+        .select(`
+          id,
+          round,
+          match_number,
+          division_id,
+          pool_id,
+          venue_id,
+          time_slot_id,
+          team_a_id,
+          team_b_id,
+          status
+        `)
+        .eq('tournament_id', tournamentId)
+        .neq('status', 'cancelled')
+        .order('match_number')
+
+      if (!active) return
+
+      setSavedSlots(slotData ?? [])
+      setSavedMatches(matchData ?? [])
+    }
+
+    loadSavedSchedule()
+
+    return () => {
+      active = false
+    }
+  }, [tournamentId])
 
   async function handlePublish() {
     if (!tournamentId) return
@@ -40,7 +98,43 @@ export function WizardStep8Preview({ onBack, isLast }) {
     window.open(`/t/${slug}`, '_blank')
   }
 
-  // ── Published success screen ───────────────────────────────────────────────
+  const scheduleMatches = savedMatches.length > 0 ? savedMatches : generatedMatches
+  const scheduleSlots = savedSlots.length > 0 ? savedSlots : generatedSlots
+
+  const teamMap = Object.fromEntries(
+    teams.map(t => [t.dbId || t.id, t])
+  )
+
+  const poolMap = Object.fromEntries(
+    pools.map(p => [p.dbId || p.id, p])
+  )
+
+  const divisionMap = Object.fromEntries(
+    divisions.map(d => [d.dbId || d.id, d])
+  )
+
+  const venueMap = Object.fromEntries(
+    venues.map(v => [v.dbId || v.id, v])
+  )
+
+  const slotMap = Object.fromEntries(
+    scheduleSlots.map(s => [s.id, s])
+  )
+
+  const byTime = {}
+  for (const m of scheduleMatches) {
+    const slot = slotMap[m.slot_id || m.time_slot_id]
+    const key = slot ? slot.scheduled_start : 'unscheduled'
+    if (!byTime[key]) byTime[key] = []
+    byTime[key].push(m)
+  }
+
+  const timeGroups = Object.entries(byTime).sort(([a], [b]) => {
+    if (a === 'unscheduled') return 1
+    if (b === 'unscheduled') return -1
+    return a.localeCompare(b)
+  })
+
   if (isPublished) {
     return (
       <div className="text-center space-y-6 py-4">
@@ -67,7 +161,6 @@ export function WizardStep8Preview({ onBack, isLast }) {
     )
   }
 
-  // ── Preview ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
       <div>
@@ -79,7 +172,6 @@ export function WizardStep8Preview({ onBack, isLast }) {
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>
       )}
 
-      {/* Tournament header preview */}
       <div className="rounded-xl border border-[var(--border)] overflow-hidden">
         <div className="h-12 flex items-center px-5 gap-3" style={{ backgroundColor: primaryColor }}>
           <Trophy size={18} className="text-[var(--bg-base)]" />
@@ -94,22 +186,24 @@ export function WizardStep8Preview({ onBack, isLast }) {
               : `${formatDate(startDate)} – ${formatDate(endDate)}`
             }
           />
-          <SummaryItem icon={<MapPin size={14} />}    label="Venue"     value={venueName || '—'} />
-          <SummaryItem icon={<Layers size={14} />}    label="Divisions" value={divisions.length} />
-          <SummaryItem icon={<Users size={14} />}     label="Teams"     value={teams.length} />
+          <SummaryItem icon={<MapPin size={14} />} label="Venue" value={venueName || '—'} />
+          <SummaryItem icon={<Layers size={14} />} label="Divisions" value={divisions.length} />
+          <SummaryItem icon={<Users size={14} />} label="Teams" value={teams.length} />
         </div>
       </div>
 
-      {/* Divisions breakdown */}
       <div>
         <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-2">Divisions</h3>
         <div className="space-y-2">
           {divisions.map(div => {
-            const divTeams  = teams.filter(t => t.divisionId === div.id)
-            const divPools  = pools.filter(p => p.divisionId === div.id)
-            const divGames  = generatedMatches.filter(m =>
-              pools.some(p => p.id === m.pool_id && p.divisionId === div.id)
+            const divTeams = teams.filter(t => t.divisionId === div.id)
+            const divPools = pools.filter(p => p.divisionId === div.id)
+            const divGames = scheduleMatches.filter(
+              m =>
+                m.division_id === div.id ||
+                pools.some(p => p.id === m.pool_id && p.divisionId === div.id)
             )
+
             return (
               <div key={div.id} className="flex items-center justify-between px-4 py-3 rounded-xl border border-[var(--border)]">
                 <div>
@@ -140,7 +234,6 @@ export function WizardStep8Preview({ onBack, isLast }) {
         </div>
       </div>
 
-      {/* Venues */}
       <div>
         <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-2">Fields / Courts</h3>
         <div className="flex flex-wrap gap-2">
@@ -150,18 +243,107 @@ export function WizardStep8Preview({ onBack, isLast }) {
         </div>
       </div>
 
-      {/* Public URL */}
+      <div>
+        <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-2">Scheduled Games</h3>
+
+        {scheduleMatches.length === 0 ? (
+          <div className="p-4 rounded-xl border border-[var(--border)] text-sm text-[var(--text-muted)]">
+            No games scheduled yet.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {timeGroups.map(([timeKey, groupMatches]) => (
+              <div key={timeKey}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide flex items-center gap-1">
+                    <Clock size={11} />
+                    {timeKey === 'unscheduled' ? 'Unscheduled' : formatTime(timeKey)}
+                  </span>
+                  <div className="flex-1 h-px bg-[var(--border)]" />
+                  <span className="text-xs text-[var(--text-muted)]">
+                    {groupMatches.length} game{groupMatches.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+
+                <div className="space-y-1.5">
+                  {groupMatches.map(m => {
+                    const teamA = teamMap[m.team_a_id]
+                    const teamB = teamMap[m.team_b_id]
+                    const pool = poolMap[m.pool_id]
+                    const division =
+                      divisionMap[m.division_id] ||
+                      (pool ? divisionMap[pool.divisionId] : null)
+                    const venue = venueMap[m.venue_id]
+                    const slot = slotMap[m.slot_id || m.time_slot_id]
+
+                    return (
+                      <div
+                        key={m.id}
+                        className="flex items-center gap-2 px-3 py-2 bg-[var(--bg-raised)] border border-[var(--border)] rounded-xl"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <div
+                              className="w-2 h-2 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: teamA?.primaryColor ?? '#e5e7eb' }}
+                            />
+                            <span className="text-sm font-medium text-[var(--text-primary)] truncate">
+                              {teamA?.shortName ?? teamA?.name ?? 'TBD'}
+                            </span>
+                            <span className="text-[var(--text-muted)] text-xs">vs</span>
+                            <div
+                              className="w-2 h-2 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: teamB?.primaryColor ?? '#e5e7eb' }}
+                            />
+                            <span className="text-sm font-medium text-[var(--text-primary)] truncate">
+                              {teamB?.shortName ?? teamB?.name ?? 'TBD'}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                            {division && (
+                              <p className="text-xs text-[var(--text-muted)]">{division.name}</p>
+                            )}
+                            {pool && (
+                              <p className="text-xs text-[var(--text-muted)]">{pool.name}</p>
+                            )}
+                            {m.round && (
+                              <p className="text-xs text-[var(--text-muted)]">Round {m.round}</p>
+                            )}
+                            {slot?.scheduled_start && (
+                              <p className="text-xs text-[var(--text-muted)]">
+                                {formatDateTime(slot.scheduled_start)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {venue && (
+                          <span className="text-xs text-[var(--text-muted)] flex items-center gap-1 flex-shrink-0">
+                            <MapPin size={10} />
+                            {venue.shortName ?? venue.name}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="p-3 rounded-xl border border-[var(--border)] text-sm text-[var(--text-secondary)] font-mono break-all">
         /t/<strong>{slug}</strong>
       </div>
 
-      {/* Checklist */}
       <div className="space-y-1.5">
-        <ChecklistItem ok={!!name}               label="Tournament name set" />
-        <ChecklistItem ok={divisions.length > 0}  label={`${divisions.length} division${divisions.length !== 1 ? 's' : ''} configured`} />
-        <ChecklistItem ok={venues.length > 0}     label={`${venues.length} field${venues.length !== 1 ? 's' : ''} added`} />
-        <ChecklistItem ok={teams.length > 0}      label={`${teams.length} team${teams.length !== 1 ? 's' : ''} registered`} />
-        <ChecklistItem ok={generatedMatches.length > 0} label={`${generatedMatches.length} games scheduled`} warn={generatedMatches.length === 0} />
+        <ChecklistItem ok={!!name} label="Tournament name set" />
+        <ChecklistItem ok={divisions.length > 0} label={`${divisions.length} division${divisions.length !== 1 ? 's' : ''} configured`} />
+        <ChecklistItem ok={venues.length > 0} label={`${venues.length} field${venues.length !== 1 ? 's' : ''} added`} />
+        <ChecklistItem ok={teams.length > 0} label={`${teams.length} team${teams.length !== 1 ? 's' : ''} registered`} />
+        <ChecklistItem ok={scheduleMatches.length > 0} label={`${scheduleMatches.length} games scheduled`} warn={scheduleMatches.length === 0} />
       </div>
 
       <WizardNavButtons
@@ -201,6 +383,26 @@ function ChecklistItem({ ok, label, warn = false }) {
 function formatDate(dateStr) {
   if (!dateStr) return '—'
   return new Date(dateStr + 'T12:00').toLocaleDateString('en-CA', {
-    month: 'short', day: 'numeric', year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+function formatTime(iso) {
+  return new Date(iso).toLocaleTimeString('en-CA', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+}
+
+function formatDateTime(iso) {
+  return new Date(iso).toLocaleString('en-CA', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
   })
 }

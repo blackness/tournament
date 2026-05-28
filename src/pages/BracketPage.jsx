@@ -134,6 +134,7 @@ export function BracketPage() {
     champion,
     second,
     third,
+    fourth,
     championshipLayout = null,
     consolationLayout = null,
   } = bracket ?? {}
@@ -269,7 +270,7 @@ export function BracketPage() {
         </div>
       </div>
 
-      {(champion || second || third) && (
+      {(champion || second || third || fourth) && (
         <div
           style={{
             padding: '12px 20px 14px',
@@ -291,6 +292,7 @@ export function BracketPage() {
               champion={champion}
               second={second}
               third={third}
+              fourth={fourth}
             />
           </div>
         </div>
@@ -395,13 +397,13 @@ export function BracketPage() {
   )
 }
 
-function CompactHeroPodium({ champion, second, third, tournamentSlug }) {
+function CompactHeroPodium({ champion, second, third, fourth, tournamentSlug }) {
   return (
     <div
       style={{
         display: 'flex',
-        alignItems: 'stretch',
-        gap: 8,
+        alignItems: 'flex-end',
+        gap: 12,
         flexWrap: 'wrap',
         justifyContent: 'center',
       }}
@@ -423,7 +425,6 @@ function CompactHeroPodium({ champion, second, third, tournamentSlug }) {
           team={champion}
           tournamentSlug={tournamentSlug}
           icon={<Trophy size={14} />}
-          featured
         />
       )}
 
@@ -436,47 +437,101 @@ function CompactHeroPodium({ champion, second, third, tournamentSlug }) {
           icon={<Medal size={13} />}
         />
       )}
+
+      {fourth && (
+        <CompactPodiumCard
+          medal="antiqueBronze"
+          title="Antique Bronze"
+          team={fourth}
+          tournamentSlug={tournamentSlug}
+          icon={<Medal size={13} />}
+        />
+      )}
     </div>
   )
 }
-
-function CompactPodiumCard({ medal, title, team, tournamentSlug, icon, featured = false }) {
+function CompactPodiumCard({ medal, title, team, tournamentSlug, icon }) {
   const styles = {
     gold: {
       color: '#fbbf24',
       border: 'rgba(251,191,36,0.42)',
-      bg: 'linear-gradient(180deg, rgba(251,191,36,0.18) 0%, rgba(251,191,36,0.06) 100%)',
-      glow: '0 10px 22px rgba(251,191,36,0.14)',
+      bg: 'linear-gradient(180deg, rgba(251,191,36,0.20) 0%, rgba(251,191,36,0.07) 100%)',
+      glow: '0 12px 26px rgba(251,191,36,0.16)',
     },
     silver: {
       color: '#cbd5e1',
       border: 'rgba(203,213,225,0.30)',
-      bg: 'linear-gradient(180deg, rgba(203,213,225,0.14) 0%, rgba(203,213,225,0.05) 100%)',
-      glow: '0 8px 18px rgba(148,163,184,0.10)',
+      bg: 'linear-gradient(180deg, rgba(203,213,225,0.15) 0%, rgba(203,213,225,0.05) 100%)',
+      glow: '0 10px 20px rgba(148,163,184,0.10)',
     },
     bronze: {
       color: '#d97706',
       border: 'rgba(217,119,6,0.30)',
-      bg: 'linear-gradient(180deg, rgba(217,119,6,0.14) 0%, rgba(217,119,6,0.05) 100%)',
+      bg: 'linear-gradient(180deg, rgba(217,119,6,0.15) 0%, rgba(217,119,6,0.05) 100%)',
       glow: '0 8px 18px rgba(180,83,9,0.10)',
+    },
+    antiqueBronze: {
+      color: '#92400e',
+      border: 'rgba(146,64,14,0.30)',
+      bg: 'linear-gradient(180deg, rgba(146,64,14,0.14) 0%, rgba(146,64,14,0.05) 100%)',
+      glow: '0 8px 16px rgba(120,53,15,0.10)',
     },
   }
 
-  const s = styles[medal]
+  const sizeMap = {
+    gold: {
+      width: 196,
+      minHeight: 100,
+      padding: '14px 16px',
+      labelSize: 11,
+      nameSize: 17,
+      nameWeight: 800,
+    },
+    silver: {
+      width: 170,
+      minHeight: 90,
+      padding: '12px 14px',
+      labelSize: 10,
+      nameSize: 17,
+      nameWeight: 750,
+    },
+    bronze: {
+      width: 152,
+      minHeight: 80,
+      padding: '10px 12px',
+      labelSize: 10,
+      nameSize: 13,
+      nameWeight: 700,
+    },
+    antiqueBronze: {
+      width: 140,
+      minHeight: 70,
+      padding: '9px 11px',
+      labelSize: 9,
+      nameSize: 17,
+      nameWeight: 700,
+    },
+  }
+
+  const s = styles[medal] ?? styles.bronze
+  const size = sizeMap[medal] ?? sizeMap.bronze
 
   return (
     <div
       style={{
-        minWidth: featured ? 160 : 130,
-        maxWidth: featured ? 180 : 150,
+        width: size.width,
+        minWidth: size.width,
+        maxWidth: size.width,
+        minHeight: size.minHeight,
         borderRadius: 14,
         border: `1px solid ${s.border}`,
         background: s.bg,
         boxShadow: s.glow,
-        padding: featured ? '10px 12px' : '9px 11px',
+        padding: size.padding,
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
+        flexShrink: 0,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -485,7 +540,7 @@ function CompactPodiumCard({ medal, title, team, tournamentSlug, icon, featured 
         </div>
         <div
           style={{
-            fontSize: 10,
+            fontSize: size.labelSize,
             fontWeight: 800,
             letterSpacing: '0.08em',
             textTransform: 'uppercase',
@@ -497,14 +552,14 @@ function CompactPodiumCard({ medal, title, team, tournamentSlug, icon, featured 
         </div>
       </div>
 
-      <div style={{ marginTop: 8 }}>
+      <div style={{ marginTop: 10 }}>
         <Link
           to={`/t/${tournamentSlug}/team/${team.id}`}
           style={{
             textDecoration: 'none',
             color: 'var(--text-primary)',
-            fontSize: featured ? 15 : 13,
-            fontWeight: featured ? 800 : 700,
+            fontSize: size.nameSize,
+            fontWeight: size.nameWeight,
             letterSpacing: '-0.02em',
             lineHeight: 1.05,
             wordBreak: 'break-word',
@@ -516,7 +571,6 @@ function CompactPodiumCard({ medal, title, team, tournamentSlug, icon, featured 
     </div>
   )
 }
-
 async function loadBestBracketForDivision(divisionId) {
   const { data: bracketMatches, error } = await supabase
     .from('matches')
@@ -560,13 +614,20 @@ async function loadBestBracketForDivision(divisionId) {
     .from('matches')
     .select(`
       id,
+      phase,
+      round,
+      match_number,
       round_label,
+      notes,
+      bracket_position,
+      winner_next_match_id,
+      loser_next_match_id,
+      winner_next_slot,
+      loser_next_slot,
       score_a,
       score_b,
       status,
       winner_id,
-      phase,
-      match_number,
       team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
       team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
       venue:venues(name, short_name),
@@ -576,6 +637,7 @@ async function loadBestBracketForDivision(divisionId) {
     .eq('phase', 2)
     .is('bracket_type', null)
     .neq('status', 'cancelled')
+    .order('match_number')
 
   if (legacyError) {
     console.error(legacyError)
@@ -596,8 +658,8 @@ function BracketNode({ node, primaryColor, themeColors }) {
   const winnerId = match?.winner_id
   const highlight = getMatchHighlight(match?.match_code)
 
-  const isFinal = match?.match_code === 'P24'
-  const isBronze = match?.match_code === 'P23'
+  const isFinal = match?.match_code === 'P24' || label === 'Gold Medal Game'
+  const isBronze = match?.match_code === 'P23' || label === 'Bronze Medal Game'
 
   const cardStroke = isLive
     ? '#22c55e'
@@ -1232,6 +1294,7 @@ function layoutDualBracket(matches) {
   let champion = null
   let second = null
   let third = null
+  let fourth = null
 
   if (gold?.status === 'complete' && gold.winner_id) {
     champion = gold.team_a?.id === gold.winner_id ? gold.team_a : gold.team_b
@@ -1240,6 +1303,7 @@ function layoutDualBracket(matches) {
 
   if (bronze?.status === 'complete' && bronze.winner_id) {
     third = bronze.team_a?.id === bronze.winner_id ? bronze.team_a : bronze.team_b
+    fourth = bronze.team_a?.id === bronze.winner_id ? bronze.team_b : bronze.team_a
   }
 
   return {
@@ -1251,6 +1315,7 @@ function layoutDualBracket(matches) {
     champion,
     second,
     third,
+    fourth,
     championshipNodes: champLayout.nodes,
     consolationNodes: consLayout.nodes,
     championshipLayout: champLayout,
@@ -1338,30 +1403,39 @@ function layoutSingleBracket({ matches, offsetX = 0, offsetY = 0, mirrored = fal
 }
 
 function layoutLegacyBracket(matches) {
-  const semiMatches = matches.filter(m =>
-    (m.round_label ?? '').toLowerCase().includes('semi')
+  const byPosition = Object.fromEntries(
+    matches
+      .filter(m => m.bracket_position)
+      .map(m => [m.bracket_position, m])
   )
 
-  const goldMatch = matches.find(m =>
-    (m.round_label ?? '').toLowerCase().includes('gold')
-  )
+  const semi1 =
+    byPosition.SEMI_1 ||
+    matches.find(m => (m.notes ?? '').toLowerCase().includes('a1-vs-b2')) ||
+    matches.find(m => (m.round_label ?? '').toLowerCase().includes('semi'))
 
-  const bronzeMatch = matches.find(m =>
-    (m.round_label ?? '').toLowerCase().includes('bronze')
-  )
+  const semi2 =
+    byPosition.SEMI_2 ||
+    matches.find(m => (m.notes ?? '').toLowerCase().includes('b1-vs-a2')) ||
+    matches.filter(m => (m.round_label ?? '').toLowerCase().includes('semi'))[1]
 
-  const fifthMatch = matches.find(m =>
-    (m.round_label ?? '').toLowerCase().includes('5th')
-  )
+  const goldMatch =
+    byPosition.GOLD ||
+    matches.find(m => (m.round_label ?? '').toLowerCase().includes('gold'))
+
+  const bronzeMatch =
+    byPosition.BRONZE ||
+    matches.find(m => (m.round_label ?? '').toLowerCase().includes('bronze'))
+
+  const fifthMatch =
+    byPosition.FIFTH ||
+    matches.find(m => (m.round_label ?? '').toLowerCase().includes('5th'))
 
   const leftX = PADDING
   const midX = PADDING + (NODE_W + H_GAP)
 
   const topY = PADDING + TITLE_Y_PAD + 20
   const gapY = NODE_H + 42
-
-  const semi1 = semiMatches[0]
-  const semi2 = semiMatches[1]
 
   const nodes = []
   const edges = []
@@ -1372,10 +1446,12 @@ function layoutLegacyBracket(matches) {
       x: leftX,
       y: topY,
       match: semi1,
+      round: 1,
+      position: 1,
       team_a: semi1.team_a,
       team_b: semi1.team_b,
-      team_a_source: null,
-      team_b_source: null,
+      team_a_source: '1st A',
+      team_b_source: '2nd B',
       label: 'Semi Final',
     })
   }
@@ -1386,10 +1462,12 @@ function layoutLegacyBracket(matches) {
       x: leftX,
       y: topY + gapY * 2,
       match: semi2,
+      round: 1,
+      position: 2,
       team_a: semi2.team_a,
       team_b: semi2.team_b,
-      team_a_source: null,
-      team_b_source: null,
+      team_a_source: '1st B',
+      team_b_source: '2nd A',
       label: 'Semi Final',
     })
   }
@@ -1400,10 +1478,12 @@ function layoutLegacyBracket(matches) {
       x: midX,
       y: topY + gapY,
       match: goldMatch,
+      round: 2,
+      position: 1,
       team_a: goldMatch.team_a,
       team_b: goldMatch.team_b,
-      team_a_source: semi1 ? 'Winner SF1' : null,
-      team_b_source: semi2 ? 'Winner SF2' : null,
+      team_a_source: 'Winner SF1',
+      team_b_source: 'Winner SF2',
       label: 'Gold Medal Game',
     })
   }
@@ -1414,11 +1494,29 @@ function layoutLegacyBracket(matches) {
       x: midX,
       y: topY + gapY * 2.2,
       match: bronzeMatch,
+      round: 2,
+      position: 2,
       team_a: bronzeMatch.team_a,
       team_b: bronzeMatch.team_b,
-      team_a_source: semi1 ? 'Loser SF1' : null,
-      team_b_source: semi2 ? 'Loser SF2' : null,
+      team_a_source: 'Loser SF1',
+      team_b_source: 'Loser SF2',
       label: 'Bronze Medal Game',
+    })
+  }
+
+  if (fifthMatch) {
+    nodes.push({
+      id: fifthMatch.id,
+      x: midX,
+      y: topY + gapY * 3.5,
+      match: fifthMatch,
+      round: 3,
+      position: 1,
+      team_a: fifthMatch.team_a,
+      team_b: fifthMatch.team_b,
+      team_a_source: '3rd A',
+      team_b_source: '3rd B',
+      label: '5th Place Game',
     })
   }
 
@@ -1440,23 +1538,28 @@ function layoutLegacyBracket(matches) {
     edges.push({ d: `M${sX} ${sY} H${mid} V${tY} H${tX}` })
   }
 
-  if (fifthMatch) {
-    nodes.push({
-      id: fifthMatch.id,
-      x: midX,
-      y: topY + gapY * 3.5,
-      match: fifthMatch,
-      team_a: fifthMatch.team_a,
-      team_b: fifthMatch.team_b,
-      team_a_source: null,
-      team_b_source: null,
-      label: '5th Place Game',
-    })
+  if (semi1 && bronzeMatch) {
+    const sX = leftX + NODE_W
+    const sY = topY + TEAM_AREA_TOP + TEAM_ROW_H
+    const tX = midX
+    const tY = topY + gapY * 2.2 + TEAM_AREA_TOP + TEAM_ROW_H
+    const mid = sX + H_GAP / 2
+    edges.push({ d: `M${sX} ${sY} H${mid} V${tY} H${tX}` })
+  }
+
+  if (semi2 && bronzeMatch) {
+    const sX = leftX + NODE_W
+    const sY = topY + gapY * 2 + TEAM_AREA_TOP + TEAM_ROW_H
+    const tX = midX
+    const tY = topY + gapY * 2.2 + TEAM_AREA_TOP + TEAM_ROW_H
+    const mid = sX + H_GAP / 2
+    edges.push({ d: `M${sX} ${sY} H${mid} V${tY} H${tX}` })
   }
 
   let champion = null
   let second = null
   let third = null
+  let fourth = null
 
   if (goldMatch?.status === 'complete' && goldMatch.winner_id) {
     champion = goldMatch.team_a?.id === goldMatch.winner_id ? goldMatch.team_a : goldMatch.team_b
@@ -1465,6 +1568,7 @@ function layoutLegacyBracket(matches) {
 
   if (bronzeMatch?.status === 'complete' && bronzeMatch.winner_id) {
     third = bronzeMatch.team_a?.id === bronzeMatch.winner_id ? bronzeMatch.team_a : bronzeMatch.team_b
+    fourth = bronzeMatch.team_a?.id === bronzeMatch.winner_id ? bronzeMatch.team_b : bronzeMatch.team_a
   }
 
   return {
@@ -1484,6 +1588,39 @@ function layoutLegacyBracket(matches) {
     champion,
     second,
     third,
+    fourth,
+    championshipLayout: {
+      nodes,
+      edges,
+      titles: [
+        {
+          id: 'legacy-title',
+          x: PADDING,
+          y: PADDING,
+          label: 'Legacy Bracket',
+          anchor: 'start',
+        },
+      ],
+      svgW: midX + NODE_W + PADDING,
+      svgH: topY + gapY * 5 + NODE_H + PADDING,
+    },
+    consolationLayout: {
+      nodes: fifthMatch
+        ? nodes.filter(n => n.label === '5th Place Game')
+        : [],
+      edges: [],
+      titles: [
+        {
+          id: 'legacy-consolation-title',
+          x: PADDING,
+          y: PADDING,
+          label: 'Placement Game',
+          anchor: 'start',
+        },
+      ],
+      svgW: midX + NODE_W + PADDING,
+      svgH: topY + gapY * 2 + NODE_H + PADDING,
+    },
   }
 }
 

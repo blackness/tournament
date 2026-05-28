@@ -9,6 +9,8 @@ import {
   Trash2, AlertTriangle, X, ChevronRight, Play, Link2, Copy, Check,
   CheckCircle, Archive, Eye, Lock
 } from 'lucide-react'
+import { ResumeMatchButton } from '../../pages/director/ResumeMatchButton'
+import { MoveGameButton } from '../../pages/director/MoveGameButton'
 
 const STATUS_FLOW = {
   draft:     { next: 'published', label: 'Publish',     icon: Eye,         color: 'btn-primary' },
@@ -58,7 +60,7 @@ export function DirectorHQ() {
 
       const { data: m } = await supabase
         .from('matches')
-        .select('id, status, score_a, score_b, scorekeeper_pin, tournament_id, team_a:tournament_teams!team_a_id(name, id), team_b:tournament_teams!team_b_id(name, id), time_slot:time_slots(scheduled_start), venue:venues(name)')
+       .select('id, status, score_a, score_b, scorekeeper_pin, tournament_id, venue_id, time_slot_id, match_code, round_label, team_a:tournament_teams!team_a_id(name, id), team_b:tournament_teams!team_b_id(name, id), time_slot:time_slots(scheduled_start), venue:venues(name)')
         .eq('tournament_id', tournamentId)
         .neq('status', 'cancelled')
         .order('time_slot(scheduled_start)')
@@ -225,7 +227,7 @@ export function DirectorHQ() {
       // Refresh matches
       const { data: refreshed } = await supabase
         .from('matches')
-        .select('id, status, score_a, score_b, scorekeeper_pin, tournament_id, team_a:tournament_teams!team_a_id(name, id), team_b:tournament_teams!team_b_id(name, id), time_slot:time_slots(scheduled_start), venue:venues(name)')
+       .select('id, status, score_a, score_b, scorekeeper_pin, tournament_id, venue_id, time_slot_id, match_code, round_label, team_a:tournament_teams!team_a_id(name, id), team_b:tournament_teams!team_b_id(name, id), time_slot:time_slots(scheduled_start), venue:venues(name)')
         .eq('tournament_id', tournamentId)
         .neq('status', 'cancelled')
         .order('time_slot(scheduled_start)')
@@ -417,9 +419,12 @@ export function DirectorHQ() {
 
       {/* Games */}
       {matches.length > 0 && (
-        <MatchList matches={matches} tournamentId={tournamentId} />
+        <MatchList
+          matches={matches}
+          tournamentId={tournamentId}
+          timezone={tournament.timezone || 'America/Toronto'}
+        />
       )}
-
       {/* Delete modal */}
       {showDelete && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
@@ -491,48 +496,335 @@ function QuickLink({ to, label, sub, external }) {
 }
 
 function StreamManager({ tournamentId }) {
-  const [venues, setVenues]   = useState([])
-  const [saving, setSaving]   = useState(null)
+  const [venues, setVenues] = useState([])
+  const [savingId, setSavingId] = useState(null)
   const [message, setMessage] = useState(null)
 
   useEffect(() => {
-    supabase.from('venues').select('id, name, short_name, youtube_url')
-      .eq('tournament_id', tournamentId).order('sort_order')
-      .then(({ data }) => setVenues(data ?? []))
+    async function loadVenues() {
+      const { data } = await supabase
+        .from('venues')
+        .select('id, name, short_name, stream_url, youtube_url')
+        .eq('tournament_id', tournamentId)
+        .order('sort_order')
+
+      setVenues(
+        (data ?? []).map(v => {
+          const currentUrl = v.stream_url ?? v.youtube_url ?? ''
+          return {
+            ...v,
+            draft_url: currentUrl,
+            error: '',
+            warning: '',
+          }
+        })
+      )
+    }
+
+    loadVenues()
   }, [tournamentId])
 
-  async function saveUrl(venueId, url) {
-    setSaving(venueId)
-    await supabase.from('venues').update({ youtube_url: url || null }).eq('id', venueId)
-    setMessage('Stream URL saved')
-    setTimeout(() => setMessage(null), 2500)
-    setSaving(null)
+  function normalizeUrl(url) {
+    const raw = (url || '').trim()
+    if (!raw) return ''
+
+    try {
+      const withProtocol =
+        raw.startsWith('http://') || raw.startsWith('https://')
+          ? raw
+          : `https://${raw}`
+
+      return new URL(withProtocol).toString()
+    } catch {
+      return raw
+    }
+  }
+
+  function getUrlValidation(url) {
+    if (!url?.trim()) {
+      return { valid: true, error: '', warning: '' }
+    }
+
+    try {
+      const parsed = new URL(
+        url.startsWith('http://') || url.startsWith('https://')
+          ? url
+          : `https://${url}`
+      )
+
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        return {
+          valid: false,
+          error: 'Enter a valid http/https URL',
+          warning: '',
+        }
+      }
+
+      const isYouTube =
+        parsed.hostname.includes('youtube.com') ||
+        parsed.hostname.includes('youtu.be')
+
+      return {
+        valid: true,
+        error: '',
+        warning: isYouTube ? '' : 'Non-YouTube stream link',
+      }
+    } catch {
+      return {
+        valid: false,
+        error: 'Enter a valid URL',
+        warning: '',
+      }
+    }
+  }
+
+  function updateVenueDraft(id, value) {
+    const validation = getUrlValidation(value)
+
+    setVenues(prev =>
+      prev.map(v =>
+        v.id === id
+          ? {
+              ...v,
+              draft_url: value,
+              error: validation.error,
+              warning: validation.warning,
+            }
+          : v
+      )
+    )
+  }
+
+  async function saveUrl(venue) {
+    const normalized = normalizeUrl(venue.draft_url)
+    const validation = getUrlValidation(normalized)
+
+    if (!validation.valid) {
+      setVenues(prev =>
+        prev.map(v =>
+          v.id === venue.id
+            ? {
+                ...v,
+                error: validation.error,
+                warning: validation.warning,
+              }
+            : v
+        )
+      )
+      return
+    }
+
+    try {
+      setSavingId(venue.id)
+
+      const { error } = await supabase
+        .from('venues')
+        .update({
+          stream_url: normalized || null,
+        })
+        .eq('id', venue.id)
+
+      if (error) throw error
+
+      setVenues(prev =>
+        prev.map(v =>
+          v.id === venue.id
+            ? {
+                ...v,
+                stream_url: normalized || null,
+                draft_url: normalized,
+                error: '',
+                warning: validation.warning,
+              }
+            : v
+        )
+      )
+
+      setMessage(`Saved stream URL for ${venue.short_name ?? venue.name}`)
+      setTimeout(() => setMessage(null), 2500)
+    } catch (err) {
+      setVenues(prev =>
+        prev.map(v =>
+          v.id === venue.id
+            ? {
+                ...v,
+                error: err.message || 'Could not save stream URL',
+              }
+            : v
+        )
+      )
+    } finally {
+      setSavingId(null)
+    }
+  }
+
+  function clearUrl(venueId) {
+    setVenues(prev =>
+      prev.map(v =>
+        v.id === venueId
+          ? { ...v, draft_url: '', error: '', warning: '' }
+          : v
+      )
+    )
   }
 
   if (venues.length === 0) return null
 
   return (
     <div style={{ border:'1px solid var(--border)', borderRadius:14, padding:'16px 18px' }}>
-      <p style={{ fontSize:13, fontWeight:600, color:'var(--text-secondary)', marginBottom:4 }}>Live stream URLs</p>
-      <p style={{ fontSize:12, color:'var(--text-muted)', marginBottom:14 }}>Paste a YouTube live URL per field. Spectators can watch at /watch/:matchId</p>
-      {venues.map(v => (
-        <div key={v.id} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-          <span style={{ fontSize:12, fontWeight:500, color:'var(--text-secondary)', width:70, flexShrink:0 }}>{v.short_name ?? v.name}</span>
-          <input
-            className="field-input"
-            style={{ flex:1, fontSize:12 }}
-            placeholder="https://youtube.com/watch?v=..."
-            defaultValue={v.youtube_url ?? ''}
-            onBlur={e => saveUrl(v.id, e.target.value)}
-          />
-          {saving === v.id && <span style={{ fontSize:11, color:'var(--text-muted)' }}>Saving...</span>}
-        </div>
-      ))}
-      {message && <p style={{ fontSize:12, color:'#4ade80', marginTop:6 }}>{message}</p>}
+      <p style={{ fontSize:13, fontWeight:600, color:'var(--text-secondary)', marginBottom:4 }}>
+        Live stream URLs
+      </p>
+      <p style={{ fontSize:12, color:'var(--text-muted)', marginBottom:14 }}>
+        Assign a stream URL per field. YouTube is preferred, but other streaming links are allowed.
+      </p>
+
+      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+        {venues.map(v => {
+          const savedUrl = v.stream_url ?? v.youtube_url ?? ''
+          const hasSavedUrl = !!savedUrl
+          const hasDraftUrl = !!v.draft_url?.trim()
+          const isDirty = (v.draft_url ?? '') !== savedUrl
+
+          return (
+            <div
+              key={v.id}
+              style={{
+                border: '1px solid var(--border)',
+                borderRadius: 12,
+                padding: 12,
+                background: 'var(--bg-base)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ minWidth: 120 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)' }}>
+                    {v.short_name ?? v.name}
+                  </div>
+                  <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>
+                    {v.name}
+                  </div>
+                </div>
+
+                <div style={{ flex:1, minWidth: 220 }}>
+                  <input
+                    className="field-input"
+                    style={{ width:'100%', fontSize:12 }}
+                    placeholder="https://..."
+                    value={v.draft_url}
+                    onChange={e => updateVenueDraft(v.id, e.target.value)}
+                  />
+
+                  {v.error ? (
+                    <div style={{ fontSize:11, color:'#f87171', marginTop:6 }}>
+                      {v.error}
+                    </div>
+                  ) : v.warning ? (
+                    <div style={{ fontSize:11, color:'#facc15', marginTop:6 }}>
+                      {v.warning}
+                    </div>
+                  ) : hasSavedUrl ? (
+                    <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:6 }}>
+                      Stream assigned
+                    </div>
+                  ) : (
+                    <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:6 }}>
+                      No stream assigned
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    display:'flex',
+                    alignItems:'center',
+                    gap:8,
+                    flexWrap:'wrap',
+                    justifyContent:'flex-end',
+                  }}
+                >
+                  {hasDraftUrl && (
+                    <button
+                      type="button"
+                      onClick={() => window.open(normalizeUrl(v.draft_url), '_blank', 'noopener,noreferrer')}
+                      style={{
+                        padding:'8px 10px',
+                        borderRadius:8,
+                        border:'1px solid var(--border)',
+                        background:'var(--bg-raised)',
+                        color:'var(--text-secondary)',
+                        fontSize:12,
+                        fontWeight:600,
+                        cursor:'pointer',
+                        fontFamily:'inherit',
+                      }}
+                    >
+                      Open
+                    </button>
+                  )}
+
+                  {hasDraftUrl && (
+                    <button
+                      type="button"
+                      onClick={() => clearUrl(v.id)}
+                      style={{
+                        padding:'8px 10px',
+                        borderRadius:8,
+                        border:'1px solid var(--border)',
+                        background:'var(--bg-raised)',
+                        color:'var(--text-muted)',
+                        fontSize:12,
+                        fontWeight:600,
+                        cursor:'pointer',
+                        fontFamily:'inherit',
+                      }}
+                    >
+                      Clear
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={savingId === v.id || !!v.error || !isDirty}
+                    onClick={() => saveUrl(v)}
+                    style={{
+                      padding:'8px 12px',
+                      borderRadius:8,
+                      border:'1px solid rgba(34,197,94,0.25)',
+                      background:'rgba(34,197,94,0.12)',
+                      color:'#4ade80',
+                      fontSize:12,
+                      fontWeight:700,
+                      cursor: savingId === v.id || !!v.error || !isDirty ? 'default' : 'pointer',
+                      opacity: savingId === v.id || !!v.error || !isDirty ? 0.6 : 1,
+                      fontFamily:'inherit',
+                    }}
+                  >
+                    {savingId === v.id ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {message && (
+        <p style={{ fontSize:12, color:'#4ade80', marginTop:12, fontWeight:600 }}>
+          {message}
+        </p>
+      )}
     </div>
   )
 }
-
 function PinManager({ tournamentId, matches, onPinsUpdated }) {
   const [open, setOpen]       = useState(false)
   const [pin, setPin]         = useState('')
@@ -605,7 +897,7 @@ function PinManager({ tournamentId, matches, onPinsUpdated }) {
   )
 }
 
-function MatchList({ matches, tournamentId }) {
+function MatchList({ matches, tournamentId, timezone }) {
   const [filter, setFilter] = useState('unplayed')
 
   const filtered = filter === 'all'
@@ -648,7 +940,12 @@ function MatchList({ matches, tournamentId }) {
       ) : (
         <div className="space-y-1.5">
           {filtered.map(m => (
-            <MatchRow key={m.id} match={m} tournamentId={tournamentId} />
+            <MatchRow
+              key={m.id}
+              match={m}
+              tournamentId={tournamentId}
+              timezone={timezone}
+            />
           ))}
         </div>
       )}
@@ -803,7 +1100,7 @@ function CopyLinkButton({ matchId, pin }) {
   )
 }
 
-function MatchRow({ match: m, tournamentId }) {
+function MatchRow({ match: m, tournamentId, timezone }) {
   const isLive  = m.status === 'in_progress'
   const isDone  = m.status === 'complete' || m.status === 'forfeit'
   const hasTBD  = !m.team_a?.id || !m.team_b?.id
@@ -865,7 +1162,7 @@ function MatchRow({ match: m, tournamentId }) {
             </span>
           </p>
           <p style={{ fontSize:11, color:'var(--text-muted)', margin:'2px 0 0' }}>
-            {m.time_slot?.scheduled_start ? formatTime(m.time_slot.scheduled_start) : ''}
+            {m.time_slot?.scheduled_start ? formatTime(m.time_slot.scheduled_start, timezone) : ''}
             {m.team_a?.id && m.team_b?.id && m.round_label ? ' · ' + m.round_label : ''}
           </p>
         </div>
@@ -900,19 +1197,94 @@ function MatchRow({ match: m, tournamentId }) {
 
         {/* Fix teams */}
         {hasTBD && !isDone && (
-          <button onClick={() => loadTeams()}
-            style={{ padding:'8px 14px', background:'rgba(234,179,8,0.1)', border:'1px solid rgba(234,179,8,0.3)', color:'#fde047', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit', flexShrink:0 }}>
+          <button
+            onClick={() => loadTeams()}
+            style={{
+              padding:'8px 14px',
+              background:'rgba(234,179,8,0.1)',
+              border:'1px solid rgba(234,179,8,0.3)',
+              color:'#fde047',
+              borderRadius:8,
+              fontSize:13,
+              fontWeight:600,
+              cursor:'pointer',
+              fontFamily:'inherit',
+              flexShrink:0,
+            }}
+          >
             Fix teams
           </button>
         )}
 
         {/* Score correction */}
-        {!hasTBD && (
-          <button onClick={() => setScoreEdit(s => !s)}
-            style={{ padding:'8px 14px', background:'var(--bg-raised)', border:'1px solid var(--border)', color:'var(--text-muted)', borderRadius:8, fontSize:13, cursor:'pointer', fontFamily:'inherit', flexShrink:0 }}>
-            {isDone ? 'Correct score' : 'Record result'}
+  {!hasTBD && !isDone && (
+          <button
+            onClick={() => setScoreEdit(s => !s)}
+            style={{
+              padding:'8px 14px',
+              background:'var(--bg-raised)',
+              border:'1px solid var(--border)',
+              color:'var(--text-muted)',
+              borderRadius:8,
+              fontSize:13,
+              cursor:'pointer',
+              fontFamily:'inherit',
+              flexShrink:0,
+            }}
+          >
+            Record result
           </button>
         )}
+
+        {/* Move game */}
+        <MoveGameButton
+          match={m}
+          tournamentId={tournamentId}
+          timezone={timezone}
+          onSuccess={() => {
+            window.location.reload()
+          }}
+          onError={err => {
+            alert(err.message || 'Could not move game')
+          }}
+        />
+
+        {/* Resume game */}
+{(m.status === 'complete' || m.status === 'forfeit') && (
+  <ResumeMatchButton
+    match={m}
+    canResume
+    onPrecheck={async match => {
+      const { data, error } = await supabase.rpc('resume_match_precheck', {
+        p_match_id: match.id,
+      })
+
+      if (error) throw error
+
+      const row = Array.isArray(data) ? data[0] : data
+
+      return {
+        status: row?.status || 'blocked',
+        reason: row?.reason || '',
+        clearedDownstream: row?.cleared_downstream || [],
+      }
+    }}
+    onResume={async match => {
+      const { data, error } = await supabase.rpc('resume_match_safe', {
+        p_match_id: match.id,
+      })
+
+      if (error) throw error
+      return data
+    }}
+    onSuccess={() => {
+      window.location.reload()
+    }}
+    onError={err => {
+      alert(err.message || 'Could not resume game')
+    }}
+  />
+)}
 
         {/* Scorekeeper link + PIN */}
         {!isDone && (
@@ -921,7 +1293,6 @@ function MatchRow({ match: m, tournamentId }) {
           </div>
         )}
       </div>
-
       {/* Team editor panel */}
       {editing && (
         <div style={{ padding:'12px', borderTop:'1px solid var(--border)', background:'rgba(234,179,8,0.04)' }}>
@@ -968,6 +1339,11 @@ function formatDate(d) {
   return new Date(d + 'T12:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-function formatTime(iso) {
-  return new Date(iso).toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit', hour12: true })
+function formatTime(iso, timezone = 'America/Toronto') {
+  return new Date(iso).toLocaleTimeString('en-CA', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: timezone,
+  })
 }

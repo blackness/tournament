@@ -4,6 +4,7 @@ import { useWizardStore } from '../../../store/wizardStore'
 import { db, supabase } from '../../../lib/supabase'
 import { WizardNavButtons } from './WizardNavButtons'
 import { generateSchedule } from '../../../lib/scheduleGenerator'
+import { FORMAT_TYPES } from '../../../lib/constants'
 import { AlertTriangle, RefreshCw, Clock, MapPin, ExternalLink } from 'lucide-react'
 
 export function WizardStep6Schedule({ onNext, onBack }) {
@@ -16,6 +17,7 @@ export function WizardStep6Schedule({ onNext, onBack }) {
     scheduleConfig,
     setScheduleConfig,
     setGeneratedSchedule,
+    clearSchedule,
     generatedMatches,
     generatedSlots,
     scheduleConflicts,
@@ -25,6 +27,7 @@ export function WizardStep6Schedule({ onNext, onBack }) {
 
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [deletingSchedule, setDeletingSchedule] = useState(false)
   const [checkingExisting, setCheckingExisting] = useState(true)
   const [existingScheduleCount, setExistingScheduleCount] = useState(0)
   const [formError, setFormError] = useState(null)
@@ -38,6 +41,15 @@ export function WizardStep6Schedule({ onNext, onBack }) {
   }
 
   const hasTournamentDays = tournamentDays.length > 0
+  const generationMode = scheduleConfig.generationMode || 'round'
+
+  const poolBasedDivisions = divisions.filter(div =>
+    [FORMAT_TYPES.POOL_TO_BRACKET, FORMAT_TYPES.CROSSOVER].includes(div.formatType)
+  )
+
+  const bracketOnlyDivisions = divisions.filter(div =>
+    [FORMAT_TYPES.SINGLE_ELIM, FORMAT_TYPES.DOUBLE_ELIM].includes(div.formatType)
+  )
 
   function formatDayLabel(day) {
     const date = new Date(day.event_date + 'T12:00')
@@ -150,6 +162,7 @@ export function WizardStep6Schedule({ onNext, onBack }) {
     const liveAssign = s.poolAssignments
     const liveConfig = s.scheduleConfig
     const liveStart = liveConfig.startTime || (s.startDate ? s.startDate + 'T09:00' : null)
+    const generationMode = liveConfig.generationMode || 'round'
 
     if (!liveStart && !hasTournamentDays) {
       setFormError('Set a start time first')
@@ -176,14 +189,36 @@ export function WizardStep6Schedule({ onNext, onBack }) {
           }))
       )
 
-      if (allPools.length === 0) {
-        setFormError('No pools found. Go back to Step 5 and assign teams to pools.')
+      if (poolBasedDivisions.length === 0 && bracketOnlyDivisions.length > 0) {
+        const hasSingleElim = bracketOnlyDivisions.some(div => div.formatType === FORMAT_TYPES.SINGLE_ELIM)
+
+        if (!hasSingleElim) {
+          setFormError(
+            'This tournament uses bracket-only divisions. Pool schedule generation is not used here yet, and this bracket format is not supported in the schedule wizard yet.'
+          )
+          setGenerating(false)
+          return
+        }
+      }
+
+      if (poolBasedDivisions.length > 0 && livePools.length === 0) {
+        setFormError(
+          'Some divisions require pools, but no pools were found. Go back to Step 5 and create pools.'
+        )
+        setGenerating(false)
+        return
+      }
+
+      if (poolBasedDivisions.length > 0 && allPools.length === 0) {
+        setFormError(
+          'Pool-based divisions exist, but no valid pools were found for schedule generation. Go back to Step 5 and check pool setup.'
+        )
         setGenerating(false)
         return
       }
 
       const teamsWithPools = allPools.reduce((sum, p) => sum + p.teams.length, 0)
-      if (teamsWithPools === 0) {
+      if (poolBasedDivisions.length > 0 && teamsWithPools === 0) {
         setFormError('Teams are not assigned to pools. Go back to Step 5.')
         setGenerating(false)
         return
@@ -207,7 +242,18 @@ export function WizardStep6Schedule({ onNext, onBack }) {
         }
       })
 
+      console.log('schedule generation input', {
+        divisions: s.divisions,
+        teams: s.teams,
+        pools: allPools,
+        venues: venueList,
+        generationMode,
+        tournamentId,
+      })
+
       const result = generateSchedule({
+        divisions: s.divisions,
+        teams: s.teams,
         pools: allPools,
         venues: venueList,
         scheduleDays,
@@ -221,14 +267,60 @@ export function WizardStep6Schedule({ onNext, onBack }) {
         gameDurationMinutes: liveConfig.gameDurationMinutes,
         breakBetweenGamesMinutes: liveConfig.breakBetweenGamesMinutes,
         minRestBetweenTeamGames: liveConfig.minRestBetweenTeamGames,
+        generationMode,
         tournamentId,
       })
 
+      console.log('schedule generation result', result)
+
+      if (!result || !result.matches || result.matches.length === 0) {
+        setFormError('No games were generated for this tournament format.')
+        setGenerating(false)
+        return
+      }
+
       setGeneratedSchedule(result)
     } catch (err) {
+      console.error('schedule generation failed', err)
       setFormError(err.message || 'Failed to generate schedule')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  async function handleDeleteGeneratedSchedule() {
+    setFormError(null)
+    setDeletingSchedule(true)
+
+    try {
+      if (tournamentId) {
+        const { error: clearMatchSlotRefsErr } = await supabase
+          .from('matches')
+          .update({ time_slot_id: null, venue_id: null })
+          .eq('tournament_id', tournamentId)
+
+        if (clearMatchSlotRefsErr) {
+          throw new Error('Failed to clear existing match slot references: ' + clearMatchSlotRefsErr.message)
+        }
+
+        const { error: deleteMatchesErr } = await db.matches.deleteByTournament(tournamentId)
+        if (deleteMatchesErr) {
+          throw new Error('Failed to delete existing matches: ' + deleteMatchesErr.message)
+        }
+
+        const { error: deleteSlotsErr } = await db.timeSlots.deleteByTournament(tournamentId)
+        if (deleteSlotsErr) {
+          throw new Error('Failed to delete existing time slots: ' + deleteSlotsErr.message)
+        }
+
+        setExistingScheduleCount(0)
+      }
+
+      clearSchedule()
+    } catch (err) {
+      setFormError(err.message || 'Failed to delete generated schedule')
+    } finally {
+      setDeletingSchedule(false)
     }
   }
 
@@ -246,6 +338,15 @@ export function WizardStep6Schedule({ onNext, onBack }) {
     setSaving(true)
 
     try {
+      const { error: clearMatchSlotRefsErr } = await supabase
+        .from('matches')
+        .update({ time_slot_id: null, venue_id: null })
+        .eq('tournament_id', tournamentId)
+
+      if (clearMatchSlotRefsErr) {
+        throw new Error('Failed to clear existing match slot references: ' + clearMatchSlotRefsErr.message)
+      }
+
       const { error: deleteMatchesErr } = await db.matches.deleteByTournament(tournamentId)
       if (deleteMatchesErr) {
         throw new Error('Failed to delete existing matches: ' + deleteMatchesErr.message)
@@ -266,6 +367,7 @@ export function WizardStep6Schedule({ onNext, onBack }) {
           gameDurationMinutes: freshState.scheduleConfig.gameDurationMinutes ?? null,
           breakBetweenGamesMinutes: freshState.scheduleConfig.breakBetweenGamesMinutes ?? null,
           minRestBetweenTeamGames: freshState.scheduleConfig.minRestBetweenTeamGames ?? 0,
+          generationMode: freshState.scheduleConfig.generationMode ?? 'round',
         },
       }
 
@@ -398,11 +500,6 @@ export function WizardStep6Schedule({ onNext, onBack }) {
         slotIdMap[s.id] = dbSlotsByKey[key] ?? null
       }
 
-      console.log('persistedSlots', persistedSlots)
-      console.log('dbSlotsByKey', dbSlotsByKey)
-      console.log('slotsToSave', slotsToSave)
-      console.log('slotIdMap', slotIdMap)
-
       const unmappedSlots = Object.entries(slotIdMap).filter(([, value]) => !value)
       if (unmappedSlots.length > 0) {
         throw new Error(`Failed to map ${unmappedSlots.length} saved time slots back to matches.`)
@@ -410,7 +507,9 @@ export function WizardStep6Schedule({ onNext, onBack }) {
 
       const matchRows = generatedMatches.map(m => ({
         tournament_id: tournamentId,
-        division_id: getDivDbId(m.pool_id),
+        division_id: m.division_id
+          ? (divisionDbIdMap[m.division_id] ?? m.division_id)
+          : getDivDbId(m.pool_id),
         pool_id: poolDbIdMap[m.pool_id] || null,
         team_a_id: teamDbIdMap[m.team_a_id] || null,
         team_b_id: teamDbIdMap[m.team_b_id] || null,
@@ -424,7 +523,7 @@ export function WizardStep6Schedule({ onNext, onBack }) {
 
       const nullDivRows = matchRows.filter(m => !m.division_id)
       if (nullDivRows.length > 0) {
-        throw new Error(`division_id is null on ${nullDivRows.length} match rows. Check that pools were saved in Step 5.`)
+        throw new Error(`division_id is null on ${nullDivRows.length} match rows. Check that pools were saved in Step 5 or that division mapping is correct.`)
       }
 
       const nullSlotRows = matchRows.filter(m => !m.time_slot_id)
@@ -725,6 +824,57 @@ export function WizardStep6Schedule({ onNext, onBack }) {
             </div>
           )}
 
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Generation mode</h3>
+              <p className="text-xs text-[var(--text-muted)] mt-1">
+                Choose how much of the schedule to generate at a time. You can verify results between steps.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              {[
+                {
+                  value: 'game',
+                  label: 'One game at a time',
+                  description: 'Maximum control and step-by-step verification.',
+                },
+                {
+                  value: 'round',
+                  label: 'One round at a time',
+                  description: 'Best balance of speed and confidence.',
+                },
+                {
+                  value: 'all',
+                  label: 'All at once',
+                  description: 'Fastest full generation.',
+                },
+              ].map(option => (
+                <label
+                  key={option.value}
+                  className="flex items-start gap-3 p-3 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] cursor-pointer"
+                >
+                  <input
+                    type="radio"
+                    name="generationMode"
+                    value={option.value}
+                    checked={generationMode === option.value}
+                    onChange={() => setScheduleConfig({ generationMode: option.value })}
+                    className="mt-1"
+                  />
+                  <div>
+                    <div className="text-sm font-medium text-[var(--text-primary)]">
+                      {option.label}
+                    </div>
+                    <div className="text-xs text-[var(--text-muted)] mt-0.5">
+                      {option.description}
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+
           <div className="divider" />
 
           <div className="flex items-center gap-3 flex-wrap">
@@ -734,9 +884,19 @@ export function WizardStep6Schedule({ onNext, onBack }) {
                 Generate initial schedule
               </button>
             ) : (
-              <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-sm text-green-800">
-                Initial schedule generated. Save it below, then use DirectorHQ for all future edits.
-              </div>
+              <>
+                <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-sm text-green-800">
+                  Initial schedule generated. Save it below, then use DirectorHQ for all future edits.
+                </div>
+
+                <button
+                  onClick={handleDeleteGeneratedSchedule}
+                  disabled={deletingSchedule}
+                  className="btn-secondary btn"
+                >
+                  {deletingSchedule ? 'Deleting...' : 'Delete schedule & restart'}
+                </button>
+              </>
             )}
 
             {hasGeneratedSchedule && (

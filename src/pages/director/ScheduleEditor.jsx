@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase, db } from '../../lib/supabase'
 import { validateSchedule } from '../../lib/scheduleGenerator'
@@ -13,6 +13,10 @@ import {
   Minus,
   AlertTriangle,
   Pencil,
+  Trash2,
+  CheckSquare,
+  Square,
+  X,
 } from 'lucide-react'
 
 export function ScheduleEditor() {
@@ -33,6 +37,7 @@ export function ScheduleEditor() {
   const [filter, setFilter] = useState('all')
   const [message, setMessage] = useState(null)
   const [conflicts, setConflicts] = useState([])
+  const [selectedMatchIds, setSelectedMatchIds] = useState([])
 
   const [editingMatchId, setEditingMatchId] = useState(null)
   const [editForm, setEditForm] = useState({
@@ -103,7 +108,7 @@ export function ScheduleEditor() {
     load()
   }, [tournamentId])
 
-const recalculateConflicts = useCallback((nextMatches = matches, nextSlots = slots) => {
+  const recalculateConflicts = useCallback((nextMatches = matches, nextSlots = slots) => {
     const normalizedMatches = nextMatches.map(m => ({
       id: m.id,
       team_a_id: m.team_a?.id ?? null,
@@ -523,36 +528,166 @@ const recalculateConflicts = useCallback((nextMatches = matches, nextSlots = slo
     }
   }
 
-  async function handleCancelMatch() {
-    if (!editingMatchId || editingMatchId === 'new') return
+  async function handleDeleteMatch(matchId = editingMatchId, { closeModal = true } = {}) {
+    if (!matchId || matchId === 'new') return
 
-    setSaving(editingMatchId)
+    const confirmed = window.confirm(
+      'Delete this game?\n\nThis will remove it from the active schedule and public views.'
+    )
+
+    if (!confirmed) return
+
+    setSaving(matchId)
     try {
       const { error } = await supabase
         .from('matches')
         .update({ status: 'cancelled' })
-        .eq('id', editingMatchId)
+        .eq('id', matchId)
 
       if (error) throw error
 
-      const nextMatches = matches.filter(m => m.id !== editingMatchId)
+      const nextMatches = matches.filter(m => m.id !== matchId)
       setMatches(nextMatches)
+      setSelectedMatchIds(prev => prev.filter(id => id !== matchId))
       recalculateConflicts(nextMatches, slots)
-      showMessage('Game archived')
-      closeEditModal()
+      showMessage('Game deleted')
+
+      if (closeModal) closeEditModal()
     } catch (err) {
-      showMessage('Failed to archive game: ' + err.message, 'error')
+      showMessage('Failed to delete game: ' + err.message, 'error')
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  function toggleSelectedMatch(matchId) {
+    setSelectedMatchIds(prev =>
+      prev.includes(matchId)
+        ? prev.filter(id => id !== matchId)
+        : [...prev, matchId]
+    )
+  }
+
+  function clearSelection() {
+    setSelectedMatchIds([])
+  }
+
+  const filtered =
+    filter === 'all'
+      ? matches
+      : matches.filter(m => m.venue?.id === filter || m.venue_id === filter)
+
+  const visibleMatchIds = useMemo(() => filtered.map(m => m.id), [filtered])
+  const selectedVisibleCount = visibleMatchIds.filter(id => selectedMatchIds.includes(id)).length
+  const allVisibleSelected = visibleMatchIds.length > 0 && selectedVisibleCount === visibleMatchIds.length
+
+  function toggleSelectAllVisible() {
+    if (allVisibleSelected) {
+      setSelectedMatchIds(prev => prev.filter(id => !visibleMatchIds.includes(id)))
+      return
+    }
+
+    setSelectedMatchIds(prev => [...new Set([...prev, ...visibleMatchIds])])
+  }
+
+  async function handleDeleteSelected() {
+    if (selectedMatchIds.length === 0) return
+
+    const confirmed = window.confirm(
+      `Delete ${selectedMatchIds.length} selected game${selectedMatchIds.length !== 1 ? 's' : ''}?\n\nThis will remove them from the active schedule and public views.`
+    )
+
+    if (!confirmed) return
+
+    setSaving('bulk-delete')
+    try {
+      const { error } = await supabase
+        .from('matches')
+        .update({ status: 'cancelled' })
+        .in('id', selectedMatchIds)
+
+      if (error) throw error
+
+      const nextMatches = matches.filter(m => !selectedMatchIds.includes(m.id))
+      setMatches(nextMatches)
+      setSelectedMatchIds([])
+      recalculateConflicts(nextMatches, slots)
+      showMessage(`${selectedMatchIds.length} game${selectedMatchIds.length !== 1 ? 's' : ''} deleted`)
+    } catch (err) {
+      showMessage('Failed to delete selected games: ' + err.message, 'error')
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  async function handleDeleteAllVisible() {
+    if (visibleMatchIds.length === 0) return
+
+    const confirmed = window.confirm(
+      `Delete all ${visibleMatchIds.length} visible game${visibleMatchIds.length !== 1 ? 's' : ''}?\n\nThis will remove them from the active schedule and public views.`
+    )
+
+    if (!confirmed) return
+
+    setSaving('bulk-delete-visible')
+    try {
+      const { error } = await supabase
+        .from('matches')
+        .update({ status: 'cancelled' })
+        .in('id', visibleMatchIds)
+
+      if (error) throw error
+
+      const nextMatches = matches.filter(m => !visibleMatchIds.includes(m.id))
+      setMatches(nextMatches)
+      setSelectedMatchIds(prev => prev.filter(id => !visibleMatchIds.includes(id)))
+      recalculateConflicts(nextMatches, slots)
+      showMessage(`${visibleMatchIds.length} visible game${visibleMatchIds.length !== 1 ? 's' : ''} deleted`)
+    } catch (err) {
+      showMessage('Failed to delete visible games: ' + err.message, 'error')
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  async function handleDeleteAllGames() {
+    if (matches.length === 0) return
+
+    const confirmed = window.confirm(
+      `Delete all ${matches.length} active game${matches.length !== 1 ? 's' : ''} in this tournament?\n\nThis will remove them from the active schedule and public views.`
+    )
+
+    if (!confirmed) return
+
+    const secondConfirmed = window.confirm(
+      'Are you absolutely sure? This is intended for major schedule cleanup.'
+    )
+
+    if (!secondConfirmed) return
+
+    setSaving('bulk-delete-all')
+    try {
+      const allIds = matches.map(m => m.id)
+
+      const { error } = await supabase
+        .from('matches')
+        .update({ status: 'cancelled' })
+        .in('id', allIds)
+
+      if (error) throw error
+
+      setMatches([])
+      setSelectedMatchIds([])
+      recalculateConflicts([], slots)
+      showMessage('All active games deleted')
+    } catch (err) {
+      showMessage('Failed to delete all games: ' + err.message, 'error')
     } finally {
       setSaving(null)
     }
   }
 
   if (loading) return <PageLoader />
-
-  const filtered =
-    filter === 'all'
-      ? matches
-      : matches.filter(m => m.venue?.id === filter || m.venue_id === filter)
 
   const grouped = groupByTime(filtered)
   const editablePools = pools
@@ -608,27 +743,45 @@ const recalculateConflicts = useCallback((nextMatches = matches, nextSlots = slo
         </div>
       )}
 
-      {conflicts.length > 0 && (
-        <div className="space-y-1.5">
-          {conflicts.slice(0, 5).map((c, i) => (
-            <div
-              key={i}
-              className={
-                'flex gap-2 p-2 rounded-lg text-xs border ' +
-                (c.severity === 'error'
-                  ? 'bg-red-50 text-red-700 border-red-200'
-                  : 'bg-yellow-50 text-yellow-700 border-yellow-200')
-              }
+      {selectedMatchIds.length > 0 && (
+        <div className="border border-[rgba(239,68,68,0.2)] bg-[rgba(239,68,68,0.06)] rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 text-sm text-[var(--text-primary)]">
+            <CheckSquare size={16} className="text-red-500" />
+            <span>
+              {selectedMatchIds.length} game{selectedMatchIds.length !== 1 ? 's' : ''} selected
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={toggleSelectAllVisible}
+              className="btn-secondary btn btn-sm"
             >
-              <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
-              {c.message}
-            </div>
-          ))}
-          {conflicts.length > 5 && (
-            <p className="text-xs text-[var(--text-muted)] ml-5">
-              +{conflicts.length - 5} more warnings
-            </p>
-          )}
+              {allVisibleSelected ? 'Unselect visible' : 'Select all visible'}
+            </button>
+
+            <button
+              onClick={clearSelection}
+              className="btn-secondary btn btn-sm"
+            >
+              <X size={14} />
+              Clear
+            </button>
+
+            <button
+              onClick={handleDeleteSelected}
+              disabled={saving === 'bulk-delete'}
+              className="btn btn-sm"
+              style={{
+                background: 'rgba(239,68,68,0.12)',
+                color: '#ef4444',
+                border: '1px solid rgba(239,68,68,0.2)',
+              }}
+            >
+              <Trash2 size={14} />
+              {saving === 'bulk-delete' ? 'Deleting...' : 'Delete selected'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -680,6 +833,79 @@ const recalculateConflicts = useCallback((nextMatches = matches, nextSlots = slo
         </div>
       </div>
 
+      <div className="border border-[var(--border)] rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-sm font-semibold text-[var(--text-secondary)]">Bulk delete</p>
+          <p className="text-xs text-[var(--text-muted)]">
+            Remove many games from the active schedule quickly.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={toggleSelectAllVisible}
+            className="btn-secondary btn btn-sm"
+          >
+            {allVisibleSelected ? <Square size={14} /> : <CheckSquare size={14} />}
+            {allVisibleSelected ? 'Unselect visible' : 'Select all visible'}
+          </button>
+
+          <button
+            onClick={handleDeleteAllVisible}
+            disabled={visibleMatchIds.length === 0 || saving === 'bulk-delete-visible'}
+            className="btn btn-sm"
+            style={{
+              background: 'rgba(239,68,68,0.08)',
+              color: '#ef4444',
+              border: '1px solid rgba(239,68,68,0.16)',
+              opacity: visibleMatchIds.length === 0 || saving === 'bulk-delete-visible' ? 0.5 : 1,
+            }}
+          >
+            <Trash2 size={14} />
+            {saving === 'bulk-delete-visible' ? 'Deleting...' : 'Delete all visible'}
+          </button>
+
+          <button
+            onClick={handleDeleteAllGames}
+            disabled={matches.length === 0 || saving === 'bulk-delete-all'}
+            className="btn btn-sm"
+            style={{
+              background: 'rgba(239,68,68,0.12)',
+              color: '#ef4444',
+              border: '1px solid rgba(239,68,68,0.2)',
+              opacity: matches.length === 0 || saving === 'bulk-delete-all' ? 0.5 : 1,
+            }}
+          >
+            <Trash2 size={14} />
+            {saving === 'bulk-delete-all' ? 'Deleting...' : 'Delete all games'}
+          </button>
+        </div>
+      </div>
+
+      {conflicts.length > 0 && (
+        <div className="space-y-1.5">
+          {conflicts.slice(0, 5).map((c, i) => (
+            <div
+              key={i}
+              className={
+                'flex gap-2 p-2 rounded-lg text-xs border ' +
+                (c.severity === 'error'
+                  ? 'bg-red-50 text-red-700 border-red-200'
+                  : 'bg-yellow-50 text-yellow-700 border-yellow-200')
+              }
+            >
+              <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
+              {c.message}
+            </div>
+          ))}
+          {conflicts.length > 5 && (
+            <p className="text-xs text-[var(--text-muted)] ml-5">
+              +{conflicts.length - 5} more warnings
+            </p>
+          )}
+        </div>
+      )}
+
       {grouped.length === 0 ? (
         <div className="text-center py-12 text-[var(--text-muted)] border-2 border-dashed border-[var(--border)] rounded-2xl">
           <Clock size={32} className="mx-auto mb-2 opacity-30" />
@@ -705,7 +931,9 @@ const recalculateConflicts = useCallback((nextMatches = matches, nextSlots = slo
                     slots={slots}
                     venues={venues}
                     isSaving={saving === m.id}
+                    isSelected={selectedMatchIds.includes(m.id)}
                     isDragOver={dragOver === m.time_slot?.id}
+                    onToggleSelected={() => toggleSelectedMatch(m.id)}
                     onDragStart={handleDragStart}
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
@@ -936,17 +1164,18 @@ const recalculateConflicts = useCallback((nextMatches = matches, nextSlots = slo
               </div>
 
               <div className="p-3 rounded-lg bg-yellow-50 text-yellow-800 text-xs">
-                Schedule warnings update live after save. Archived games are hidden from this editor.
+                Schedule warnings update live after save. Deleted games are hidden from this editor.
               </div>
             </div>
 
             <div className="flex items-center justify-between mt-6 gap-3">
               {editingMatchId !== 'new' ? (
                 <button
-                  onClick={handleCancelMatch}
-                  className="text-xs px-3 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
+                  onClick={() => handleDeleteMatch(editingMatchId, { closeModal: true })}
+                  className="text-xs px-3 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 inline-flex items-center gap-1.5"
                 >
-                  Archive game
+                  <Trash2 size={12} />
+                  Delete game
                 </button>
               ) : (
                 <div />
@@ -973,7 +1202,9 @@ function MatchEditorCard({
   slots,
   venues,
   isSaving,
+  isSelected,
   isDragOver,
+  onToggleSelected,
   onDragStart,
   onDragOver,
   onDragLeave,
@@ -996,11 +1227,24 @@ function MatchEditorCard({
       className={[
         'flex items-center gap-3 px-3 py-2.5 bg-[var(--bg-surface)] border rounded-xl transition-all',
         canEdit ? 'cursor-grab active:cursor-grabbing' : 'opacity-70',
+        isSelected ? 'ring-2 ring-red-300 border-red-300' : '',
         isDragOver ? 'border-[var(--accent)] bg-[var(--accent-dim)]' : 'border-[var(--border)]',
         isSaving ? 'opacity-50' : '',
         isLive ? 'border-[rgba(34,197,94,0.25)] bg-[rgba(34,197,94,0.06)]' : '',
       ].join(' ')}
     >
+      <button
+        type="button"
+        onClick={e => {
+          e.stopPropagation()
+          onToggleSelected()
+        }}
+        className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] flex-shrink-0"
+        title={isSelected ? 'Unselect game' : 'Select game'}
+      >
+        {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
+      </button>
+
       {canEdit && (
         <GripVertical size={16} className="text-[var(--text-muted)] flex-shrink-0" />
       )}
