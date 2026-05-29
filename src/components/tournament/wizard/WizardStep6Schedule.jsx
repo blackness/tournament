@@ -4,7 +4,7 @@ import { useWizardStore } from '../../../store/wizardStore'
 import { db, supabase } from '../../../lib/supabase'
 import { WizardNavButtons } from './WizardNavButtons'
 import { generateSchedule } from '../../../lib/scheduleGenerator'
-import { FORMAT_TYPES } from '../../../lib/constants'
+import { FORMAT_TYPES, FORMAT_SUPPORT } from '../../../lib/constants'
 import { AlertTriangle, RefreshCw, Clock, MapPin, ExternalLink } from 'lucide-react'
 
 export function WizardStep6Schedule({ onNext, onBack }) {
@@ -44,12 +44,25 @@ export function WizardStep6Schedule({ onNext, onBack }) {
   const generationMode = scheduleConfig.generationMode || 'round'
 
   const poolBasedDivisions = divisions.filter(div =>
-    [FORMAT_TYPES.POOL_TO_BRACKET, FORMAT_TYPES.CROSSOVER].includes(div.formatType)
+    [FORMAT_TYPES.POOL_TO_BRACKET, FORMAT_TYPES.CROSSOVER, FORMAT_TYPES.POOL_TO_PLACEMENT].includes(div.formatType)
   )
 
   const bracketOnlyDivisions = divisions.filter(div =>
     [FORMAT_TYPES.SINGLE_ELIM, FORMAT_TYPES.DOUBLE_ELIM].includes(div.formatType)
   )
+
+  const unsupportedScheduleFormats = divisions.filter(div => {
+    const support = FORMAT_SUPPORT[div.formatType]
+    return support?.scheduleGenerationSupported === false
+  })
+
+  const hasUnsupportedScheduleFormats = unsupportedScheduleFormats.length > 0
+
+  function formatUnsupportedFormats(divisionsList) {
+    return divisionsList
+      .map(div => div.name?.trim() || 'Unnamed division')
+      .join(', ')
+  }
 
   function formatDayLabel(day) {
     const date = new Date(day.event_date + 'T12:00')
@@ -174,6 +187,13 @@ export function WizardStep6Schedule({ onNext, onBack }) {
       return
     }
 
+    if (hasUnsupportedScheduleFormats) {
+      setFormError(
+        `Schedule generation is not available yet for: ${formatUnsupportedFormats(unsupportedScheduleFormats)}.`
+      )
+      return
+    }
+
     setGenerating(true)
     setFormError(null)
 
@@ -190,11 +210,16 @@ export function WizardStep6Schedule({ onNext, onBack }) {
       )
 
       if (poolBasedDivisions.length === 0 && bracketOnlyDivisions.length > 0) {
-        const hasSingleElim = bracketOnlyDivisions.some(div => div.formatType === FORMAT_TYPES.SINGLE_ELIM)
+        const hasUnsupportedBracketOnly = bracketOnlyDivisions.some(div => {
+          const support = FORMAT_SUPPORT[div.formatType]
+          return support?.scheduleGenerationSupported === false
+        })
 
-        if (!hasSingleElim) {
+        if (hasUnsupportedBracketOnly) {
           setFormError(
-            'This tournament uses bracket-only divisions. Pool schedule generation is not used here yet, and this bracket format is not supported in the schedule wizard yet.'
+            `This tournament includes bracket-only divisions that are not supported in the schedule wizard yet: ${formatUnsupportedFormats(
+              bracketOnlyDivisions.filter(div => FORMAT_SUPPORT[div.formatType]?.scheduleGenerationSupported === false)
+            )}.`
           )
           setGenerating(false)
           return
@@ -614,6 +639,13 @@ export function WizardStep6Schedule({ onNext, onBack }) {
         </div>
       )}
 
+      {hasUnsupportedScheduleFormats && !formError && (
+        <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-700 flex gap-2">
+          <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
+          Schedule generation is not available yet for: {formatUnsupportedFormats(unsupportedScheduleFormats)}.
+        </div>
+      )}
+
       {checkingExisting ? (
         <div className="p-3 border border-[var(--border)] rounded-lg text-sm text-[var(--text-muted)]">
           Checking existing schedule...
@@ -879,9 +911,13 @@ export function WizardStep6Schedule({ onNext, onBack }) {
 
           <div className="flex items-center gap-3 flex-wrap">
             {!hasGeneratedSchedule ? (
-              <button onClick={doGenerate} disabled={generating} className="btn-primary btn">
+              <button
+                onClick={doGenerate}
+                disabled={generating || hasUnsupportedScheduleFormats}
+                className="btn-primary btn"
+              >
                 <RefreshCw size={16} className={generating ? 'animate-spin' : ''} />
-                Generate initial schedule
+                {hasUnsupportedScheduleFormats ? 'Schedule generation unavailable' : 'Generate initial schedule'}
               </button>
             ) : (
               <>

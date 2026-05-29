@@ -4,6 +4,7 @@ import { db, supabase } from '../../../lib/supabase'
 import { useAuth } from '../../../lib/AuthContext'
 import { TIMEZONES, BRAND_COLORS } from '../../../lib/constants'
 import { WizardNavButtons } from './WizardNavButtons'
+import { GenerateWorkbookDraftButton } from '../../../components/workbook/GenerateWorkbookDraftButton'
 import { Calendar, MapPin, Globe, Lock } from 'lucide-react'
 
 // Auto-generate slug from tournament name
@@ -33,65 +34,67 @@ export function WizardStep1Basics({ onNext, isFirst }) {
   // -- Validation -------------------------------------------------------------
   function validate() {
     const e = {}
-    if (!name.trim())       e.name      = 'Tournament name is required'
-    if (!slug.trim())       e.slug      = 'URL slug is required'
+    if (!name.trim()) e.name = 'Tournament name is required'
+    if (!slug.trim()) e.slug = 'URL slug is required'
     if (!/^[a-z0-9-]+$/.test(slug)) e.slug = 'Slug can only contain lowercase letters, numbers, and hyphens'
-    if (!startDate)         e.startDate = 'Start date is required'
-    if (!endDate)           e.endDate   = 'End date is required'
-    if (startDate && endDate && endDate < startDate)
+    if (!startDate) e.startDate = 'Start date is required'
+    if (!endDate) e.endDate = 'End date is required'
+    if (startDate && endDate && endDate < startDate) {
       e.endDate = 'End date must be after start date'
-    if (!venueName.trim())  e.venueName = 'Venue / location name is required'
+    }
+    if (!venueName.trim()) e.venueName = 'Venue / location name is required'
     return e
   }
 
   // -- Save to DB --------------------------------------------------------------
   async function handleNext() {
     const e = validate()
-    if (Object.keys(e).length > 0) { setErrors(e); return }
+    if (Object.keys(e).length > 0) {
+      setErrors(e)
+      return
+    }
 
     setSaving(true)
     try {
       const payload = {
-        name:          name.trim(),
-        description:   description.trim() || null,
-        slug:          slug.trim(),
-        start_date:    startDate,
-        end_date:      endDate,
+        name: name.trim(),
+        description: description.trim() || null,
+        slug: slug.trim(),
+        start_date: startDate,
+        end_date: endDate,
         timezone,
-        venue_name:    venueName.trim(),
+        venue_name: venueName.trim(),
         venue_address: venueAddress.trim() || null,
-        is_public:     isPublic,
+        is_public: isPublic,
         primary_color: primaryColor,
-        logo_url:      logoUrl || null,
-        director_id:   user.id,
+        logo_url: logoUrl || null,
+        director_id: user.id,
       }
 
       let id = tournamentId
 
       if (id) {
-        // Update existing tournament
         const { error } = await db.tournaments.update(id, payload)
         if (error) throw error
       } else {
-        // Check if slug already exists among non-deleted tournaments
         const { data: existing } = await supabase
-          .from('tournaments').select('id, director_id, deleted_at')
-          .eq('slug', slug.trim()).maybeSingle()
+          .from('tournaments')
+          .select('id, director_id, deleted_at')
+          .eq('slug', slug.trim())
+          .maybeSingle()
 
         if (existing && !existing.deleted_at) {
-          // Active tournament with this slug exists
           if (existing.director_id === tournamentId || existing.id === tournamentId) {
-            // Resume our own tournament
             id = existing.id
           } else {
-            // Someone else owns this slug
-            setErrors({ slug: 'This URL is already taken -- try adding your city or year (e.g. kss-open-2025)' })
+            setErrors({
+              slug: 'This URL is already taken -- try adding your city or year (e.g. kss-open-2025)',
+            })
             setSaving(false)
             return
           }
         } else if (existing && existing.deleted_at) {
-          // Slug exists but was deleted -- safe to create new with this slug
-          // Don't reuse the old ID, just proceed with new creation
+          // safe to create new with this slug
         }
 
         {
@@ -105,8 +108,12 @@ export function WizardStep1Basics({ onNext, isFirst }) {
       useWizardStore.getState().markSaved()
       onNext()
     } catch (err) {
-      // 409 or 23505 = unique constraint (slug taken by someone else)
-      if (err.code === '23505' || err.status === 409 || err.message?.includes('duplicate') || err.message?.includes('unique')) {
+      if (
+        err.code === '23505' ||
+        err.status === 409 ||
+        err.message?.includes('duplicate') ||
+        err.message?.includes('unique')
+      ) {
         setErrors({ slug: 'This slug is already taken -- try adding your city or year' })
       } else {
         setErrors({ _form: err.message || 'Something went wrong, please try again' })
@@ -132,6 +139,21 @@ export function WizardStep1Basics({ onNext, isFirst }) {
         <p className="section-subtitle">The essentials -- name, dates, and location.</p>
       </div>
 
+      <div
+        className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-4"
+      >
+        <p className="text-sm font-semibold text-[var(--text-primary)]">
+          Prefer spreadsheets?
+        </p>
+        <p className="text-sm text-[var(--text-muted)] mt-1 mb-3 leading-relaxed">
+          Generate an editable workbook draft for divisions, teams, rosters, fields,
+          tournament days, and an optional schedule mockup. Great for directors who
+          already plan tournaments in Excel or Google Sheets.
+        </p>
+
+        <GenerateWorkbookDraftButton label="Generate workbook draft" />
+      </div>
+
       {errors._form && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
           {errors._form}
@@ -154,7 +176,9 @@ export function WizardStep1Basics({ onNext, isFirst }) {
 
       {/* Description */}
       <div className="field-group">
-        <label className="field-label">Description <span className="text-[var(--text-muted)]">(optional)</span></label>
+        <label className="field-label">
+          Description <span className="text-[var(--text-muted)]">(optional)</span>
+        </label>
         <textarea
           className="field-input resize-none"
           placeholder="Add any info spectators and teams should know upfront..."
@@ -184,10 +208,13 @@ export function WizardStep1Basics({ onNext, isFirst }) {
             maxLength={60}
           />
         </div>
-        {errors.slug
-          ? <p className="field-error">{errors.slug}</p>
-          : <p className="text-xs text-[var(--text-muted)] mt-1">Public URL -- lowercase letters, numbers, and hyphens only</p>
-        }
+        {errors.slug ? (
+          <p className="field-error">{errors.slug}</p>
+        ) : (
+          <p className="text-xs text-[var(--text-muted)] mt-1">
+            Public URL -- lowercase letters, numbers, and hyphens only
+          </p>
+        )}
       </div>
 
       {/* Dates */}
@@ -204,6 +231,7 @@ export function WizardStep1Basics({ onNext, isFirst }) {
           />
           {errors.startDate && <p className="field-error">{errors.startDate}</p>}
         </div>
+
         <div className="field-group">
           <label className="field-label flex items-center gap-1">
             <Calendar size={13} /> End date *
@@ -227,7 +255,9 @@ export function WizardStep1Basics({ onNext, isFirst }) {
           onChange={e => setField('timezone', e.target.value)}
         >
           {TIMEZONES.map(tz => (
-            <option key={tz.value} value={tz.value}>{tz.label}</option>
+            <option key={tz.value} value={tz.value}>
+              {tz.label}
+            </option>
           ))}
         </select>
       </div>
@@ -251,8 +281,11 @@ export function WizardStep1Basics({ onNext, isFirst }) {
             />
             {errors.venueName && <p className="field-error">{errors.venueName}</p>}
           </div>
+
           <div className="field-group">
-            <label className="field-label">Address <span className="text-[var(--text-muted)]">(optional)</span></label>
+            <label className="field-label">
+              Address <span className="text-[var(--text-muted)]">(optional)</span>
+            </label>
             <input
               type="text"
               className="field-input"
@@ -277,13 +310,14 @@ export function WizardStep1Basics({ onNext, isFirst }) {
                 key={color}
                 onClick={() => setField('primaryColor', color)}
                 className={`w-7 h-7 rounded-full border-2 transition-transform ${
- primaryColor === color ? 'border-gray-900 scale-110' : 'border-transparent'
- }`}
+                  primaryColor === color ? 'border-gray-900 scale-110' : 'border-transparent'
+                }`}
                 style={{ backgroundColor: color }}
                 title={color}
+                type="button"
               />
             ))}
-            {/* Custom colour input */}
+
             <div className="flex items-center gap-2">
               <input
                 type="color"
@@ -303,11 +337,13 @@ export function WizardStep1Basics({ onNext, isFirst }) {
       {/* Visibility */}
       <div className="flex items-start gap-3">
         <div className="mt-0.5">
-          {isPublic
-            ? <Globe size={16} className="text-green-600" />
-            : <Lock size={16} className="text-[var(--text-muted)]" />
-          }
+          {isPublic ? (
+            <Globe size={16} className="text-green-600" />
+          ) : (
+            <Lock size={16} className="text-[var(--text-muted)]" />
+          )}
         </div>
+
         <div className="flex-1">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -316,7 +352,9 @@ export function WizardStep1Basics({ onNext, isFirst }) {
               onChange={e => setField('isPublic', e.target.checked)}
               className="rounded border-[var(--border)] text-[var(--accent)]"
             />
-            <span className="text-sm font-medium text-[var(--text-secondary)]">Public tournament</span>
+            <span className="text-sm font-medium text-[var(--text-secondary)]">
+              Public tournament
+            </span>
           </label>
           <p className="text-xs text-[var(--text-muted)] mt-1">
             Public tournaments appear on the browse page and spectators can view scores without logging in.
@@ -324,7 +362,6 @@ export function WizardStep1Basics({ onNext, isFirst }) {
         </div>
       </div>
 
-      {/* Nav */}
       <WizardNavButtons
         onNext={handleNext}
         isFirst={isFirst}

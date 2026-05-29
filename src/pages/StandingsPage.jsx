@@ -11,6 +11,7 @@ export function StandingsPage() {
   const [standings, setStandings] = useState([])
   const [teams, setTeams] = useState([])
   const [pools, setPools] = useState([])
+  const [crossoverMatches, setCrossoverMatches] = useState([])
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
 
@@ -36,8 +37,32 @@ export function StandingsPage() {
     setTeams(data ?? [])
   }
 
+  async function loadCrossovers() {
+    const { data } = await supabase
+      .from('matches')
+      .select(`
+        id,
+        match_code,
+        round_label,
+        status,
+        winner_id,
+        team_a_id,
+        team_b_id
+      `)
+      .eq('division_id', divisionId)
+      .neq('status', 'cancelled')
+
+    const xoMatches = (data ?? []).filter(
+      m =>
+        (m.match_code && /^XO-\d+$/.test(m.match_code)) ||
+        (m.round_label && m.round_label.toLowerCase().includes('crossover'))
+    )
+
+    setCrossoverMatches(xoMatches)
+  }
+
   async function refreshAll() {
-    await Promise.all([loadStandings(), loadTeams()])
+    await Promise.all([loadStandings(), loadTeams(), loadCrossovers()])
   }
 
   useEffect(() => {
@@ -85,9 +110,19 @@ export function StandingsPage() {
       )
       .subscribe()
 
+    const matchesChannel = supabase
+      .channel('matches-' + divisionId)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'matches', filter: 'division_id=eq.' + divisionId },
+        refreshAll
+      )
+      .subscribe()
+
     return () => {
       supabase.removeChannel(standingsChannel)
       supabase.removeChannel(teamsChannel)
+      supabase.removeChannel(matchesChannel)
     }
   }, [divisionId])
 
@@ -97,14 +132,87 @@ export function StandingsPage() {
   const tiebreakerOrder = division?.tiebreaker_order ?? tournament?.tiebreaker_order ?? []
   const brandColor = tournament?.primary_color ?? '#8b5cf6'
 
-  // Use standings rows only for stats, not for pool membership
   const standingsByTeamId = Object.fromEntries(
     standings.map(row => [row.team_id, row])
   )
 
+  const poolNameById = Object.fromEntries(
+    pools.map(p => [p.id, p.short_name ?? p.name])
+  )
+
+  const crossoverSlotMap = {
+    'XO-1': { winner: 'B2', loser: 'A3' },
+    'XO-2': { winner: 'A2', loser: 'B3' },
+    'XO-3': { winner: 'D2', loser: 'C3' },
+    'XO-4': { winner: 'C2', loser: 'D3' },
+  }
+
+  const crossoverByTeamId = {}
+
+  for (const match of crossoverMatches) {
+    const isComplete = match.status === 'complete' || match.status === 'forfeit'
+    if (!isComplete || !match.winner_id) continue
+
+    const teamA = teams.find(t => t.id === match.team_a_id)
+    const teamB = teams.find(t => t.id === match.team_b_id)
+
+    const statsA = standingsByTeamId[match.team_a_id]
+    const statsB = standingsByTeamId[match.team_b_id]
+
+    const rankA = statsA?.rank ?? null
+    const rankB = statsB?.rank ?? null
+
+    const poolA = poolNameById[teamA?.pool_id]
+    const poolB = poolNameById[teamB?.pool_id]
+
+    const teamAOriginal = formatPoolRank(poolA, rankA)
+    const teamBOriginal = formatPoolRank(poolB, rankB)
+
+    const originalSecond =
+      rankA === 2 ? { id: match.team_a_id, team: teamA, pool: poolA, original: teamAOriginal } :
+      rankB === 2 ? { id: match.team_b_id, team: teamB, pool: poolB, original: teamBOriginal } :
+      null
+
+    const originalThird =
+      rankA === 3 ? { id: match.team_a_id, team: teamA, pool: poolA, original: teamAOriginal } :
+      rankB === 3 ? { id: match.team_b_id, team: teamB, pool: poolB, original: teamBOriginal } :
+      null
+
+    if (!originalSecond || !originalThird) continue
+
+    const secondSlot = `Pool ${originalSecond.pool}'s playoff 2nd seed slot`
+    const thirdSlot = `Pool ${originalThird.pool}'s playoff 3rd seed slot`
+
+    const secondWon = match.winner_id === originalSecond.id
+
+    if (secondWon) {
+      crossoverByTeamId[originalSecond.id] = {
+        result: 'won',
+        text: `Won crossover • Remains in ${secondSlot}`,
+      }
+
+      crossoverByTeamId[originalThird.id] = {
+        result: 'lost',
+        text: `Lost crossover • Remains in ${thirdSlot}`,
+      }
+    } else {
+      crossoverByTeamId[originalThird.id] = {
+        result: 'won',
+        text: `Won crossover • Moves from ${originalThird.original} to ${secondSlot}`,
+      }
+
+      crossoverByTeamId[originalSecond.id] = {
+        result: 'lost',
+        text: `Lost crossover • Drops from ${originalSecond.original} to ${thirdSlot}`,
+      }
+    }
+  }
+  const completedCrossovers = crossoverMatches.filter(
+    m => (m.status === 'complete' || m.status === 'forfeit') && m.winner_id
+  )
+
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', padding: '32px 20px 80px' }}>
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {tournament && (
@@ -142,14 +250,12 @@ export function StandingsPage() {
         </button>
       </div>
 
-      {/* Pools */}
       {pools.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
           <p style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-secondary)' }}>No pools yet</p>
         </div>
       ) : (
         pools.map(pool => {
-          // Membership comes from tournament_teams.pool_id
           const poolTeams = teams
             .filter(team => team.pool_id === pool.id)
             .map(team => {
@@ -168,6 +274,7 @@ export function StandingsPage() {
                 points_against: stats?.points_against ?? 0,
                 games_played: stats?.games_played ?? 0,
                 rank: stats?.rank ?? null,
+                crossover: crossoverByTeamId[team.id] ?? null,
               }
             })
             .sort((a, b) => {
@@ -188,7 +295,6 @@ export function StandingsPage() {
                 marginBottom: 16,
               }}
             >
-              {/* Pool header */}
               <div
                 style={{
                   padding: '12px 18px',
@@ -207,7 +313,6 @@ export function StandingsPage() {
                 </span>
               </div>
 
-              {/* Table */}
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 480 }}>
                   <thead>
@@ -265,37 +370,54 @@ export function StandingsPage() {
                                 fontSize: 12,
                                 color: 'var(--text-muted)',
                                 fontFamily: 'DM Mono, monospace',
+                                verticalAlign: 'top',
                               }}
                             >
                               {idx + 1}
                             </td>
 
                             <td style={{ padding: '11px 14px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <div
-                                  style={{
-                                    width: 8,
-                                    height: 8,
-                                    borderRadius: '50%',
-                                    background: row.primary_color ?? '#8a8a9a',
-                                    flexShrink: 0,
-                                  }}
-                                />
-                                <Link
-                                  to={'/t/' + slug + '/team/' + row.team_id}
-                                  style={{
-                                    fontSize: 14,
-                                    fontWeight: 500,
-                                    color: 'var(--text-primary)',
-                                    textDecoration: 'none',
-                                  }}
-                                  className="hover:text-[var(--accent)]"
-                                >
-                                  <span style={{ color: 'var(--text-muted)', fontWeight: 700, marginRight: 6 }}>
-                                    ({row.seed ?? '-'})
-                                  </span>
-                                  {row.team_short_name ?? row.team_name}
-                                </Link>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <div
+                                    style={{
+                                      width: 8,
+                                      height: 8,
+                                      borderRadius: '50%',
+                                      background: row.primary_color ?? '#8a8a9a',
+                                      flexShrink: 0,
+                                    }}
+                                  />
+                                  <Link
+                                    to={'/t/' + slug + '/team/' + row.team_id}
+                                    style={{
+                                      fontSize: 14,
+                                      fontWeight: 500,
+                                      color: 'var(--text-primary)',
+                                      textDecoration: 'none',
+                                    }}
+                                    className="hover:text-[var(--accent)]"
+                                  >
+                                    <span style={{ color: 'var(--text-muted)', fontWeight: 700, marginRight: 6 }}>
+                                      ({row.seed ?? '-'})
+                                    </span>
+                                    {row.team_short_name ?? row.team_name}
+                                  </Link>
+                                </div>
+
+                                {row.crossover && (
+                                  <div
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      color: row.crossover.result === 'won' ? '#4ade80' : '#f59e0b',
+                                      marginLeft: 16,
+                                      lineHeight: 1.4,
+                                    }}
+                                  >
+                                    {row.crossover.text}
+                                  </div>
+                                )}
                               </div>
                             </td>
 
@@ -307,6 +429,7 @@ export function StandingsPage() {
                                 fontSize: 13,
                                 fontWeight: 700,
                                 color: 'var(--text-primary)',
+                                verticalAlign: 'top',
                               }}
                             >
                               {row.wins ?? 0}
@@ -319,6 +442,7 @@ export function StandingsPage() {
                                 fontFamily: 'DM Mono, monospace',
                                 fontSize: 13,
                                 color: 'var(--text-secondary)',
+                                verticalAlign: 'top',
                               }}
                             >
                               {row.losses ?? 0}
@@ -337,6 +461,7 @@ export function StandingsPage() {
                                     : diff < 0
                                     ? '#f87171'
                                     : 'var(--text-muted)',
+                                verticalAlign: 'top',
                               }}
                             >
                               {diff > 0 ? '+' + diff : diff}
@@ -349,6 +474,7 @@ export function StandingsPage() {
                                 fontFamily: 'DM Mono, monospace',
                                 fontSize: 13,
                                 color: 'var(--text-secondary)',
+                                verticalAlign: 'top',
                               }}
                             >
                               {row.points_scored ?? 0}
@@ -361,6 +487,7 @@ export function StandingsPage() {
                                 fontFamily: 'DM Mono, monospace',
                                 fontSize: 13,
                                 color: 'var(--text-secondary)',
+                                verticalAlign: 'top',
                               }}
                             >
                               {row.points_against ?? 0}
@@ -373,12 +500,13 @@ export function StandingsPage() {
                                 fontFamily: 'DM Mono, monospace',
                                 fontSize: 13,
                                 color: 'var(--text-muted)',
+                                verticalAlign: 'top',
                               }}
                             >
                               {row.games_played ?? 0}
                             </td>
 
-                            <td style={{ padding: '11px 14px' }}>
+                            <td style={{ padding: '11px 14px', verticalAlign: 'top' }}>
                               <FavButton teamId={row.team_id} />
                             </td>
                           </tr>
@@ -393,7 +521,6 @@ export function StandingsPage() {
         })
       )}
 
-      {/* Tournament format note */}
       <div
         style={{
           marginTop: 16,
@@ -421,7 +548,90 @@ export function StandingsPage() {
         </p>
       </div>
 
-      {/* Tiebreaker note */}
+      {completedCrossovers.length > 0 && (
+        <div
+          style={{
+            marginTop: 12,
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 14,
+            padding: '14px 16px',
+          }}
+        >
+          <p
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: 'var(--text-muted)',
+              marginBottom: 8,
+            }}
+          >
+            Crossover Results
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {completedCrossovers.map(match => {
+              const loserId =
+                match.team_a_id === match.winner_id ? match.team_b_id :
+                match.team_b_id === match.winner_id ? match.team_a_id :
+                null
+
+              const winner = teams.find(t => t.id === match.winner_id)
+              const loser = teams.find(t => t.id === loserId)
+
+              const winnerStats = standingsByTeamId[match.winner_id]
+              const loserStats = loserId ? standingsByTeamId[loserId] : null
+
+              const slotInfo = crossoverSlotMap[match.match_code]
+
+              const winnerOriginal = formatPoolRank(
+                poolNameById[winner?.pool_id],
+                winnerStats?.rank ?? null
+              )
+
+              const loserOriginal = formatPoolRank(
+                poolNameById[loser?.pool_id],
+                loserStats?.rank ?? null
+              )
+
+              const winnerDest = formatPlayoffSlot(slotInfo?.winner)
+              const loserDest = formatPlayoffSlot(slotInfo?.loser)
+
+              return (
+                <div key={match.id} style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  <div>
+                    <strong style={{ color: '#4ade80' }}>
+                      {winner?.short_name ?? winner?.name ?? 'Winner'}
+                    </strong>
+                    {' '}defeated{' '}
+                    <strong>
+                      {loser?.short_name ?? loser?.name ?? 'Loser'}
+                    </strong>
+                    {' '}in {match.match_code ?? 'crossover'}
+                    {winnerOriginal && winnerDest
+                      ? winnerStats?.rank === 2
+                        ? ` and remains in ${winnerDest}.`
+                        : ` and moves from ${winnerOriginal} to ${winnerDest}.`
+                      : '.'}
+                  </div>
+
+                  {loser && loserOriginal && loserDest && (
+                    <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>
+                      {loser.short_name ?? loser.name}
+                      {loserStats?.rank === 3
+                        ? ` remains in ${loserDest}.`
+                        : ` drops from ${loserOriginal} to ${loserDest}.`}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       <div
         style={{
           marginTop: 12,
@@ -462,6 +672,35 @@ export function StandingsPage() {
       )}
     </div>
   )
+}
+
+function formatPoolRank(poolName, rank) {
+  if (!poolName || !rank) return null
+
+  const rankText =
+    rank === 1 ? '1st' :
+    rank === 2 ? '2nd' :
+    rank === 3 ? '3rd' :
+    rank === 4 ? '4th' :
+    `${rank}th`
+
+  return `${poolName} ${rankText}`
+}
+
+function formatPlayoffSlot(slot) {
+  if (!slot || slot.length < 2) return slot
+
+  const pool = slot[0]
+  const rank = Number(slot.slice(1))
+
+  const rankText =
+    rank === 1 ? '1st' :
+    rank === 2 ? '2nd' :
+    rank === 3 ? '3rd' :
+    rank === 4 ? '4th' :
+    `${rank}th`
+
+  return `Pool ${pool}'s playoff ${rankText} seed slot`
 }
 
 function FavButton({ teamId }) {

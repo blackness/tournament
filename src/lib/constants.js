@@ -33,7 +33,62 @@ export const FORMAT_LABELS = {
   round_robin:        'Round Robin',
   crossover_pools:    'Crossover Pools',
 }
-
+export const FORMAT_SUPPORT = {
+  [FORMAT_TYPES.POOL_TO_BRACKET]: {
+    status: 'supported',
+    wizardSelectable: true,
+    scheduleGenerationSupported: true,
+    bracketRenderingSupported: true,
+    publicSafe: true,
+    publishSafe: true,
+    description: 'Pool play followed by a championship bracket.',
+  },
+  [FORMAT_TYPES.POOL_TO_PLACEMENT]: {
+    status: 'supported',
+    wizardSelectable: true,
+    scheduleGenerationSupported: true,
+    bracketRenderingSupported: true,
+    publicSafe: true,
+    publishSafe: true,
+    description: 'Pool play followed by placement games.',
+  },
+  [FORMAT_TYPES.SINGLE_ELIM]: {
+    status: 'supported',
+    wizardSelectable: true,
+    scheduleGenerationSupported: true,
+    bracketRenderingSupported: true,
+    publicSafe: true,
+    publishSafe: true,
+    description: 'Single elimination bracket.',
+  },
+  [FORMAT_TYPES.DOUBLE_ELIM]: {
+    status: 'coming_soon',
+    wizardSelectable: true,
+    scheduleGenerationSupported: false,
+    bracketRenderingSupported: false,
+    publicSafe: false,
+    publishSafe: false,
+    description: 'Double elimination with a winners and losers bracket.',
+  },
+  [FORMAT_TYPES.ROUND_ROBIN]: {
+    status: 'supported',
+    wizardSelectable: true,
+    scheduleGenerationSupported: true,
+    bracketRenderingSupported: false,
+    publicSafe: true,
+    publishSafe: true,
+    description: 'All teams play each other.',
+  },
+  [FORMAT_TYPES.CROSSOVER]: {
+    status: 'supported',
+    wizardSelectable: true,
+    scheduleGenerationSupported: true,
+    bracketRenderingSupported: true,
+    publicSafe: true,
+    publishSafe: true,
+    description: 'Pool play with crossover games that determine later playoff placement.',
+  },
+}
 // ─── Match status ──────────────────────────────────────────────────────────────
 export const MATCH_STATUS = {
   SCHEDULED:   'scheduled',
@@ -115,4 +170,10 @@ export const qrUrl = {
   court:      (tournamentId, venueSlug) => `${APP_URL}/court/${tournamentId}/${venueSlug}`,
   tournament: (slug) => `${APP_URL}/t/${slug}`,
   match:      (matchId) => `${APP_URL}/score/${matchId}`,
+}
+export const FORMAT_STATUS_LABELS = {
+  supported: 'Supported',
+  beta: 'Beta',
+  coming_soon: 'Coming Soon',
+  internal_only: 'Internal Only',
 }

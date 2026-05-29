@@ -2,22 +2,27 @@ import { useState } from 'react'
 import { useWizardStore } from '../../../store/wizardStore'
 import { db } from '../../../lib/supabase'
 import { WizardNavButtons } from './WizardNavButtons'
-import { FORMAT_TYPES, FORMAT_LABELS } from '../../../lib/constants'
+import {
+  FORMAT_TYPES,
+  FORMAT_LABELS,
+  FORMAT_SUPPORT,
+  FORMAT_STATUS_LABELS,
+} from '../../../lib/constants'
 import { PlusCircle, Trash2, ChevronDown, ChevronUp, GripVertical } from 'lucide-react'
 
 const crypto = globalThis.crypto
 
 function newDivision(sortOrder) {
   return {
-    id:                      crypto.randomUUID(),
-    name:                    '',
-    slug:                    '',
-    formatType:              FORMAT_TYPES.POOL_TO_BRACKET,
-    gameDurationMinutes:     90,
+    id: crypto.randomUUID(),
+    name: '',
+    slug: '',
+    formatType: FORMAT_TYPES.POOL_TO_BRACKET,
+    gameDurationMinutes: 90,
     breakBetweenGamesMinutes: 30,
-    teamsAdvancePerPool:     2,
-    consolationBracket:      false,
-    thirdPlaceGame:          false,
+    teamsAdvancePerPool: 2,
+    consolationBracket: false,
+    thirdPlaceGame: false,
     sortOrder,
     _expanded: true,
   }
@@ -29,8 +34,8 @@ function toSlug(s) {
 
 export function WizardStep3Divisions({ onNext, onBack }) {
   const { divisions, addDivision, updateDivision, removeDivision, tournamentId } = useWizardStore()
-  const [errors, setErrors]   = useState({})
-  const [saving, setSaving]   = useState(false)
+  const [errors, setErrors] = useState({})
+  const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState(null)
 
   function validate() {
@@ -48,33 +53,35 @@ export function WizardStep3Divisions({ onNext, onBack }) {
 
   async function handleNext() {
     if (!validate()) return
-    if (!tournamentId) { onNext(); return }
+    if (!tournamentId) {
+      onNext()
+      return
+    }
 
     setSaving(true)
     try {
-      // Fetch existing divisions in DB
       const { data: existing } = await db.divisions.byTournament(tournamentId)
       const existingIds = new Set((existing ?? []).map(d => d.db_id ?? d.id))
+      void existingIds
 
-      // Upsert each division
       for (const [i, div] of divisions.entries()) {
         const slug = div.slug || toSlug(div.name)
         const payload = {
-          tournament_id:               tournamentId,
-          name:                        div.name.trim(),
+          tournament_id: tournamentId,
+          name: div.name.trim(),
           slug,
-          format_type:                 div.formatType,
-          game_duration_minutes:       div.gameDurationMinutes,
+          format_type: div.formatType,
+          game_duration_minutes: div.gameDurationMinutes,
           break_between_games_minutes: div.breakBetweenGamesMinutes,
-          teams_advance_per_pool:      div.teamsAdvancePerPool,
-          consolation_bracket:         div.consolationBracket,
-          third_place_game:            div.thirdPlaceGame,
-          sort_order:                  i,
+          teams_advance_per_pool: div.teamsAdvancePerPool,
+          consolation_bracket: div.consolationBracket,
+          third_place_game: div.thirdPlaceGame,
+          sort_order: i,
         }
+
         if (div.dbId) {
           await db.divisions.update(div.dbId, payload)
         } else {
-          // upsert by tournament_id+slug to handle retries
           const { data } = await db.divisions.upsert(payload)
           if (data) updateDivision(div.id, { dbId: data.id })
         }
@@ -107,14 +114,17 @@ export function WizardStep3Divisions({ onNext, onBack }) {
     <div className="space-y-6">
       <div>
         <h2 className="section-title">Divisions</h2>
-        <p className="section-subtitle">Add the divisions for your tournament. Each division can have its own format.</p>
+        <p className="section-subtitle">
+          Add the divisions for your tournament. Each division can have its own format.
+        </p>
       </div>
 
       {formError && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{formError}</div>
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          {formError}
+        </div>
       )}
 
-      {/* Quick presets */}
       {divisions.length === 0 && (
         <div>
           <p className="text-xs text-[var(--text-muted)] mb-2">Quick add a common division:</p>
@@ -122,7 +132,9 @@ export function WizardStep3Divisions({ onNext, onBack }) {
             {QUICK_PRESETS.map(p => (
               <button
                 key={p.label}
-                onClick={() => addDivision({ ...newDivision(0), name: p.name, slug: toSlug(p.name) })}
+                onClick={() =>
+                  addDivision({ ...newDivision(0), name: p.name, slug: toSlug(p.name) })
+                }
                 className="btn-secondary btn btn-sm"
               >
                 + {p.label}
@@ -132,7 +144,6 @@ export function WizardStep3Divisions({ onNext, onBack }) {
         </div>
       )}
 
-      {/* Division cards */}
       <div className="space-y-3">
         {divisions.map((div, idx) => (
           <DivisionCard
@@ -140,13 +151,12 @@ export function WizardStep3Divisions({ onNext, onBack }) {
             div={div}
             idx={idx}
             errors={errors}
-            onUpdate={(updates) => updateDivision(div.id, updates)}
+            onUpdate={updates => updateDivision(div.id, updates)}
             onRemove={() => removeDivision(div.id)}
           />
         ))}
       </div>
 
-      {/* Add button */}
       <button onClick={handleAdd} className="btn-secondary btn w-full">
         <PlusCircle size={16} />
         Add division
@@ -164,24 +174,48 @@ export function WizardStep3Divisions({ onNext, onBack }) {
 
 function DivisionCard({ div, idx, errors, onUpdate, onRemove }) {
   const [expanded, setExpanded] = useState(div._expanded ?? false)
+  const formatSupport = FORMAT_SUPPORT[div.formatType] ?? null
 
   const needsPoolConfig = [
     FORMAT_TYPES.POOL_TO_BRACKET,
     FORMAT_TYPES.CROSSOVER,
+    FORMAT_TYPES.POOL_TO_PLACEMENT,
   ].includes(div.formatType)
 
   const needsBracketConfig = [
     FORMAT_TYPES.POOL_TO_BRACKET,
+    FORMAT_TYPES.POOL_TO_PLACEMENT,
     FORMAT_TYPES.SINGLE_ELIM,
     FORMAT_TYPES.DOUBLE_ELIM,
     FORMAT_TYPES.CROSSOVER,
   ].includes(div.formatType)
 
+  const statusColor =
+    formatSupport?.status === 'supported'
+      ? '#15803d'
+      : formatSupport?.status === 'beta'
+      ? '#b45309'
+      : '#6b7280'
+
+  const statusBg =
+    formatSupport?.status === 'supported'
+      ? 'rgba(34,197,94,0.08)'
+      : formatSupport?.status === 'beta'
+      ? 'rgba(245,158,11,0.10)'
+      : 'rgba(107,114,128,0.08)'
+
+  const statusBorder =
+    formatSupport?.status === 'supported'
+      ? 'rgba(34,197,94,0.18)'
+      : formatSupport?.status === 'beta'
+      ? 'rgba(245,158,11,0.18)'
+      : 'rgba(107,114,128,0.18)'
+
   return (
     <div className="border border-[var(--border)] rounded-xl overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 ">
+      <div className="flex items-center gap-3 px-4 py-3">
         <GripVertical size={16} className="text-[var(--text-muted)] cursor-grab" />
+
         <div className="flex-1 min-w-0">
           <input
             type="text"
@@ -196,15 +230,34 @@ function DivisionCard({ div, idx, errors, onUpdate, onRemove }) {
             <p className="text-xs text-red-600 mt-0.5">{errors[`${div.id}_name`]}</p>
           )}
         </div>
+
         <select
           className="text-xs border border-[var(--border)] rounded-lg px-2 py-1.5 text-[var(--text-secondary)] focus:ring-1 focus:ring-blue-500 focus:border-[var(--accent)]"
           value={div.formatType}
           onChange={e => onUpdate({ formatType: e.target.value })}
         >
-          {Object.entries(FORMAT_LABELS).map(([v, l]) => (
-            <option key={v} value={v}>{l}</option>
-          ))}
+          {Object.entries(FORMAT_LABELS)
+            .filter(([value]) => FORMAT_SUPPORT[value]?.wizardSelectable !== false)
+            .map(([v, l]) => (
+              <option key={v} value={v}>
+                {l}
+              </option>
+            ))}
         </select>
+
+        {formatSupport?.status && (
+          <span
+            className="text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-full border"
+            style={{
+              color: statusColor,
+              background: statusBg,
+              borderColor: statusBorder,
+            }}
+          >
+            {FORMAT_STATUS_LABELS[formatSupport.status] ?? formatSupport.status}
+          </span>
+        )}
+
         <button
           onClick={() => setExpanded(e => !e)}
           className="p-1 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
@@ -212,31 +265,79 @@ function DivisionCard({ div, idx, errors, onUpdate, onRemove }) {
         >
           {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </button>
-        <button onClick={onRemove} className="p-1 text-[var(--text-muted)] hover:text-red-500" title="Remove">
+
+        <button
+          onClick={onRemove}
+          className="p-1 text-[var(--text-muted)] hover:text-red-500"
+          title="Remove"
+        >
           <Trash2 size={15} />
         </button>
       </div>
 
-      {/* Expanded settings */}
       {expanded && (
         <div className="px-4 py-4 space-y-4 border-t border-[var(--border)]">
+          {formatSupport && (
+            <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)]">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-sm font-semibold text-[var(--text-primary)]">
+                  {FORMAT_LABELS[div.formatType]}
+                </p>
+
+                <span
+                  className="text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-full border"
+                  style={{
+                    color: statusColor,
+                    background: statusBg,
+                    borderColor: statusBorder,
+                  }}
+                >
+                  {FORMAT_STATUS_LABELS[formatSupport.status] ?? formatSupport.status}
+                </span>
+              </div>
+
+              {formatSupport.description && (
+                <p className="text-sm text-[var(--text-secondary)] mt-2">
+                  {formatSupport.description}
+                </p>
+              )}
+
+              {!formatSupport.scheduleGenerationSupported && (
+                <p className="text-xs text-amber-700 mt-2">
+                  Schedule generation is not available yet for this format in the wizard.
+                </p>
+              )}
+
+              {!formatSupport.bracketRenderingSupported && (
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  Public bracket rendering may be limited or unavailable for this format.
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div className="field-group">
               <label className="field-label">Game duration (min)</label>
               <input
                 type="number"
                 className="field-input"
-                min={20} max={180} step={5}
+                min={20}
+                max={180}
+                step={5}
                 value={div.gameDurationMinutes}
                 onChange={e => onUpdate({ gameDurationMinutes: Number(e.target.value) })}
               />
             </div>
+
             <div className="field-group">
               <label className="field-label">Break between games (min)</label>
               <input
                 type="number"
                 className="field-input"
-                min={0} max={120} step={5}
+                min={0}
+                max={120}
+                step={5}
                 value={div.breakBetweenGamesMinutes}
                 onChange={e => onUpdate({ breakBetweenGamesMinutes: Number(e.target.value) })}
               />
@@ -251,7 +352,11 @@ function DivisionCard({ div, idx, errors, onUpdate, onRemove }) {
                 value={div.teamsAdvancePerPool}
                 onChange={e => onUpdate({ teamsAdvancePerPool: Number(e.target.value) })}
               >
-                {[1,2,3,4].map(n => <option key={n} value={n}>{n}</option>)}
+                {[1, 2, 3, 4].map(n => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
               </select>
             </div>
           )}
@@ -267,6 +372,7 @@ function DivisionCard({ div, idx, errors, onUpdate, onRemove }) {
                 />
                 <span className="text-sm text-[var(--text-secondary)]">3rd place game</span>
               </label>
+
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"

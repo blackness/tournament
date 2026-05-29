@@ -31,7 +31,22 @@ function resolveColors() {
     bgBase: get('--bg-base') || '#0a0a0c',
   }
 }
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < breakpoint : false
+  )
 
+  useEffect(() => {
+    function handleResize() {
+      setIsMobile(window.innerWidth < breakpoint)
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [breakpoint])
+
+  return isMobile
+}
 const NODE_W = 200
 const NODE_H = 104
 const H_GAP = 80
@@ -54,7 +69,7 @@ export function BracketPage() {
   const containerRef = useRef(null)
 
   const themeColors = useThemeColors()
-
+  const isMobile = useIsMobile()
   useEffect(() => {
     window._bracketSlug = slug
     return () => {
@@ -84,7 +99,7 @@ export function BracketPage() {
 
       setDivision(div)
 
-      const nextBracket = await loadBestBracketForDivision(divisionId)
+      const nextBracket = await loadBracketForDivision(divisionId)
       setBracket(nextBracket)
       setLoading(false)
     }
@@ -106,7 +121,7 @@ export function BracketPage() {
           filter: 'division_id=eq.' + divisionId,
         },
         async () => {
-          const nextBracket = await loadBestBracketForDivision(divisionId)
+          const nextBracket = await loadBracketForDivision(divisionId)
           setBracket(nextBracket)
         }
       )
@@ -130,6 +145,7 @@ export function BracketPage() {
   const tournament = division?.tournament
   const color = tournament?.primary_color ?? '#8b5cf6'
   const {
+    mode = 'none',
     nodes = [],
     champion,
     second,
@@ -293,6 +309,7 @@ export function BracketPage() {
               second={second}
               third={third}
               fourth={fourth}
+              isMobile={isMobile}
             />
           </div>
         </div>
@@ -397,56 +414,89 @@ export function BracketPage() {
   )
 }
 
-function CompactHeroPodium({ champion, second, third, fourth, tournamentSlug }) {
+function CompactHeroPodium({ champion, second, third, fourth, tournamentSlug, isMobile }) {
+  const cards = isMobile
+    ? [
+        champion && {
+          key: 'gold',
+          medal: 'gold',
+          title: 'Gold',
+          team: champion,
+          icon: <Trophy size={14} />,
+        },
+        second && {
+          key: 'silver',
+          medal: 'silver',
+          title: 'Silver',
+          team: second,
+          icon: <Medal size={13} />,
+        },
+        third && {
+          key: 'bronze',
+          medal: 'bronze',
+          title: 'Bronze',
+          team: third,
+          icon: <Medal size={13} />,
+        },
+        fourth && {
+          key: 'antique-bronze',
+          medal: 'antiqueBronze',
+          title: 'Antique Bronze',
+          team: fourth,
+          icon: <Medal size={13} />,
+        },
+      ].filter(Boolean)
+    : [
+        second && {
+          key: 'silver',
+          medal: 'silver',
+          title: 'Silver',
+          team: second,
+          icon: <Medal size={13} />,
+        },
+        champion && {
+          key: 'gold',
+          medal: 'gold',
+          title: 'Gold',
+          team: champion,
+          icon: <Trophy size={14} />,
+        },
+        third && {
+          key: 'bronze',
+          medal: 'bronze',
+          title: 'Bronze',
+          team: third,
+          icon: <Medal size={13} />,
+        },
+        fourth && {
+          key: 'antique-bronze',
+          medal: 'antiqueBronze',
+          title: 'Antique Bronze',
+          team: fourth,
+          icon: <Medal size={13} />,
+        },
+      ].filter(Boolean)
+
   return (
     <div
       style={{
         display: 'flex',
         alignItems: 'flex-end',
-        gap: 12,
+        gap: 8,
         flexWrap: 'wrap',
         justifyContent: 'center',
       }}
     >
-      {second && (
+      {cards.map(card => (
         <CompactPodiumCard
-          medal="silver"
-          title="Silver"
-          team={second}
+          key={card.key}
+          medal={card.medal}
+          title={card.title}
+          team={card.team}
           tournamentSlug={tournamentSlug}
-          icon={<Medal size={13} />}
+          icon={card.icon}
         />
-      )}
-
-      {champion && (
-        <CompactPodiumCard
-          medal="gold"
-          title="Gold"
-          team={champion}
-          tournamentSlug={tournamentSlug}
-          icon={<Trophy size={14} />}
-        />
-      )}
-
-      {third && (
-        <CompactPodiumCard
-          medal="bronze"
-          title="Bronze"
-          team={third}
-          tournamentSlug={tournamentSlug}
-          icon={<Medal size={13} />}
-        />
-      )}
-
-      {fourth && (
-        <CompactPodiumCard
-          medal="antiqueBronze"
-          title="Antique Bronze"
-          team={fourth}
-          tournamentSlug={tournamentSlug}
-          icon={<Medal size={13} />}
-        />
-      )}
+      ))}
     </div>
   )
 }
@@ -571,8 +621,16 @@ function CompactPodiumCard({ medal, title, team, tournamentSlug, icon }) {
     </div>
   )
 }
-async function loadBestBracketForDivision(divisionId) {
-  const { data: bracketMatches, error } = await supabase
+async function loadBracketForDivision(divisionId) {
+  const graphMatches = await loadGraphBracketMatches(divisionId)
+  if (graphMatches.length > 0) {
+    return {
+      mode: 'legacy',
+      ...layoutDualBracket(graphMatches),
+    }
+  }
+async function loadGraphBracketMatches(divisionId) {
+  const { data, error } = await supabase
     .from('matches')
     .select(`
       id,
@@ -599,18 +657,19 @@ async function loadBestBracketForDivision(divisionId) {
     `)
     .eq('division_id', divisionId)
     .in('bracket_type', ['championship', 'consolation'])
+    .neq('status', 'cancelled')
     .order('match_number')
 
   if (error) {
-    console.error(error)
-    return null
+    console.error('graph bracket load failed', error)
+    return []
   }
 
-  if ((bracketMatches ?? []).length > 0) {
-    return layoutDualBracket(bracketMatches ?? [])
-  }
+  return data ?? []
+}
 
-  const { data: legacyMatches, error: legacyError } = await supabase
+async function loadLegacyBracketMatches(divisionId) {
+  const { data, error } = await supabase
     .from('matches')
     .select(`
       id,
@@ -639,18 +698,30 @@ async function loadBestBracketForDivision(divisionId) {
     .neq('status', 'cancelled')
     .order('match_number')
 
-  if (legacyError) {
-    console.error(legacyError)
-    return null
+  if (error) {
+    console.error('legacy bracket load failed', error)
+    return []
   }
 
-  if ((legacyMatches ?? []).length > 0) {
-    return layoutLegacyBracket(legacyMatches ?? [])
-  }
-
-  return null
+  return data ?? []
 }
 
+
+  const legacyMatches = await loadLegacyBracketMatches(divisionId)
+  if (legacyMatches.length > 0) {
+    return {
+      mode: 'legacy',
+      ...layoutLegacyBracket(legacyMatches),
+    }
+  }
+
+  return {
+    mode: 'none',
+    nodes: [],
+    championshipLayout: null,
+    consolationLayout: null,
+  }
+}
 function BracketNode({ node, primaryColor, themeColors }) {
   const { x, y, match, team_a, team_b, team_a_source, team_b_source, label } = node
   const isLive = match?.status === 'in_progress'
