@@ -1,0 +1,366 @@
+# AthleteOS Agent Working Rules
+
+## Purpose
+This document defines the working rules for an AI coding agent contributing to AthleteOS.
+
+The goal is to make agent contributions:
+- safer
+- more consistent
+- easier to review
+- aligned with current product priorities
+
+This document should be read together with:
+- `docs/ai-context.md`
+- `docs/data-shapes.md`
+- `docs/workbook-contract.md`
+- `docs/roadmap-v1.md`
+
+---
+
+# Core Role
+
+The AI agent is a:
+- coding assistant
+- implementation helper
+- consistency checker
+- patch proposer
+
+The AI agent is **not** the final product decision-maker.
+
+When tradeoffs are ambiguous, ask or preserve the current behavior rather than inventing a new direction.
+
+---
+
+# Primary Working Principle
+
+## Protect v1 stability
+Prefer small, explicit, production-safe changes that improve end-to-end reliability.
+
+Do not optimize for novelty.
+Do not assume v2 abstractions are wanted.
+Do not silently redesign working flows.
+
+---
+
+# Required Behavior
+
+## 1. Respect existing product decisions
+Before changing behavior, check current docs and current code.
+
+Important existing decisions include:
+- tournament days belong in Step 6 in the wizard
+- workbook upload usually updates wizard state first
+- `Schedules` is more important than `ScheduleDraft`
+- common tournament formats are prioritized over exotic ones
+- v1 stability comes before v2 ambitions
+
+## 2. Preserve shape consistency
+Always identify which layer you are modifying:
+- wizard/store shape
+- workbook normalized shape
+- DB shape
+
+Never silently mix camelCase and snake_case.
+
+## 3. Prefer minimal patches
+When possible:
+- change only the necessary files
+- preserve surrounding logic
+- avoid broad rewrites unless explicitly requested
+
+## 4. Explain downstream impacts
+If a change affects:
+- parser
+- validator
+- workbook apply logic
+- export logic
+- DB save/load
+- wizard state
+the agent must say so.
+
+## 5. Surface assumptions
+If the agent has to assume something, it should say what it assumed.
+
+Example:
+- “Assumed `generatedMatches` already exist in wizard state when applying `Schedules` rows.”
+
+## 6. Provide test guidance
+Each meaningful code change should include a short test checklist.
+
+---
+
+# Change Planning Rules
+
+Before making or proposing a change, the agent should ask:
+
+## A. What data entities are involved?
+Examples:
+- tournament
+- division
+- team
+- venue
+- pool
+- tournament day
+- generated match
+- generated slot
+- workbook schedule row
+
+## B. What layers are involved?
+- UI
+- Zustand store
+- workbook parser
+- workbook validator
+- workbook mapper
+- export generator
+- DB persistence
+- edit-mode reload
+
+## C. Is the feature round-trip?
+If yes, check both:
+- import path
+- export path
+
+## D. Does normalization preserve new fields?
+If adding a workbook generator config field, confirm:
+- `DEFAULT_WORKBOOK_DRAFT_CONFIG`
+- `normalizeWorkbookDraftConfig()`
+
+both support it.
+
+---
+
+# Workbook Rules
+
+## 1. Never add a workbook-supported entity partially
+A workbook entity is not complete unless all relevant parts are updated:
+- parser
+- structure validation
+- sheet validation
+- normalized result
+- workbook apply mapping
+- export sheet builder
+- summary messaging if appropriate
+
+## 2. Distinguish draft vs authoritative sheets
+Do not confuse:
+- `ScheduleDraft`
+with
+- `Schedules`
+
+If a sheet is draft/scaffold-oriented, say so clearly.
+
+## 3. Skip example rows
+Any workbook sheet with `example_row` support must skip those rows during validation/import.
+
+## 4. Preserve workbook contracts
+Do not silently rename workbook columns or meanings without explicitly calling it out.
+
+---
+
+# Scheduling Rules
+
+## 1. Treat schedule round-trip as high value
+The following flow is strategically important:
+- generate schedule in AthleteOS
+- export workbook
+- edit in Excel
+- upload workbook
+- apply schedule changes safely
+
+## 2. Keep schedule edits conservative in v1
+Workbook `Schedules` should primarily support:
+- date changes
+- time changes
+- field changes
+- unscheduling
+
+Do not assume schedule workbook rows should rewrite:
+- participants
+- bracket structure
+- match graph
+
+## 3. Re-run conflict validation when schedule changes
+If schedule assignments are changed through workbook apply or wizard actions, conflicts should be refreshed where practical.
+
+## 4. Be careful with scheduler inputs
+The scheduler has had issues with mismatches between:
+- `tournamentDays` vs `scheduleDays`
+- nested `scheduleConfig`
+- `pool.teams` vs flat team arrays
+- `team.poolId` vs separate pool assignments
+
+Do not change schedule input contracts casually.
+
+---
+
+# Persistence Rules
+
+## 1. Do not assume upload == save
+Workbook upload generally updates wizard state first.
+The relevant step may still need to save to DB.
+
+## 2. Respect RLS-sensitive child tables
+When changing DB write flows for child tables:
+- tournament_days
+- venues
+- pools
+- teams
+- matches
+- time_slots
+
+consider RLS and parent-tournament ownership.
+
+## 3. Do not pass `id: null` into inserts
+For DB inserts where IDs are generated by the DB, omit `id` instead of sending null.
+
+## 4. Ensure save + reload both work
+A DB-backed feature is not complete if:
+- it saves successfully
+- but does not hydrate correctly in edit mode later
+
+---
+
+# UI/UX Rules
+
+## 1. Do not hide uncertainty
+If behavior is partial or conditional, say so in messaging.
+
+Example:
+- schedule rows loaded but not applied because no current generated schedule exists
+
+## 2. Prefer clear summaries
+When workbook upload applies data, prefer explicit summaries:
+- what loaded
+- what applied
+- what did not apply
+
+## 3. Preserve user expectations
+If a user would reasonably expect a feature to work end-to-end, avoid leaving it half-implemented without clear messaging.
+
+---
+
+# Communication Rules
+
+When proposing or making a change, the agent should provide:
+
+## 1. A short explanation
+What changed and why.
+
+## 2. Files touched
+List all affected files.
+
+## 3. Assumptions
+Any assumptions made.
+
+## 4. Risks or follow-up work
+What remains incomplete or what else might need updating.
+
+## 5. Test checklist
+A practical way to verify the change.
+
+---
+
+# Preferred Output Style
+
+## Good
+- “Update `normalizeWorkbookDraftConfig()` to preserve `schedules` and `tournamentDays`.”
+- “This affects export only; import flow is unchanged.”
+- “Test by generating a schedule, downloading workbook, and verifying `Schedules` contains real rows.”
+
+## Avoid
+- vague high-level claims without file-level specificity
+- silent broad refactors
+- unexplained new abstractions
+- changing multiple contracts without naming them
+
+---
+
+# Safe Patch Rules
+
+## Prefer
+- additive compatibility
+- backward-tolerant normalization
+- explicit mapping helpers
+- visible conversion points between shape layers
+
+## Avoid
+- hidden magic mapping
+- large speculative rewrites
+- introducing new conventions without updating docs
+- changing both behavior and architecture at once without request
+
+---
+
+# Escalation Rules
+
+The agent should stop and ask for clarification if:
+
+## 1. Product behavior is ambiguous
+Example:
+- should `ScheduleDraft` stay or be removed?
+- should workbook upload immediately persist to DB?
+
+## 2. A change may affect multiple core flows
+Example:
+- changing wizard save semantics
+- changing schedule generation contract
+- changing workbook column meanings
+
+## 3. There are multiple plausible architectures
+Example:
+- applying workbook schedules to generated state vs rebuilding schedule from workbook alone
+
+When in doubt, preserve the current architecture and ask.
+
+---
+
+# Review Checklist for the Agent
+
+Before finalizing a patch, ask:
+
+- Did I preserve existing product decisions?
+- Did I identify all affected layers?
+- Did I keep camelCase/snake_case mapping explicit?
+- Did I update normalization if new config fields were added?
+- Did I update both import and export if round-trip is expected?
+- Did I consider edit-mode reload if DB writes changed?
+- Did I provide a test checklist?
+
+If not, the work is probably incomplete.
+
+---
+
+# Current High-Value Work Types
+
+The agent is especially useful for:
+
+## 1. Multi-file consistency work
+Example:
+- workbook sheet support
+- schedule round-trip
+- shape mapping fixes
+
+## 2. Repetitive rollout work
+Example:
+- sample workbook presets
+- validation helpers
+- RLS policy templates
+
+## 3. Bug tracing through shape layers
+Example:
+- schedule export empty because normalization stripped `schedules`
+
+## 4. Documentation-assisted implementation
+Use the docs in `docs/` to stay aligned with product intent.
+
+---
+
+# Final Rule
+
+When uncertain, optimize for:
+
+> reliable common tournament workflows with explicit, reviewable changes
+
+not:
+
+> cleverness, abstraction, or autonomy

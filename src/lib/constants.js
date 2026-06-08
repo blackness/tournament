@@ -163,7 +163,9 @@ export const BRAND_COLORS = [
 ]
 
 // ─── App URL ──────────────────────────────────────────────────────────────────
-export const APP_URL = import.meta.env.VITE_APP_URL || window.location.origin
+export const APP_URL =
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_APP_URL) ||
+  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173')
 
 // ─── QR URL builders ──────────────────────────────────────────────────────────
 export const qrUrl = {

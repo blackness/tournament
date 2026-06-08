@@ -234,10 +234,10 @@ export function GenerateWorkbookDraftModal({ isOpen, onClose }) {
             </div>
             <div>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: 'var(--text-primary)' }}>
-                Generate Workbook Draft
+                Generate Sample Workbook Template
               </h2>
               <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
-                Answer a few setup questions and download an editable tournament workbook.
+                Create a sample editable workbook template for a tournament structure. This is separate from the current tournament round-trip workbook export.
               </p>
             </div>
           </div>
@@ -352,7 +352,7 @@ export function GenerateWorkbookDraftModal({ isOpen, onClose }) {
           ) : (
             <button onClick={handleGenerate} disabled={submitting} style={primaryButtonStyle(submitting)}>
               <Download size={15} />
-              {submitting ? 'Generating...' : 'Generate workbook'}
+              {submitting ? 'Generating...' : 'Generate template'}
             </button>
           )}
         </div>
@@ -470,7 +470,7 @@ function StepDivisions({ divisions, onDivisionChange, onAddDivision, onRemoveDiv
     <div className="space-y-5">
       <SectionTitle
         title="Divisions"
-        subtitle="Define the divisions and basic format structure for the workbook draft."
+        subtitle="Define the divisions and basic format structure for the workbook template."
       />
 
       <div className="space-y-4">
@@ -604,7 +604,7 @@ function StepWorkbookOptions({ workbookOptions, onWorkbookOptionsChange }) {
     <div className="space-y-5">
       <SectionTitle
         title="Workbook Options"
-        subtitle="Choose which tabs and scaffolding the workbook should include."
+        subtitle="Choose which tabs and scaffolding the sample template should include."
       />
 
       <div className="grid grid-cols-2 gap-4">
@@ -681,7 +681,7 @@ function StepWorkbookOptions({ workbookOptions, onWorkbookOptionsChange }) {
           lineHeight: 1.6,
         }}
       >
-        The generated workbook will include:
+        This template workbook is intended for structure setup and sample editing. It is not the same as the current tournament round-trip workbook export from the wizard.
         <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
           <li>Instructions</li>
           <li>Tournament</li>

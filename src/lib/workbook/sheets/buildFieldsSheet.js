@@ -1,23 +1,35 @@
-import { addStyledHeaderRow, autoSizeColumns } from './sheetUtils'
+import { addStyledHeaderRow, autoSizeColumns } from './sheetUtils.js'
 
 export function buildFieldsSheet(workbook, config, derived) {
   const ws = workbook.addWorksheet('Fields')
 
   addStyledHeaderRow(ws, [
+    'example_row',
     'field_name',
     'short_name',
     'qr_slug',
     'sort_order',
   ])
 
-  derived.fields.forEach(field => {
+  if (!derived.fields?.length) {
     ws.addRow([
-      field.fieldName,
-      field.shortName,
-      field.qrSlug,
-      field.sortOrder,
+      'TRUE',
+      'Field 1',
+      'F1',
+      'field-1',
+      1,
     ])
-  })
+  } else {
+    derived.fields.forEach(field => {
+      ws.addRow([
+        '',
+        field.fieldName,
+        field.shortName,
+        field.qrSlug,
+        field.sortOrder,
+      ])
+    })
+  }
 
   autoSizeColumns(ws)
 }

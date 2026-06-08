@@ -109,18 +109,24 @@ export function generateSchedule(config) {
     divisions = [],
     teams = [],
     pools = [],
+    poolAssignments = {},
     venues = [],
+    tournamentDays = [],
+    scheduleDays = [],
+    scheduleConfig = {},
+    tournamentId,
+  } = config
+
+  const {
     startTime,
     endTime,
     lunchBreakStart,
     lunchBreakEnd,
-    scheduleDays = [],
     gameDurationMinutes = 90,
     breakBetweenGamesMinutes = 30,
     minRestBetweenTeamGames = 90,
     generationMode = 'all',
-    tournamentId,
-  } = config
+  } = scheduleConfig ?? {}
 
   const crypto = globalThis.crypto
   const slotDuration = gameDurationMinutes + breakBetweenGamesMinutes
@@ -129,18 +135,45 @@ export function generateSchedule(config) {
     return { slots: [], matches: [], conflicts: [] }
   }
 
+  const inputDays =
+    Array.isArray(tournamentDays) && tournamentDays.length > 0
+      ? tournamentDays
+      : scheduleDays
+
   const normalizedDays =
-    scheduleDays.length > 0
-      ? scheduleDays
-          .filter(day => day.startTime)
-          .map(day => ({
-            start: new Date(day.startTime),
-            end: day.endTime
-              ? new Date(day.endTime)
-              : new Date(new Date(day.startTime).getTime() + 10 * 60 * 60 * 1000),
-            lunchStart: day.lunchBreakStart ? new Date(day.lunchBreakStart) : null,
-            lunchEnd: day.lunchBreakEnd ? new Date(day.lunchBreakEnd) : null,
-          }))
+    inputDays.length > 0
+      ? inputDays
+          .filter(day => day.startTime || day.start_time)
+          .map(day => {
+            const dayDate = day.eventDate || day.event_date || ''
+            const dayStartTime = day.startTime || day.start_time || '09:00'
+            const dayEndTime = day.endTime || day.end_time || ''
+            const dayLunchStart = day.lunchBreakStart || day.lunch_break_start || null
+            const dayLunchEnd = day.lunchBreakEnd || day.lunch_break_end || null
+
+            const startIso = dayDate
+              ? `${dayDate}T${dayStartTime}`
+              : dayStartTime
+
+            const endIso = dayDate && dayEndTime
+              ? `${dayDate}T${dayEndTime}`
+              : dayEndTime || null
+
+            const lunchStartIso =
+              dayDate && dayLunchStart ? `${dayDate}T${dayLunchStart}` : dayLunchStart
+
+            const lunchEndIso =
+              dayDate && dayLunchEnd ? `${dayDate}T${dayLunchEnd}` : dayLunchEnd
+
+            return {
+              start: new Date(startIso),
+              end: endIso
+                ? new Date(endIso)
+                : new Date(new Date(startIso).getTime() + 10 * 60 * 60 * 1000),
+              lunchStart: lunchStartIso ? new Date(lunchStartIso) : null,
+              lunchEnd: lunchEndIso ? new Date(lunchEndIso) : null,
+            }
+          })
       : startTime
         ? [
             {
@@ -194,21 +227,36 @@ export function generateSchedule(config) {
     poolHomeVenue[pool.id] = venues[i % venues.length]?.id ?? venues[0]?.id
   })
 
-  console.log('generateSchedule divisions', divisions)
-  console.log('generateSchedule teams', teams)
-  console.log('generateSchedule pools', pools)
-  console.log('generateSchedule generationMode', generationMode)
+  const poolsWithTeams = pools.map(pool => ({
+    ...pool,
+    teams: teams.filter(team => {
+      const assignedPoolId =
+        poolAssignments?.[team.id] ??
+        team.poolId ??
+        team.pool_id ??
+        null
 
+      return assignedPoolId === pool.id
+    }),
+  }))
+console.log(
+    '[generateSchedule] poolsWithTeams',
+    poolsWithTeams.map(pool => ({
+      poolId: pool.id,
+      poolName: pool.name,
+      teamCount: pool.teams.length,
+      teams: pool.teams.map(t => t.name),
+    }))
+  )
   const allMatchups = []
 
-  // Pool-based matchups
-  for (const pool of pools) {
+  for (const pool of poolsWithTeams) {
     const matchups = generatePoolMatchups(pool)
     matchups.forEach(m =>
       allMatchups.push({
         ...m,
         tournament_id: tournamentId ?? null,
-        division_id: pool.divisionId ?? null,
+        division_id: pool.divisionId ?? pool.division_id ?? null,
         pool_id: pool.id,
         home_venue: poolHomeVenue[pool.id],
         _structureType: 'pool',
@@ -216,22 +264,16 @@ export function generateSchedule(config) {
     )
   }
 
-  // Bracket-only single elimination divisions
   for (const division of divisions) {
-    console.log('checking division for single elim scheduling', division)
 
     if (division.formatType !== FORMAT_TYPES.SINGLE_ELIM) continue
 
     const divisionTeams = teams.filter(t => t.divisionId === division.id)
-    console.log('single elim division teams', division.id, divisionTeams)
-
     const matchups = generateSingleElimRound1Matchups(
       divisionTeams,
       division.id,
       tournamentId
     )
-
-    console.log('single elim round 1 matchups', division.id, matchups)
 
     matchups.forEach((m, i) =>
       allMatchups.push({
@@ -242,15 +284,13 @@ export function generateSchedule(config) {
     )
   }
 
-  console.log('allMatchups before sort', allMatchups)
-
   allMatchups.sort((a, b) => {
     const roundDiff = (a.round ?? 1) - (b.round ?? 1)
     if (roundDiff !== 0) return roundDiff
 
     const aKey = a.pool_id ?? a.division_id ?? ''
     const bKey = b.pool_id ?? b.division_id ?? ''
-    return aKey.localeCompare(bKey)
+    return String(aKey).localeCompare(String(bKey))
   })
 
   let matchupsToSchedule = allMatchups
@@ -261,8 +301,6 @@ export function generateSchedule(config) {
     const firstRound = allMatchups[0]?.round
     matchupsToSchedule = allMatchups.filter(m => (m.round ?? 1) === firstRound)
   }
-
-  console.log('matchupsToSchedule', matchupsToSchedule)
 
   const matches = []
   const teamLastSlot = {}
@@ -329,13 +367,8 @@ export function generateSchedule(config) {
 
   const conflicts = validateSchedule(matches, usedSlots, minRestBetweenTeamGames)
 
-  console.log('generateSchedule final matches', matches)
-  console.log('generateSchedule final slots', usedSlots)
-  console.log('generateSchedule final conflicts', conflicts)
-
   return { slots: usedSlots, matches, conflicts }
 }
-
 /**
  * Generate round-robin matchups for a pool.
  * Uses the director-preferred template for 4-team pools.

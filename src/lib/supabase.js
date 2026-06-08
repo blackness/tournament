@@ -247,7 +247,7 @@ tournaments: {
   },
 
   // -- Matches ------------------------------------------------------------------
-  matches: {
+matches: {
     byTournament: (tournamentId) =>
       supabase
         .from('matches')
@@ -260,7 +260,7 @@ tournaments: {
         `)
         .eq('tournament_id', tournamentId)
         .neq('status', 'cancelled'),
-
+ 
     byId: (matchId) =>
       supabase
         .from('matches')
@@ -273,9 +273,13 @@ tournaments: {
         `)
         .eq('id', matchId)
         .single(),
-
+   createAdHoc: (payload) =>
+    supabase.from('matches').insert(payload).select().single(),
     createMany: (rows) =>
       supabase.from('matches').insert(rows).select(),
+
+    createAdHoc: (payload) =>
+      supabase.from('matches').insert(payload).select().single(),
 
     update: (id, data) =>
       supabase.from('matches').update(data).eq('id', id).select().single(),
@@ -283,7 +287,6 @@ tournaments: {
     deleteByTournament: (tournamentId) =>
       supabase.from('matches').delete().eq('tournament_id', tournamentId),
   },
-
   // -- Game events ---------------------------------------------------------------
   gameEvents: {
     byMatch: (matchId) =>

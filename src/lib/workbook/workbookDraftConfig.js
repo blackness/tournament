@@ -1,4 +1,4 @@
-import { FORMAT_TYPES } from '../constants'
+import { FORMAT_TYPES } from '../constants.js'
 
 export const WORKBOOK_SCHEDULE_DRAFT_LEVELS = {
   NONE: 'none',
@@ -10,6 +10,11 @@ export const WORKBOOK_TEAM_ROW_STYLES = {
   BLANK: 'blank',
   PLACEHOLDER: 'placeholder',
   SEEDED_PLACEHOLDER: 'seeded_placeholder',
+}
+
+export const WORKBOOK_TEMPLATE_TYPES = {
+  SIMPLE: 'simple',
+  ADVANCED: 'advanced',
 }
 
 export const DEFAULT_WORKBOOK_DRAFT_CONFIG = {
@@ -41,9 +46,13 @@ export const DEFAULT_WORKBOOK_DRAFT_CONFIG = {
     scheduleDraftLevel: WORKBOOK_SCHEDULE_DRAFT_LEVELS.TIME_SLOTS,
     teamRowStyle: WORKBOOK_TEAM_ROW_STYLES.SEEDED_PLACEHOLDER,
     autoAssignPoolsEvenly: true,
+    templateType: WORKBOOK_TEMPLATE_TYPES.SIMPLE,
   },
 
   divisions: [],
+  fields: [],
+  tournamentDays: [],
+  schedules: [],
 }
 
 export function normalizeWorkbookDraftConfig(input = {}) {
@@ -64,8 +73,8 @@ export function normalizeWorkbookDraftConfig(input = {}) {
       name: '',
       slug: '',
       formatType: FORMAT_TYPES.POOL_TO_BRACKET,
-      teamCount: 8,
-      poolCount: 2,
+      teamCount: 0,
+      poolCount: 0,
       teamsAdvancePerPool: 2,
       thirdPlaceGame: false,
       consolationBracket: false,
@@ -76,12 +85,23 @@ export function normalizeWorkbookDraftConfig(input = {}) {
         input.scheduleDefaults?.breakBetweenGamesMinutes ??
         DEFAULT_WORKBOOK_DRAFT_CONFIG.scheduleDefaults.breakBetweenGamesMinutes,
       sortOrder: index,
+      pools: [],
+      teams: [],
       ...division,
     })),
+    fields: Array.isArray(input.fields) ? input.fields : [],
+    tournamentDays: Array.isArray(input.tournamentDays) ? input.tournamentDays : [],
+    schedules: Array.isArray(input.schedules) ? input.schedules : [],
   }
 
   if (!merged.workbookOptions.includeScheduleDraft) {
     merged.workbookOptions.scheduleDraftLevel = WORKBOOK_SCHEDULE_DRAFT_LEVELS.NONE
+  }
+
+  if (
+    !Object.values(WORKBOOK_TEMPLATE_TYPES).includes(merged.workbookOptions.templateType)
+  ) {
+    merged.workbookOptions.templateType = WORKBOOK_TEMPLATE_TYPES.SIMPLE
   }
 
   return merged
@@ -90,42 +110,33 @@ export function normalizeWorkbookDraftConfig(input = {}) {
 export function validateWorkbookDraftConfig(config) {
   const errors = []
 
-  if (!config.tournament?.name?.trim()) {
-    errors.push('Tournament name is required.')
-  }
-
-  if (!config.scheduleDefaults?.numberOfDays || config.scheduleDefaults.numberOfDays < 1) {
+  if (
+    config.scheduleDefaults?.numberOfDays != null &&
+    Number(config.scheduleDefaults.numberOfDays) < 1
+  ) {
     errors.push('Number of tournament days must be at least 1.')
   }
 
-  if (!config.scheduleDefaults?.fieldsCount || config.scheduleDefaults.fieldsCount < 1) {
+  if (
+    config.scheduleDefaults?.fieldsCount != null &&
+    Number(config.scheduleDefaults.fieldsCount) < 1
+  ) {
     errors.push('Number of fields must be at least 1.')
   }
 
-  if (!config.scheduleDefaults?.gameDurationMinutes || config.scheduleDefaults.gameDurationMinutes < 20) {
+  if (
+    config.scheduleDefaults?.gameDurationMinutes != null &&
+    Number(config.scheduleDefaults.gameDurationMinutes) < 20
+  ) {
     errors.push('Game duration must be at least 20 minutes.')
   }
 
-  if (!Array.isArray(config.divisions) || config.divisions.length === 0) {
-    errors.push('At least one division is required.')
-  }
-
-  for (const division of config.divisions ?? []) {
-    if (!division.name?.trim()) {
-      errors.push('Each division must have a name.')
-    }
-
-    if (!division.teamCount || division.teamCount < 2) {
-      errors.push(`Division "${division.name || 'Unnamed'}" must have at least 2 teams.`)
-    }
-
-    if (!division.formatType) {
-      errors.push(`Division "${division.name || 'Unnamed'}" must have a format type.`)
-    }
-
-    if (isPoolBasedFormat(division.formatType) && (!division.poolCount || division.poolCount < 1)) {
-      errors.push(`Division "${division.name || 'Unnamed'}" must have at least 1 pool.`)
-    }
+  const allowedTemplateTypes = Object.values(WORKBOOK_TEMPLATE_TYPES)
+  if (
+    config.workbookOptions?.templateType &&
+    !allowedTemplateTypes.includes(config.workbookOptions.templateType)
+  ) {
+    errors.push('Workbook template type must be either "simple" or "advanced".')
   }
 
   return errors

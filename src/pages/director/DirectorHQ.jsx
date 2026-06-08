@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { ResumeMatchButton } from '../../pages/director/ResumeMatchButton'
 import { MoveGameButton } from '../../pages/director/MoveGameButton'
+import { CreateLiveGameButton } from '../../components/matches/CreateLiveGameButton'
 
 const STATUS_FLOW = {
   draft:     { next: 'published', label: 'Publish',     icon: Eye,         color: 'btn-primary' },
@@ -26,6 +27,8 @@ export function DirectorHQ() {
   const navigate                      = useNavigate()
   const [tournament, setTournament]   = useState(null)
   const [divisions, setDivisions]     = useState([])
+  const [venues, setVenues]         = useState([])
+  const [teams, setTeams]           = useState([])
   const [matches, setMatches]         = useState([])
   const [loading, setLoading]         = useState(true)
   const [showDelete, setShowDelete]   = useState(false)
@@ -57,6 +60,12 @@ export function DirectorHQ() {
 
       const { data: divs } = await db.divisions.byTournament(tournamentId)
       setDivisions(divs ?? [])
+
+      const { data: venueRows } = await db.venues.byTournament(tournamentId)
+      setVenues(venueRows ?? [])
+
+      const { data: teamRows } = await db.teams.byTournament(tournamentId)
+      setTeams(teamRows ?? [])
 
       const { data: m } = await supabase
         .from('matches')
@@ -323,6 +332,7 @@ export function DirectorHQ() {
               <StatusIcon size={15} />
               {advancing ? 'Updating...' : flow.label}
             </button>
+            
           )}
         </div>
       )}
@@ -418,6 +428,13 @@ export function DirectorHQ() {
       <PinManager tournamentId={tournamentId} matches={matches} onPinsUpdated={() => window.location.reload()} />
 
       {/* Games */}
+      <CreateLiveGameButton
+  tournamentId={tournamentId}
+  divisions={divisions}
+  venues={venues}
+  teams={teams}
+  buildScoreUrl={match => `/director/${tournamentId}/matches/${match.id}/score`}
+/>
       {matches.length > 0 && (
         <MatchList
           matches={matches}
@@ -1104,6 +1121,8 @@ function MatchRow({ match: m, tournamentId, timezone }) {
   const isLive  = m.status === 'in_progress'
   const isDone  = m.status === 'complete' || m.status === 'forfeit'
   const hasTBD  = !m.team_a?.id || !m.team_b?.id
+  const isAdHoc = m.is_ad_hoc === true
+
   const [editing, setEditing]   = useState(false)
   const [allTeams, setAllTeams] = useState([])
   const [scoreEdit, setScoreEdit] = useState(false)
@@ -1117,18 +1136,43 @@ function MatchRow({ match: m, tournamentId, timezone }) {
       .select('id, name, short_name, primary_color')
       .eq('tournament_id', m.tournament_id ?? tournamentId)
       .order('name')
+
     setAllTeams(data ?? [])
     setEditing(true)
   }
 
   async function saveTeams() {
     setSaving(true)
-    await supabase.from('matches').update({
-      team_a_id: teamA || null,
-      team_b_id: teamB || null,
-    }).eq('id', m.id)
+
+    await supabase
+      .from('matches')
+      .update({
+        team_a_id: teamA || null,
+        team_b_id: teamB || null,
+      })
+      .eq('id', m.id)
+
     setSaving(false)
     setEditing(false)
+    window.location.reload()
+  }
+
+  async function deleteAdHocGame() {
+    const confirmed = window.confirm(
+      'Delete this live ad hoc game? This cannot be undone.'
+    )
+    if (!confirmed) return
+
+    const { error } = await supabase
+      .from('matches')
+      .delete()
+      .eq('id', m.id)
+
+    if (error) {
+      alert(error.message || 'Could not delete live game')
+      return
+    }
+
     window.location.reload()
   }
 
@@ -1136,40 +1180,106 @@ function MatchRow({ match: m, tournamentId, timezone }) {
     ? 'rgba(34,197,94,0.3)'
     : hasTBD ? 'rgba(234,179,8,0.25)'
     : 'var(--border)'
+
   const bg = isLive
     ? 'rgba(34,197,94,0.05)'
     : hasTBD ? 'rgba(234,179,8,0.03)'
     : 'var(--bg-surface)'
 
   return (
-    <div style={{ border: `1px solid ${borderColor}`, borderRadius:12, background:bg, overflow:'hidden' }}>
-
+    <div
+      style={{
+        border: `1px solid ${borderColor}`,
+        borderRadius: 12,
+        background: bg,
+        overflow: 'hidden',
+      }}
+    >
       {/* Row 1: Teams + score */}
       <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px' }}>
-        {/* Status dot */}
         {isLive && <span className="live-dot" style={{ flexShrink:0 }} />}
-        {hasTBD && !isLive && <span style={{ width:8, height:8, borderRadius:'50%', background:'#fde047', flexShrink:0 }} />}
+        {hasTBD && !isLive && (
+          <span
+            style={{
+              width:8,
+              height:8,
+              borderRadius:'50%',
+              background:'#fde047',
+              flexShrink:0,
+            }}
+          />
+        )}
 
-        {/* Team names */}
         <div style={{ flex:1, minWidth:0 }}>
-          <p style={{ fontSize:14, fontWeight:600, color:'var(--text-primary)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-            <span style={{ color: !m.team_a?.id ? '#fde047' : 'inherit', fontStyle: !m.team_a?.id ? 'italic' : 'normal' }}>
-              {m.team_a?.name ?? 'TBD'}
-            </span>
-            <span style={{ color:'var(--text-muted)', fontWeight:400, margin:'0 6px' }}>vs</span>
-            <span style={{ color: !m.team_b?.id ? '#fde047' : 'inherit', fontStyle: !m.team_b?.id ? 'italic' : 'normal' }}>
-              {m.team_b?.name ?? 'TBD'}
-            </span>
-          </p>
+          <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+            <p
+              style={{
+                fontSize:14,
+                fontWeight:600,
+                color:'var(--text-primary)',
+                margin:0,
+                overflow:'hidden',
+                textOverflow:'ellipsis',
+                whiteSpace:'nowrap',
+              }}
+            >
+              <span
+                style={{
+                  color: !m.team_a?.id ? '#fde047' : 'inherit',
+                  fontStyle: !m.team_a?.id ? 'italic' : 'normal',
+                }}
+              >
+                {m.team_a?.name ?? 'TBD'}
+              </span>
+
+              <span style={{ color:'var(--text-muted)', fontWeight:400, margin:'0 6px' }}>
+                vs
+              </span>
+
+              <span
+                style={{
+                  color: !m.team_b?.id ? '#fde047' : 'inherit',
+                  fontStyle: !m.team_b?.id ? 'italic' : 'normal',
+                }}
+              >
+                {m.team_b?.name ?? 'TBD'}
+              </span>
+            </p>
+
+            {isAdHoc && (
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: '#b45309',
+                  background: 'rgba(245,158,11,0.12)',
+                  border: '1px solid rgba(245,158,11,0.22)',
+                  borderRadius: 999,
+                  padding: '3px 8px',
+                  flexShrink: 0,
+                }}
+              >
+                AD HOC
+              </span>
+            )}
+          </div>
+
           <p style={{ fontSize:11, color:'var(--text-muted)', margin:'2px 0 0' }}>
             {m.time_slot?.scheduled_start ? formatTime(m.time_slot.scheduled_start, timezone) : ''}
             {m.team_a?.id && m.team_b?.id && m.round_label ? ' · ' + m.round_label : ''}
           </p>
         </div>
 
-        {/* Score */}
         {(isLive || isDone) && (
-          <span style={{ fontFamily:'DM Mono, monospace', fontSize:16, fontWeight:700, color: isLive ? 'var(--live)' : 'var(--text-muted)', flexShrink:0 }}>
+          <span
+            style={{
+              fontFamily:'DM Mono, monospace',
+              fontSize:16,
+              fontWeight:700,
+              color: isLive ? 'var(--live)' : 'var(--text-muted)',
+              flexShrink:0,
+            }}
+          >
             {m.score_a ?? 0}–{m.score_b ?? 0}
           </span>
         )}
@@ -1177,25 +1287,57 @@ function MatchRow({ match: m, tournamentId, timezone }) {
 
       {/* Row 2: Action buttons */}
       <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px 10px', flexWrap:'wrap' }}>
-        {/* Start / Score button */}
         {isLive ? (
-          <Link to={'/scorekeeper/' + m.id}
-            style={{ padding:'8px 16px', background:'var(--live)', color:'var(--bg-base)', borderRadius:8, fontSize:13, fontWeight:700, textDecoration:'none', flexShrink:0 }}>
+          <Link
+            to={'/scorekeeper/' + m.id}
+            style={{
+              padding:'8px 16px',
+              background:'var(--live)',
+              color:'var(--bg-base)',
+              borderRadius:8,
+              fontSize:13,
+              fontWeight:700,
+              textDecoration:'none',
+              flexShrink:0,
+            }}
+          >
             Score →
           </Link>
         ) : !isDone ? (
-          <Link to={'/scorekeeper/' + m.id}
-            style={{ padding:'8px 16px', background:'var(--bg-raised)', border:'1px solid var(--border-mid)', color:'var(--text-secondary)', borderRadius:8, fontSize:13, fontWeight:600, textDecoration:'none', flexShrink:0 }}>
+          <Link
+            to={'/scorekeeper/' + m.id}
+            style={{
+              padding:'8px 16px',
+              background:'var(--bg-raised)',
+              border:'1px solid var(--border-mid)',
+              color:'var(--text-secondary)',
+              borderRadius:8,
+              fontSize:13,
+              fontWeight:600,
+              textDecoration:'none',
+              flexShrink:0,
+            }}
+          >
             Start game
           </Link>
         ) : (
-          <Link to={'/score/' + m.id}
-            style={{ padding:'8px 16px', background:'var(--bg-raised)', border:'1px solid var(--border)', color:'var(--text-muted)', borderRadius:8, fontSize:13, textDecoration:'none', flexShrink:0 }}>
+          <Link
+            to={'/score/' + m.id}
+            style={{
+              padding:'8px 16px',
+              background:'var(--bg-raised)',
+              border:'1px solid var(--border)',
+              color:'var(--text-muted)',
+              borderRadius:8,
+              fontSize:13,
+              textDecoration:'none',
+              flexShrink:0,
+            }}
+          >
             View →
           </Link>
         )}
 
-        {/* Fix teams */}
         {hasTBD && !isDone && (
           <button
             onClick={() => loadTeams()}
@@ -1216,8 +1358,7 @@ function MatchRow({ match: m, tournamentId, timezone }) {
           </button>
         )}
 
-        {/* Score correction */}
-  {!hasTBD && !isDone && (
+        {!hasTBD && !isDone && (
           <button
             onClick={() => setScoreEdit(s => !s)}
             style={{
@@ -1236,7 +1377,6 @@ function MatchRow({ match: m, tournamentId, timezone }) {
           </button>
         )}
 
-        {/* Move game */}
         <MoveGameButton
           match={m}
           tournamentId={tournamentId}
@@ -1249,91 +1389,180 @@ function MatchRow({ match: m, tournamentId, timezone }) {
           }}
         />
 
-        {/* Resume game */}
-{(m.status === 'complete' || m.status === 'forfeit') && (
-  <ResumeMatchButton
-    match={m}
-    canResume
-    onPrecheck={async match => {
-      const { data, error } = await supabase.rpc('resume_match_precheck', {
-        p_match_id: match.id,
-      })
+        {(m.status === 'complete' || m.status === 'forfeit') && (
+          <ResumeMatchButton
+            match={m}
+            canResume
+            onPrecheck={async match => {
+              const { data, error } = await supabase.rpc('resume_match_precheck', {
+                p_match_id: match.id,
+              })
 
-      if (error) throw error
+              if (error) throw error
 
-      const row = Array.isArray(data) ? data[0] : data
+              const row = Array.isArray(data) ? data[0] : data
 
-      return {
-        status: row?.status || 'blocked',
-        reason: row?.reason || '',
-        clearedDownstream: row?.cleared_downstream || [],
-      }
-    }}
-    onResume={async match => {
-      const { data, error } = await supabase.rpc('resume_match_safe', {
-        p_match_id: match.id,
-      })
+              return {
+                status: row?.status || 'blocked',
+                reason: row?.reason || '',
+                clearedDownstream: row?.cleared_downstream || [],
+              }
+            }}
+            onResume={async match => {
+              const { data, error } = await supabase.rpc('resume_match_safe', {
+                p_match_id: match.id,
+              })
 
-      if (error) throw error
-      return data
-    }}
-    onSuccess={() => {
-      window.location.reload()
-    }}
-    onError={err => {
-      alert(err.message || 'Could not resume game')
-    }}
-  />
-)}
+              if (error) throw error
+              return data
+            }}
+            onSuccess={() => {
+              window.location.reload()
+            }}
+            onError={err => {
+              alert(err.message || 'Could not resume game')
+            }}
+          />
+        )}
 
-        {/* Scorekeeper link + PIN */}
+        {isAdHoc && (
+          <button
+            onClick={deleteAdHocGame}
+            style={{
+              padding:'8px 14px',
+              background:'rgba(239,68,68,0.10)',
+              border:'1px solid rgba(239,68,68,0.25)',
+              color:'#dc2626',
+              borderRadius:8,
+              fontSize:13,
+              fontWeight:600,
+              cursor:'pointer',
+              fontFamily:'inherit',
+              flexShrink:0,
+            }}
+          >
+            Delete live game
+          </button>
+        )}
+
         {!isDone && (
           <div style={{ marginLeft:'auto' }}>
             <CopyLinkButton matchId={m.id} pin={m.scorekeeper_pin} />
           </div>
         )}
       </div>
-      {/* Team editor panel */}
+
       {editing && (
-        <div style={{ padding:'12px', borderTop:'1px solid var(--border)', background:'rgba(234,179,8,0.04)' }}>
-          <p style={{ fontSize:12, fontWeight:600, color:'var(--text-secondary)', marginBottom:10 }}>Assign teams</p>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
+        <div
+          style={{
+            padding:'12px',
+            borderTop:'1px solid var(--border)',
+            background:'rgba(234,179,8,0.04)',
+          }}
+        >
+          <p style={{ fontSize:12, fontWeight:600, color:'var(--text-secondary)', marginBottom:10 }}>
+            Assign teams
+          </p>
+
+          <div
+            style={{
+              display:'grid',
+              gridTemplateColumns:'1fr 1fr',
+              gap:8,
+              marginBottom:10,
+            }}
+          >
             <div>
-              <label style={{ fontSize:11, color:'var(--text-muted)', display:'block', marginBottom:4 }}>Team A</label>
-              <select className="field-input" style={{ fontSize:13, width:'100%' }} value={teamA} onChange={e => setTeamA(e.target.value)}>
+              <label style={{ fontSize:11, color:'var(--text-muted)', display:'block', marginBottom:4 }}>
+                Team A
+              </label>
+              <select
+                className="field-input"
+                style={{ fontSize:13, width:'100%' }}
+                value={teamA}
+                onChange={e => setTeamA(e.target.value)}
+              >
                 <option value="">TBD</option>
-                {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {allTeams.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
               </select>
             </div>
+
             <div>
-              <label style={{ fontSize:11, color:'var(--text-muted)', display:'block', marginBottom:4 }}>Team B</label>
-              <select className="field-input" style={{ fontSize:13, width:'100%' }} value={teamB} onChange={e => setTeamB(e.target.value)}>
+              <label style={{ fontSize:11, color:'var(--text-muted)', display:'block', marginBottom:4 }}>
+                Team B
+              </label>
+              <select
+                className="field-input"
+                style={{ fontSize:13, width:'100%' }}
+                value={teamB}
+                onChange={e => setTeamB(e.target.value)}
+              >
                 <option value="">TBD</option>
-                {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {allTeams.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
+
           <div style={{ display:'flex', gap:8 }}>
-            <button onClick={saveTeams} disabled={saving}
-              style={{ flex:1, padding:'10px', background:'var(--accent)', color:'var(--bg-base)', border:'none', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+            <button
+              onClick={saveTeams}
+              disabled={saving}
+              style={{
+                flex:1,
+                padding:'10px',
+                background:'var(--accent)',
+                color:'var(--bg-base)',
+                border:'none',
+                borderRadius:8,
+                fontSize:13,
+                fontWeight:700,
+                cursor:'pointer',
+                fontFamily:'inherit',
+              }}
+            >
               {saving ? 'Saving...' : 'Save teams'}
             </button>
-            <button onClick={() => setEditing(false)}
-              style={{ padding:'10px 16px', background:'var(--bg-raised)', border:'1px solid var(--border)', color:'var(--text-muted)', borderRadius:8, fontSize:13, cursor:'pointer', fontFamily:'inherit' }}>
+
+            <button
+              onClick={() => setEditing(false)}
+              style={{
+                padding:'10px 16px',
+                background:'var(--bg-raised)',
+                border:'1px solid var(--border)',
+                color:'var(--text-muted)',
+                borderRadius:8,
+                fontSize:13,
+                cursor:'pointer',
+                fontFamily:'inherit',
+              }}
+            >
               Cancel
             </button>
           </div>
         </div>
       )}
 
-      {/* Score editor panel */}
       {scoreEdit && (
-        <ScoreEditor match={m} onClose={() => setScoreEdit(false)} onSaved={() => { setScoreEdit(false); window.location.reload() }} />
+        <ScoreEditor
+          match={m}
+          onClose={() => setScoreEdit(false)}
+          onSaved={() => {
+            setScoreEdit(false)
+            window.location.reload()
+          }}
+        />
       )}
     </div>
   )
 }
-
 function formatDate(d) {
   if (!d) return '-'
   return new Date(d + 'T12:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })

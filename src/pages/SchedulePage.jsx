@@ -6,6 +6,7 @@ import { ChevronLeft, MapPin, ChevronRight } from 'lucide-react'
 import { buildMatchesByCode, resolveMatchParticipants } from '../lib/matchParticipants'
 import { loadStandingsByPool } from '../lib/standingsByPool'
 import { getMatchHighlight } from '../lib/highlights/matchHighlights'
+import { getMatchSourceLabels } from '../lib/playoffs/matchSourceLabels'
 
 const TABS = [
   { key: 'live', label: 'Live' },
@@ -13,17 +14,6 @@ const TABS = [
   { key: 'finished', label: 'Finished' },
   { key: 'all', label: 'All' },
 ]
-
-const QUICK_VIEWS = [
-  { key: 'day1', label: 'Day 1' },
-  { key: 'day2', label: 'Day 2' },
-  { key: 'championship', label: 'Championship' },
-  { key: 'consolation', label: 'Consolation' },
-  { key: 'crossover', label: 'Crossover' },
-]
-
-const DAY1_DATE = '2026-05-26'
-const DAY2_DATE = '2026-05-27'
 
 export function SchedulePage() {
   const { slug } = useParams()
@@ -250,6 +240,29 @@ export function SchedulePage() {
 
   const matchesByCode = useMemo(() => buildMatchesByCode(matches), [matches])
 
+  const normalizedTeams = useMemo(
+    () =>
+      matches.flatMap(m => {
+        const arr = []
+        if (m.team_a?.id) {
+          arr.push({
+            id: m.team_a.id,
+            name: m.team_a.name,
+            short_name: m.team_a.short_name,
+          })
+        }
+        if (m.team_b?.id) {
+          arr.push({
+            id: m.team_b.id,
+            name: m.team_b.name,
+            short_name: m.team_b.short_name,
+          })
+        }
+        return arr
+      }),
+    [matches]
+  )
+
   const counts = {
     live: byTab.live.length,
     unplayed: byTab.unplayed.length,
@@ -257,18 +270,47 @@ export function SchedulePage() {
     all: byTab.all.length,
   }
 
+  const availableMatchDates = useMemo(() => {
+    return [...new Set(
+      matches
+        .map(m => getMatchDate(m))
+        .filter(Boolean)
+    )].sort()
+  }, [matches])
+
+  const quickViews = useMemo(() => {
+    const views = []
+
+    availableMatchDates.forEach((date, index) => {
+      views.push({
+        key: `day:${date}`,
+        label: `Day ${index + 1}`,
+      })
+    })
+
+    if (matches.some(m => m.bracket_type === 'championship')) {
+      views.push({ key: 'bracket:championship', label: 'Championship' })
+    }
+
+    if (matches.some(m => m.bracket_type === 'consolation')) {
+      views.push({ key: 'bracket:consolation', label: 'Consolation' })
+    }
+
+    if (matches.some(m => m.bracket_type === 'play_in')) {
+      views.push({ key: 'bracket:play_in', label: 'Crossover' })
+    }
+
+    return views
+  }, [availableMatchDates, matches])
+
   let filtered = byTab[tab] ?? []
 
-  if (quickView === 'day1') {
-    filtered = filtered.filter(m => getMatchDate(m) === DAY1_DATE)
-  } else if (quickView === 'day2') {
-    filtered = filtered.filter(m => getMatchDate(m) === DAY2_DATE)
-  } else if (quickView === 'championship') {
-    filtered = filtered.filter(m => m.bracket_type === 'championship')
-  } else if (quickView === 'consolation') {
-    filtered = filtered.filter(m => m.bracket_type === 'consolation')
-  } else if (quickView === 'crossover') {
-    filtered = filtered.filter(m => m.bracket_type === 'play_in')
+  if (quickView?.startsWith('day:')) {
+    const selectedDate = quickView.slice(4)
+    filtered = filtered.filter(m => getMatchDate(m) === selectedDate)
+  } else if (quickView?.startsWith('bracket:')) {
+    const selectedBracketType = quickView.slice(8)
+    filtered = filtered.filter(m => m.bracket_type === selectedBracketType)
   }
 
   if (fieldFilter !== 'all') {
@@ -381,7 +423,7 @@ export function SchedulePage() {
             </CompactControlRow>
 
             <CompactControlRow>
-              {QUICK_VIEWS.map(item => (
+              {quickViews.map(item => (
                 <CompactToggle
                   key={item.key}
                   active={quickView === item.key}
@@ -412,6 +454,7 @@ export function SchedulePage() {
                   featured
                   standingsByPool={standingsByPool}
                   matchesByCode={matchesByCode}
+                  normalizedTeams={normalizedTeams}
                 />
               ))}
             </div>
@@ -461,6 +504,7 @@ export function SchedulePage() {
                     match={m}
                     standingsByPool={standingsByPool}
                     matchesByCode={matchesByCode}
+                    normalizedTeams={normalizedTeams}
                   />
                 ))}
               </div>
@@ -523,7 +567,13 @@ function cycleFieldFilter(current, venues, setFieldFilter) {
   setFieldFilter(next)
 }
 
-function GameCard({ match: m, featured = false, standingsByPool = {}, matchesByCode = {} }) {
+function GameCard({
+  match: m,
+  featured = false,
+  standingsByPool = {},
+  matchesByCode = {},
+  normalizedTeams = [],
+}) {
   const isLive = m.status === 'in_progress'
   const isDone = ['complete', 'forfeit'].includes(m.status)
   const teamA = m.team_a
@@ -531,6 +581,12 @@ function GameCard({ match: m, featured = false, standingsByPool = {}, matchesByC
   const hasStream = !!m.venue?.youtube_url
   const hasAssignedTeams = !!(m.team_a?.id && m.team_b?.id)
   const specialHighlight = getMatchHighlight(m.match_code)
+
+  const sourceLabels = getMatchSourceLabels({
+    match: m,
+    teams: normalizedTeams,
+    pools: [],
+  })
 
   const isBracketMatch = !!m.match_code || !!m.bracket_type
 
@@ -560,8 +616,8 @@ function GameCard({ match: m, featured = false, standingsByPool = {}, matchesByC
         subB: null,
       }
     : {
-        a: resolved?.a?.primary,
-        b: resolved?.b?.primary,
+        a: resolved?.a?.primary || sourceLabels.aPrimary,
+        b: resolved?.b?.primary || sourceLabels.bPrimary,
         subA: resolved?.a?.secondary,
         subB: resolved?.b?.secondary,
       }

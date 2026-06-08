@@ -15,10 +15,11 @@ export function TournamentList() {
         const { data, error } = await supabase
           .from('tournaments')
           .select('id, slug, name, start_date, end_date, status, logo_url, primary_color, venue_name')
+          .eq('is_public', true)
           .is('deleted_at', null)
           .in('status', ['published', 'live', 'review', 'archived'])
           .order('start_date', { ascending: false })
-
+          
         if (error) console.error('TournamentList query error:', error)
         setTournaments(data ?? [])
       } catch (err) {

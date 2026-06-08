@@ -1,0 +1,392 @@
+d
+
+Copy code
+# AthleteOS SQL Checks
+
+Use these queries for quick database validation during tournament QA, debugging, and regression checks.
+
+> Replace placeholder values like:
+> - `YOUR_TOURNAMENT_ID`
+> - `YOUR_DIVISION_ID`
+> - `YOUR_TOURNAMENT_SLUG`
+> - `AFFECTED_TEAM_ID`
+
+---
+
+## 1. Find tournament by slug
+
+```sql
+select
+  id,
+  name,
+  slug,
+  is_public,
+  status
+from tournaments
+where slug = 'YOUR_TOURNAMENT_SLUG';
+
+2. Divisions for a tournament
+sql
+
+Copy code
+select
+  id,
+  tournament_id,
+  name,
+  slug,
+  format_type,
+  sort_order
+from divisions
+where tournament_id = 'YOUR_TOURNAMENT_ID'
+order by sort_order, name;
+
+3. Pools for a tournament
+sql
+
+Copy code
+select
+  p.id,
+  p.division_id,
+  p.name,
+  p.short_name,
+  p.sort_order
+from pools p
+join divisions d on d.id = p.division_id
+where d.tournament_id = 'YOUR_TOURNAMENT_ID'
+order by p.division_id, p.sort_order, p.name;
+
+4. Teams for a tournament
+sql
+
+Copy code
+select
+  id,
+  tournament_id,
+  division_id,
+  pool_id,
+  name,
+  short_name,
+  seed
+from tournament_teams
+where tournament_id = 'YOUR_TOURNAMENT_ID'
+order by division_id, seed nulls last, name;
+
+5. Teams for a division
+sql
+
+Copy code
+select
+  id,
+  name,
+  division_id,
+  pool_id,
+  seed
+from tournament_teams
+where division_id = 'YOUR_DIVISION_ID'
+order by pool_id, seed nulls last, name;
+
+6. Verify a specific team row
+sql
+
+Copy code
+select
+  id,
+  name,
+  division_id,
+  pool_id,
+  seed
+from tournament_teams
+where id = 'AFFECTED_TEAM_ID';
+
+7. Audit match linkage by team (division-wide)
+sql
+
+Copy code
+select
+  tt.id as team_id,
+  tt.name as team_name,
+  tt.pool_id,
+  count(m.id) as total_matches_linked,
+  count(*) filter (where m.status in ('complete', 'forfeit')) as completed_matches_linked
+from tournament_teams tt
+left join matches m
+  on m.team_a_id = tt.id
+  or m.team_b_id = tt.id
+where tt.division_id = 'YOUR_DIVISION_ID'
+group by tt.id, tt.name, tt.pool_id
+order by tt.pool_id, tt.name;
+
+8. Matches for a specific team
+sql
+
+Copy code
+select
+  m.id,
+  m.tournament_id,
+  m.division_id,
+  m.pool_id,
+  m.team_a_id,
+  m.team_b_id,
+  m.status,
+  m.score_a,
+  m.score_b,
+  m.winner_id,
+  m.match_code,
+  m.round_label
+from matches m
+where m.team_a_id = 'AFFECTED_TEAM_ID'
+   or m.team_b_id = 'AFFECTED_TEAM_ID'
+order by m.match_number nulls last, m.id;
+
+9. All matches for a tournament
+sql
+
+Copy code
+select
+  id,
+  tournament_id,
+  division_id,
+  pool_id,
+  team_a_id,
+  team_b_id,
+  venue_id,
+  time_slot_id,
+  status,
+  round_label,
+  match_code
+from matches
+where tournament_id = 'YOUR_TOURNAMENT_ID'
+order by division_id, match_number nulls last, id;
+
+10. All time slots for a tournament
+sql
+
+Copy code
+select
+  id,
+  tournament_id,
+  venue_id,
+  scheduled_start,
+  scheduled_end
+from time_slots
+where tournament_id = 'YOUR_TOURNAMENT_ID'
+order by scheduled_start;
+
+11. Venue rows for a tournament
+sql
+
+Copy code
+select
+  id,
+  tournament_id,
+  name,
+  short_name,
+  qr_slug,
+  sort_order
+from venues
+where tournament_id = 'YOUR_TOURNAMENT_ID'
+order by sort_order, name;
+
+12. Find duplicate venue slugs in a tournament
+sql
+
+Copy code
+select
+  tournament_id,
+  qr_slug,
+  count(*) as venue_count
+from venues
+where tournament_id = 'YOUR_TOURNAMENT_ID'
+group by tournament_id, qr_slug
+having count(*) > 1;
+
+13. Check if a deleted team is still referenced by matches
+sql
+
+Copy code
+select
+  tt.id as team_id,
+  tt.name as team_name,
+  m.id as match_id,
+  m.tournament_id,
+  m.division_id,
+  m.team_a_id,
+  m.team_b_id
+from tournament_teams tt
+left join matches m
+  on m.team_a_id = tt.id
+  or m.team_b_id = tt.id
+where tt.tournament_id = 'YOUR_TOURNAMENT_ID'
+  and lower(tt.name) = lower('TEAM_NAME_HERE')
+order by m.id;
+
+14. Public standings display rows for a division
+sql
+
+Copy code
+select
+  team_id,
+  pool_id,
+  rank,
+  wins,
+  losses,
+  games_played,
+  points_scored,
+  points_against,
+  point_diff
+from pool_standings_display
+where division_id = 'YOUR_DIVISION_ID'
+order by pool_id, rank nulls last, team_id;
+
+15. Base pool standings rows for a division
+sql
+
+Copy code
+select
+  ps.*
+from pool_standings ps
+join pools p on p.id = ps.pool_id
+where p.division_id = 'YOUR_DIVISION_ID'
+order by ps.pool_id, ps.team_id;
+
+16. Detect cross-pool bad standings rows
+These are standings rows where the team's actual tournament_teams.pool_id does not match the pool_standings.pool_id.
+
+sql
+
+Copy code
+select
+  ps.id as pool_standings_id,
+  ps.pool_id as standings_pool_id,
+  tt.pool_id as actual_team_pool_id,
+  ps.team_id,
+  tt.name,
+  ps.games_played,
+  ps.wins,
+  ps.losses,
+  ps.rank
+from pool_standings ps
+join tournament_teams tt
+  on tt.id = ps.team_id
+join pools p
+  on p.id = ps.pool_id
+where p.division_id = 'YOUR_DIVISION_ID'
+  and tt.pool_id is distinct from ps.pool_id
+order by ps.pool_id, tt.name;
+
+17. Delete cross-pool bad standings rows for a division
+Use only after inspecting the rows first.
+
+sql
+
+Copy code
+delete from pool_standings ps
+using tournament_teams tt, pools p
+where tt.id = ps.team_id
+  and p.id = ps.pool_id
+  and p.division_id = 'YOUR_DIVISION_ID'
+  and tt.pool_id is distinct from ps.pool_id;
+
+18. Recompute standings once per pool in a division
+sql
+
+Copy code
+select fn_recompute_standings(m.id)
+from matches m
+where m.id in (
+  select distinct on (pool_id) id
+  from matches
+  where division_id = 'YOUR_DIVISION_ID'
+    and pool_id is not null
+    and bracket_type is null
+    and status in ('complete', 'forfeit')
+  order by pool_id, id
+);
+
+19. Verify cleaned standings with actual pool assignments
+sql
+
+Copy code
+select
+  ps.pool_id,
+  ps.team_id,
+  tt.name,
+  tt.pool_id as actual_team_pool_id,
+  ps.games_played,
+  ps.wins,
+  ps.losses,
+  ps.rank
+from pool_standings ps
+join tournament_teams tt on tt.id = ps.team_id
+join pools p on p.id = ps.pool_id
+where p.division_id = 'YOUR_DIVISION_ID'
+order by ps.pool_id, ps.rank nulls last, tt.name;
+
+20. View definition for pool_standings_display
+sql
+
+Copy code
+select definition
+from pg_views
+where viewname = 'pool_standings_display';
+
+21. Inspect trigger-backed standings function
+sql
+
+Copy code
+select pg_get_functiondef(p.oid) as definition
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where p.proname = 'fn_trigger_standings_on_match';
+
+22. Inspect standings recompute function
+sql
+
+Copy code
+select pg_get_functiondef(p.oid) as definition
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where p.proname = 'fn_recompute_standings';
+
+23. Inspect triggers on matches / pool_standings
+sql
+
+Copy code
+select
+  event_object_table,
+  trigger_name,
+  action_timing,
+  event_manipulation,
+  action_statement
+from information_schema.triggers
+where event_object_table in ('matches', 'pool_standings');
+
+24. Basic publish persistence checks
+Match count
+sql
+
+Copy code
+select count(*)
+from matches
+where tournament_id = 'YOUR_TOURNAMENT_ID';
+
+Time slot count
+sql
+
+Copy code
+select count(*)
+from time_slots
+where tournament_id = 'YOUR_TOURNAMENT_ID';
+
+25. Pool assignment verification after wizard Step 5 changes
+sql
+
+Copy code
+select
+  id,
+  name,
+  division_id,
+  pool_id
+from tournament_teams
+where tournament_id = 'YOUR_TOURNAMENT_ID'
+order by name;

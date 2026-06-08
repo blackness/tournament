@@ -40,7 +40,7 @@ export function WizardStep4Venues({ onNext, onBack }) {
       if (!v.qrSlug.trim()) e[`${v.id}_qrSlug`] = 'QR slug required'
     })
 
-    const slugs = venues.map(v => v.qrSlug)
+    const slugs = venues.map(v => String(v.qrSlug || '').trim().toLowerCase())
     const dupes = slugs.filter((s, i) => slugs.indexOf(s) !== i)
 
     if (dupes.length > 0) {
@@ -62,7 +62,7 @@ export function WizardStep4Venues({ onNext, onBack }) {
     return true
   }
 
-  async function handleNext() {
+async function handleNext() {
     if (!validate()) return
     if (!tournamentId) {
       onNext()
@@ -77,25 +77,36 @@ export function WizardStep4Venues({ onNext, onBack }) {
         throw new Error('Failed to load existing venues: ' + existingErr.message)
       }
 
-      // Delete venues that were removed locally
-      const localDbIds = new Set(venues.map(v => v.dbId).filter(Boolean))
+      const existingVenues = existing ?? []
 
-      const venuesToDelete = (existing ?? []).filter(dbVenue => {
-        return !localDbIds.has(dbVenue.id)
-      })
+      const existingById = Object.fromEntries(existingVenues.map(v => [v.id, v]))
+      const existingByQrSlug = Object.fromEntries(
+        existingVenues.map(v => [String(v.qr_slug ?? '').trim().toLowerCase(), v])
+      )
+      const existingByName = Object.fromEntries(
+        existingVenues.map(v => [String(v.name ?? '').trim().toLowerCase(), v])
+      )
 
-      for (const dbVenue of venuesToDelete) {
-        const { error: deleteVenueErr } = await supabase
-          .from('venues')
-          .delete()
-          .eq('id', dbVenue.id)
+      // 1) Reconcile local venues without dbId to existing DB venues
+      // Prefer dbId, then qrSlug, then exact name match.
+      for (const venue of venues) {
+        if (venue.dbId && existingById[venue.dbId]) continue
 
-        if (deleteVenueErr) {
-          throw new Error(`Failed to delete removed venue "${dbVenue.name}": ${deleteVenueErr.message}`)
+        const qrSlugKey = String(venue.qrSlug ?? '').trim().toLowerCase()
+        const nameKey = String(venue.name ?? '').trim().toLowerCase()
+
+        const matched =
+          (qrSlugKey && existingByQrSlug[qrSlugKey]) ||
+          (nameKey && existingByName[nameKey]) ||
+          null
+
+        if (matched && venue.dbId !== matched.id) {
+          updateVenue(venue.id, { dbId: matched.id })
+          venue.dbId = matched.id
         }
       }
 
-      // Upsert current venues
+      // 2) Upsert current venues
       for (const [i, venue] of venues.entries()) {
         const payload = {
           tournament_id: tournamentId,
@@ -116,9 +127,44 @@ export function WizardStep4Venues({ onNext, onBack }) {
           if (upsertErr) {
             throw new Error(`Failed to save venue "${venue.name}": ${upsertErr.message}`)
           }
-          if (data) updateVenue(venue.id, { dbId: data.id })
+          if (data) {
+            updateVenue(venue.id, { dbId: data.id })
+          }
         }
       }
+
+      // 3) Destructive pre-start sync:
+      // Delete DB venues that are no longer present in local wizard state.
+      const localDbIds = new Set(venues.map(v => v.dbId).filter(Boolean))
+
+      const venuesToDelete = existingVenues.filter(dbVenue => !localDbIds.has(dbVenue.id))
+
+      for (const dbVenue of venuesToDelete) {
+        const { data: linkedMatches, error: linkedMatchesErr } = await supabase
+          .from('matches')
+          .select('id')
+          .eq('venue_id', dbVenue.id)
+          .limit(1)
+
+        if (linkedMatchesErr) {
+          throw new Error(
+            `Failed checking saved schedule references for removed venue "${dbVenue.name}": ${linkedMatchesErr.message}`
+          )
+        }
+
+        if (Array.isArray(linkedMatches) && linkedMatches.length > 0) {
+          throw new Error(
+            `Venue "${dbVenue.name}" appears to be removed, but it is still referenced by saved matches. Clear the saved schedule before removing this venue.`
+          )
+        }
+
+        const { error: deleteVenueErr } = await db.venues.delete(dbVenue.id)
+        if (deleteVenueErr) {
+          throw new Error(`Failed to delete removed venue "${dbVenue.name}": ${deleteVenueErr.message}`)
+        }
+      }
+
+      setFormError(null)
 
       useWizardStore.getState().markSaved()
       onNext()
@@ -128,8 +174,7 @@ export function WizardStep4Venues({ onNext, onBack }) {
     } finally {
       setSaving(false)
     }
-  }
-
+  }  
   function handleQuickAdd(count) {
     for (let i = 1; i <= count; i++) {
       const n = venues.length + i

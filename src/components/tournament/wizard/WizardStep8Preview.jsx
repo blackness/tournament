@@ -3,23 +3,40 @@ import { useNavigate } from 'react-router-dom'
 import { useWizardStore } from '../../../store/wizardStore'
 import { db, supabase } from '../../../lib/supabase'
 import { WizardNavButtons } from './WizardNavButtons'
-import { Check, Trophy, Users, MapPin, Calendar, Layers, ExternalLink, Clock } from 'lucide-react'
+import { getMatchSourceLabels } from '../../../lib/playoffs/matchSourceLabels'
+import {
+  Check,
+  Trophy,
+  Users,
+  MapPin,
+  Calendar,
+  Layers,
+  ExternalLink,
+  Clock,
+  AlertTriangle,
+} from 'lucide-react'
 import { FORMAT_LABELS, TOURNAMENT_STATUS } from '../../../lib/constants'
+
+const PROTECTED_MATCH_STATUSES = ['complete', 'forfeit', 'in_progress']
 
 export function WizardStep8Preview({ onBack, isLast }) {
   const navigate = useNavigate()
+
   const {
     name,
     slug,
     startDate,
     endDate,
     venueName,
+    venueAddress,
+    timezone,
     primaryColor,
     divisions,
     venues,
     teams,
     pools,
     generatedMatches,
+    generatedPlayoffMatches,
     generatedSlots,
     tournamentId,
     isPublished,
@@ -30,6 +47,7 @@ export function WizardStep8Preview({ onBack, isLast }) {
   const [error, setError] = useState(null)
   const [savedMatches, setSavedMatches] = useState([])
   const [savedSlots, setSavedSlots] = useState([])
+  const [hasProtectedMatches, setHasProtectedMatches] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -39,6 +57,7 @@ export function WizardStep8Preview({ onBack, isLast }) {
         if (active) {
           setSavedMatches([])
           setSavedSlots([])
+          setHasProtectedMatches(false)
         }
         return
       }
@@ -57,7 +76,26 @@ export function WizardStep8Preview({ onBack, isLast }) {
           time_slot_id,
           team_a_id,
           team_b_id,
-          status
+          status,
+          score_a,
+          score_b,
+          winner_id,
+          round_label,
+          display_label,
+          phase,
+          bracket_position,
+          match_code,
+          bracket_type,
+          source_a_type,
+          source_a_ref,
+          source_b_type,
+          source_b_ref,
+          winner_to_match_code,
+          winner_to_slot,
+          loser_to_match_code,
+          loser_to_slot,
+          placement_min,
+          placement_max
         `)
         .eq('tournament_id', tournamentId)
         .neq('status', 'cancelled')
@@ -65,8 +103,12 @@ export function WizardStep8Preview({ onBack, isLast }) {
 
       if (!active) return
 
+      const nextMatches = matchData ?? []
       setSavedSlots(slotData ?? [])
-      setSavedMatches(matchData ?? [])
+      setSavedMatches(nextMatches)
+      setHasProtectedMatches(
+        nextMatches.some(m => PROTECTED_MATCH_STATUSES.includes(m.status))
+      )
     }
 
     loadSavedSchedule()
@@ -78,11 +120,212 @@ export function WizardStep8Preview({ onBack, isLast }) {
 
   async function handlePublish() {
     if (!tournamentId) return
+
     setPublishing(true)
+    setError(null)
+
     try {
-      await db.tournaments.update(tournamentId, { status: TOURNAMENT_STATUS.PUBLISHED })
+      const { data: protectedMatches, error: protectedMatchesErr } = await supabase
+        .from('matches')
+        .select('id, status')
+        .eq('tournament_id', tournamentId)
+        .in('status', PROTECTED_MATCH_STATUSES)
+
+      if (protectedMatchesErr) {
+        throw new Error(`Failed to check protected matches: ${protectedMatchesErr.message}`)
+      }
+
+      const hasProtected = (protectedMatches ?? []).length > 0
+      const playoffMatchesToSave = generatedPlayoffMatches ?? []
+
+      // Safe append mode once real results/live games exist
+      if (hasProtected) {
+        if (playoffMatchesToSave.length === 0) {
+          throw new Error(
+            'This tournament already has completed, forfeited, or live matches. Full publish replacement is disabled to protect recorded results. Generate playoff matches and use safe append instead.'
+          )
+        }
+
+        const { savePlayoffMatchesSafe } = await import('../../../lib/playoffs/savePlayoffMatchesSafe')
+
+        const result = await savePlayoffMatchesSafe({
+          tournamentId,
+          playoffMatches: playoffMatchesToSave,
+          divisions,
+          teams,
+          pools,
+          venues,
+        })
+
+        if (result.warnings?.length) {
+          console.warn('[Safe playoff append warnings]', result.warnings)
+        }
+
+        await db.tournaments.update(tournamentId, {
+          name: name?.trim() || 'Untitled Tournament',
+          slug: slug?.trim() || null,
+          start_date: startDate || null,
+          end_date: endDate || null,
+          venue_name: venueName?.trim() || null,
+          venue_address: venueAddress?.trim() || null,
+          timezone: timezone || 'America/Toronto',
+          primary_color: primaryColor || '#1a56db',
+          status: TOURNAMENT_STATUS.PUBLISHED,
+        })
+
+        setPublished()
+        return
+      }
+
+      // Full replacement mode only when no protected matches exist
+      const scheduleMatchesToSave = [
+        ...(generatedMatches ?? []),
+        ...(generatedPlayoffMatches ?? []),
+      ]
+
+      const scheduleSlotsToSave = generatedSlots ?? []
+
+      const divisionDbIdByLocalId = Object.fromEntries(
+        (divisions ?? [])
+          .filter(div => div.id && div.dbId)
+          .map(div => [div.id, div.dbId])
+      )
+
+      const poolDbIdByLocalId = Object.fromEntries(
+        (pools ?? [])
+          .filter(pool => pool.id && pool.dbId)
+          .map(pool => [pool.id, pool.dbId])
+      )
+
+      const teamDbIdByLocalId = Object.fromEntries(
+        (teams ?? [])
+          .filter(team => team.id && team.dbId)
+          .map(team => [team.id, team.dbId])
+      )
+
+      const venueDbIdByLocalId = Object.fromEntries(
+        (venues ?? [])
+          .filter(venue => venue.id && venue.dbId)
+          .map(venue => [venue.id, venue.dbId])
+      )
+
+      // 1) Clear existing saved matches first (safe only because no protected matches exist)
+      const { error: deleteMatchesErr } = await supabase
+        .from('matches')
+        .delete()
+        .eq('tournament_id', tournamentId)
+
+      if (deleteMatchesErr) {
+        throw new Error(`Failed to clear existing saved matches: ${deleteMatchesErr.message}`)
+      }
+
+      // 2) Clear existing tournament time slots
+      const { error: deleteSlotsErr } = await supabase
+        .from('time_slots')
+        .delete()
+        .eq('tournament_id', tournamentId)
+
+      if (deleteSlotsErr) {
+        throw new Error(`Failed to clear existing saved time slots: ${deleteSlotsErr.message}`)
+      }
+
+      // 3) Insert fresh time slots and build localSlotId -> dbSlotId map
+      const slotDbIdByLocalId = {}
+
+      for (const slot of scheduleSlotsToSave) {
+        const localVenueId = slot.venue_id || slot.venueId || null
+        const venueDbId = venueDbIdByLocalId[localVenueId] || localVenueId || null
+
+        const payload = {
+          tournament_id: tournamentId,
+          venue_id: venueDbId,
+          scheduled_start: slot.scheduled_start || null,
+          scheduled_end: slot.scheduled_end || null,
+        }
+
+        const { data: insertedSlot, error: insertSlotErr } = await supabase
+          .from('time_slots')
+          .insert(payload)
+          .select('id')
+          .single()
+
+        if (insertSlotErr) {
+          throw new Error(`Failed to save time slot: ${insertSlotErr.message}`)
+        }
+
+        slotDbIdByLocalId[slot.id] = insertedSlot.id
+      }
+
+      // 4) Insert fresh matches (pool + playoff)
+      for (const match of scheduleMatchesToSave) {
+        const localDivisionId = match.division_id || match.divisionId || null
+        const localPoolId = match.pool_id || match.poolId || null
+        const localTeamAId = match.team_a_id || match.teamAId || null
+        const localTeamBId = match.team_b_id || match.teamBId || null
+        const localVenueId = match.venue_id || match.venueId || null
+        const localSlotId = match.slot_id || match.slotId || match.time_slot_id || null
+
+        const divisionDbId = divisionDbIdByLocalId[localDivisionId] || localDivisionId || null
+        const poolDbId = poolDbIdByLocalId[localPoolId] || localPoolId || null
+        const teamADbId = teamDbIdByLocalId[localTeamAId] || localTeamAId || null
+        const teamBDbId = teamDbIdByLocalId[localTeamBId] || localTeamBId || null
+        const venueDbId = venueDbIdByLocalId[localVenueId] || localVenueId || null
+        const slotDbId = slotDbIdByLocalId[localSlotId] || null
+
+        const payload = {
+          tournament_id: tournamentId,
+          division_id: divisionDbId,
+          pool_id: poolDbId,
+          venue_id: venueDbId,
+          time_slot_id: slotDbId,
+          team_a_id: teamADbId,
+          team_b_id: teamBDbId,
+          round: match.round ?? null,
+          match_number: match.match_number ?? null,
+          round_label: match.round_label || match.roundLabel || null,
+          display_label: match.display_label || match.displayLabel || null,
+          status: match.status || 'scheduled',
+          phase: match.phase || null,
+          bracket_position: match.bracket_position ?? null,
+          match_code: match.match_code || match.matchCode || null,
+          bracket_type: match.bracket_type || match.bracketType || null,
+          source_a_type: match.source_a_type || null,
+          source_a_ref: match.source_a_ref || null,
+          source_b_type: match.source_b_type || null,
+          source_b_ref: match.source_b_ref || null,
+          winner_to_match_code: match.winner_to_match_code || null,
+          winner_to_slot: match.winner_to_slot || null,
+          loser_to_match_code: match.loser_to_match_code || null,
+          loser_to_slot: match.loser_to_slot || null,
+          placement_min: match.placement_min ?? null,
+          placement_max: match.placement_max ?? null,
+        }
+
+        const { error: insertMatchErr } = await supabase
+          .from('matches')
+          .insert(payload)
+
+        if (insertMatchErr) {
+          throw new Error(`Failed to save match: ${insertMatchErr.message}`)
+        }
+      }
+
+      // 5) Finally publish tournament
+      await db.tournaments.update(tournamentId, {
+        name: name?.trim() || 'Untitled Tournament',
+        slug: slug?.trim() || null,
+        start_date: startDate || null,
+        end_date: endDate || null,
+        venue_name: venueName?.trim() || null,
+        venue_address: venueAddress?.trim() || null,
+        timezone: timezone || 'America/Toronto',
+        primary_color: primaryColor || '#1a56db',
+        status: TOURNAMENT_STATUS.PUBLISHED,
+      })
+
       setPublished()
     } catch (err) {
+      console.error('[Step8 publish] Error:', err)
       setError(err.message || 'Failed to publish')
     } finally {
       setPublishing(false)
@@ -98,7 +341,12 @@ export function WizardStep8Preview({ onBack, isLast }) {
     window.open(`/t/${slug}`, '_blank')
   }
 
-  const scheduleMatches = savedMatches.length > 0 ? savedMatches : generatedMatches
+  const localCombinedMatches = [
+    ...(generatedMatches ?? []),
+    ...(generatedPlayoffMatches ?? []),
+  ]
+
+  const scheduleMatches = savedMatches.length > 0 ? savedMatches : localCombinedMatches
   const scheduleSlots = savedSlots.length > 0 ? savedSlots : generatedSlots
 
   const teamMap = Object.fromEntries(
@@ -120,6 +368,18 @@ export function WizardStep8Preview({ onBack, isLast }) {
   const slotMap = Object.fromEntries(
     scheduleSlots.map(s => [s.id, s])
   )
+
+  const normalizedTeams = teams.map(t => ({
+    id: t.dbId || t.id,
+    name: t.name,
+    short_name: t.shortName || null,
+  }))
+
+  const normalizedPools = pools.map(p => ({
+    id: p.dbId || p.id,
+    name: p.name,
+    short_name: p.shortName || null,
+  }))
 
   const byTime = {}
   for (const m of scheduleMatches) {
@@ -169,7 +429,16 @@ export function WizardStep8Preview({ onBack, isLast }) {
       </div>
 
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      {hasProtectedMatches && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex gap-2">
+          <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" />
+          This tournament already contains completed, forfeited, or live matches. Full publish replacement is disabled to protect recorded results. Completed games must never be deleted. Playoff structures can still be appended safely.
+        </div>
       )}
 
       <div className="rounded-xl border border-[var(--border)] overflow-hidden">
@@ -276,6 +545,12 @@ export function WizardStep8Preview({ onBack, isLast }) {
                     const venue = venueMap[m.venue_id]
                     const slot = slotMap[m.slot_id || m.time_slot_id]
 
+                    const sourceLabels = getMatchSourceLabels({
+                      match: m,
+                      teams: normalizedTeams,
+                      pools: normalizedPools,
+                    })
+
                     return (
                       <div
                         key={m.id}
@@ -288,7 +563,7 @@ export function WizardStep8Preview({ onBack, isLast }) {
                               style={{ backgroundColor: teamA?.primaryColor ?? '#e5e7eb' }}
                             />
                             <span className="text-sm font-medium text-[var(--text-primary)] truncate">
-                              {teamA?.shortName ?? teamA?.name ?? 'TBD'}
+                              {teamA?.shortName ?? teamA?.name ?? sourceLabels.aPrimary}
                             </span>
                             <span className="text-[var(--text-muted)] text-xs">vs</span>
                             <div
@@ -296,7 +571,7 @@ export function WizardStep8Preview({ onBack, isLast }) {
                               style={{ backgroundColor: teamB?.primaryColor ?? '#e5e7eb' }}
                             />
                             <span className="text-sm font-medium text-[var(--text-primary)] truncate">
-                              {teamB?.shortName ?? teamB?.name ?? 'TBD'}
+                              {teamB?.shortName ?? teamB?.name ?? sourceLabels.bPrimary}
                             </span>
                           </div>
 
@@ -307,12 +582,20 @@ export function WizardStep8Preview({ onBack, isLast }) {
                             {pool && (
                               <p className="text-xs text-[var(--text-muted)]">{pool.name}</p>
                             )}
+                            {m.bracket_type && (
+                              <p className="text-xs text-[var(--text-muted)] capitalize">{m.bracket_type}</p>
+                            )}
                             {m.round && (
                               <p className="text-xs text-[var(--text-muted)]">Round {m.round}</p>
                             )}
                             {slot?.scheduled_start && (
                               <p className="text-xs text-[var(--text-muted)]">
                                 {formatDateTime(slot.scheduled_start)}
+                              </p>
+                            )}
+                            {PROTECTED_MATCH_STATUSES.includes(m.status) && (
+                              <p className="text-xs text-green-700 font-medium uppercase tracking-wide">
+                                {m.status}
                               </p>
                             )}
                           </div>
@@ -344,13 +627,26 @@ export function WizardStep8Preview({ onBack, isLast }) {
         <ChecklistItem ok={venues.length > 0} label={`${venues.length} field${venues.length !== 1 ? 's' : ''} added`} />
         <ChecklistItem ok={teams.length > 0} label={`${teams.length} team${teams.length !== 1 ? 's' : ''} registered`} />
         <ChecklistItem ok={scheduleMatches.length > 0} label={`${scheduleMatches.length} games scheduled`} warn={scheduleMatches.length === 0} />
+        <ChecklistItem
+          ok={!hasProtectedMatches}
+          label={
+            hasProtectedMatches
+              ? 'Protected matches detected — only safe playoff append is allowed'
+              : 'No protected matches detected'
+          }
+          warn={hasProtectedMatches}
+        />
       </div>
 
       <WizardNavButtons
         onNext={handlePublish}
         onBack={onBack}
         saving={publishing}
-        nextLabel="Publish tournament 🚀"
+        nextLabel={
+          hasProtectedMatches
+            ? 'Safely append playoff matches'
+            : 'Publish tournament 🚀'
+        }
         isLast={isLast}
       />
     </div>

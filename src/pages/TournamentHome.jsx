@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -16,8 +16,7 @@ const browsingKey = slug => `browsing_${slug}`
 export function TournamentHome() {
   const { slug } = useParams()
   const navigate = useNavigate()
-  const { user } = useAuth()
-
+  const { user, loading: authLoading } = useAuth()
   const [tournament, setTournament] = useState(null)
   const [divisions, setDivisions] = useState([])
   const [teams, setTeams] = useState([])
@@ -32,9 +31,14 @@ export function TournamentHome() {
   const [isBrowsing, setIsBrowsing] = useState(false)
   const [search, setSearch] = useState('')
 
-  useEffect(() => {
+useEffect(() => {
+    if (authLoading) return
+
     async function load() {
       try {
+        setLoading(true)
+        setNotFound(false)
+
         const { data: t, error } = await supabase
           .from('tournaments')
           .select('*, divisions(*)')
@@ -43,6 +47,15 @@ export function TournamentHome() {
           .single()
 
         if (error || !t) {
+          setNotFound(true)
+          return
+        }
+
+        const canViewTournament =
+          !!t.is_public ||
+          (user && t.director_id === user.id)
+
+        if (!canViewTournament) {
           setNotFound(true)
           return
         }
@@ -141,8 +154,8 @@ export function TournamentHome() {
     }
 
     load()
-  }, [slug])
-
+  }, [slug, user?.id, authLoading])
+  
   useEffect(() => {
     if (!tournament) return
 
@@ -312,10 +325,11 @@ export function TournamentHome() {
 
   const myStanding = myTeam ? standings.find(s => s.team_id === myTeam.id) : null
 
-  const filteredTeams = teams.filter(t =>
-    t.name.toLowerCase().includes(search.toLowerCase()) ||
-    (t.pool?.name ?? '').toLowerCase().includes(search.toLowerCase())
-  )
+  const filteredTeams = teams
+
+console.log('CreateLiveGameModal divisions', divisions)
+console.log('CreateLiveGameModal teams', teams)
+console.log('filteredTeams', filteredTeams)
 
   const fmtTime = iso =>
     iso
@@ -842,6 +856,7 @@ export function TournamentHome() {
                 No teams found
               </p>
             )}
+            
           </div>
         </div>
       )}

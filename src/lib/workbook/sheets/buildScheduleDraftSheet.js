@@ -1,5 +1,5 @@
-import { addStyledHeaderRow, autoSizeColumns } from './sheetUtils'
-import { WORKBOOK_SCHEDULE_DRAFT_LEVELS } from '../workbookDraftConfig'
+import { addStyledHeaderRow, autoSizeColumns } from './sheetUtils.js'
+import { WORKBOOK_SCHEDULE_DRAFT_LEVELS } from '../workbookDraftConfig.js'
 
 export function buildScheduleDraftSheet(workbook, config, derived) {
   const ws = workbook.addWorksheet('ScheduleDraft')

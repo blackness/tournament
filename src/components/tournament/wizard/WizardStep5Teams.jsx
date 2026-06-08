@@ -296,14 +296,32 @@ export function WizardStep5Teams({ onNext, onBack }) {
         const teamsToDelete = (existingDbTeams ?? []).filter(dbTeam => {
           return !localDbIds.has(dbTeam.id)
         })
-
         for (const dbTeam of teamsToDelete) {
+          
+          const { data: linkedMatches, error: linkedMatchesErr } = await supabase
+  .from('matches')
+  .select('id, tournament_id, division_id, team_a_id, team_b_id')
+  .eq('division_id', dbDivId)
+  .or(`team_a_id.eq.${dbTeam.id},team_b_id.eq.${dbTeam.id}`)
+  .limit(5)
+
+          if (linkedMatchesErr) {
+            throw new Error(
+              `Failed checking existing schedule references for removed team "${dbTeam.name}": ${linkedMatchesErr.message}`
+              
+            )
+          }
+          if (Array.isArray(linkedMatches) && linkedMatches.length > 0) {
+            throw new Error(
+              `Team "${dbTeam.name}" appears to be removed, but it is still referenced by existing matches. If this team should remain, re-import while preserving team identity. If it should truly be removed, clear or rebuild the affected schedule first.`
+            )
+          }
+
           const { error: deleteTeamErr } = await db.teams.delete(dbTeam.id)
           if (deleteTeamErr) {
             throw new Error(`Failed to delete removed team "${dbTeam.name}": ${deleteTeamErr.message}`)
           }
         }
-
         const { data: dbPools, error: dbPoolsErr } = await supabase
           .from('pools')
           .select('id, name')
