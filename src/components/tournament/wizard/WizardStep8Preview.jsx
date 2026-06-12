@@ -138,7 +138,6 @@ export function WizardStep8Preview({ onBack, isLast }) {
       const hasProtected = (protectedMatches ?? []).length > 0
       const playoffMatchesToSave = generatedPlayoffMatches ?? []
 
-      // Safe append mode once real results/live games exist
       if (hasProtected) {
         if (playoffMatchesToSave.length === 0) {
           throw new Error(
@@ -177,7 +176,6 @@ export function WizardStep8Preview({ onBack, isLast }) {
         return
       }
 
-      // Full replacement mode only when no protected matches exist
       const scheduleMatchesToSave = [
         ...(generatedMatches ?? []),
         ...(generatedPlayoffMatches ?? []),
@@ -209,7 +207,6 @@ export function WizardStep8Preview({ onBack, isLast }) {
           .map(venue => [venue.id, venue.dbId])
       )
 
-      // 1) Clear existing saved matches first (safe only because no protected matches exist)
       const { error: deleteMatchesErr } = await supabase
         .from('matches')
         .delete()
@@ -219,7 +216,6 @@ export function WizardStep8Preview({ onBack, isLast }) {
         throw new Error(`Failed to clear existing saved matches: ${deleteMatchesErr.message}`)
       }
 
-      // 2) Clear existing tournament time slots
       const { error: deleteSlotsErr } = await supabase
         .from('time_slots')
         .delete()
@@ -229,7 +225,6 @@ export function WizardStep8Preview({ onBack, isLast }) {
         throw new Error(`Failed to clear existing saved time slots: ${deleteSlotsErr.message}`)
       }
 
-      // 3) Insert fresh time slots and build localSlotId -> dbSlotId map
       const slotDbIdByLocalId = {}
 
       for (const slot of scheduleSlotsToSave) {
@@ -256,7 +251,6 @@ export function WizardStep8Preview({ onBack, isLast }) {
         slotDbIdByLocalId[slot.id] = insertedSlot.id
       }
 
-      // 4) Insert fresh matches (pool + playoff)
       for (const match of scheduleMatchesToSave) {
         const localDivisionId = match.division_id || match.divisionId || null
         const localPoolId = match.pool_id || match.poolId || null
@@ -310,7 +304,6 @@ export function WizardStep8Preview({ onBack, isLast }) {
         }
       }
 
-      // 5) Finally publish tournament
       await db.tournaments.update(tournamentId, {
         name: name?.trim() || 'Untitled Tournament',
         slug: slug?.trim() || null,
@@ -551,6 +544,9 @@ export function WizardStep8Preview({ onBack, isLast }) {
                       pools: normalizedPools,
                     })
 
+                    const isBracketMatch = !!(m.bracket_type || m.match_code)
+                    const hasResolvedBracketTeams = isBracketMatch && !!(teamA?.id && teamB?.id)
+
                     return (
                       <div
                         key={m.id}
@@ -575,7 +571,13 @@ export function WizardStep8Preview({ onBack, isLast }) {
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                          {hasResolvedBracketTeams && sourceLabels.aPrimary && sourceLabels.bPrimary && (
+                            <div className="mt-1 text-xs text-[var(--text-muted)]">
+                              {sourceLabels.aPrimary} vs {sourceLabels.bPrimary}
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-2 flex-wrap mt-1">
                             {division && (
                               <p className="text-xs text-[var(--text-muted)]">{division.name}</p>
                             )}

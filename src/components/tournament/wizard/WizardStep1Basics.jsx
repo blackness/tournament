@@ -38,6 +38,7 @@ export function WizardStep1Basics({ onNext }) {
 
   const [formError, setFormError] = useState(null)
   const [checkingSlug, setCheckingSlug] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [downloadingWorkbook, setDownloadingWorkbook] = useState(false)
   const [showWorkbookUpload, setShowWorkbookUpload] = useState(false)
   const [workbookSummary, setWorkbookSummary] = useState(null)
@@ -270,10 +271,12 @@ export function WizardStep1Basics({ onNext }) {
       return
     }
 
-    const slugOk = await validateSlug()
-    if (!slugOk) return
+    setSaving(true)
 
     try {
+      const slugOk = await validateSlug()
+      if (!slugOk) return
+
       const payload = {
         name: name.trim(),
         slug: slug.trim().toLowerCase(),
@@ -288,10 +291,7 @@ export function WizardStep1Basics({ onNext }) {
       }
 
       if (tournamentId) {
-        const { error } = await db.tournaments.update(tournamentId, payload)
-        if (error) {
-          throw new Error(error.message || 'Failed to update tournament basics.')
-        }
+        await db.tournaments.update(tournamentId, payload)
       } else {
         const { data, error } = await db.tournaments.create({
           ...payload,
@@ -312,6 +312,8 @@ export function WizardStep1Basics({ onNext }) {
       onNext()
     } catch (err) {
       setFormError(err.message || 'Failed to save tournament basics.')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -590,8 +592,10 @@ export function WizardStep1Basics({ onNext }) {
 
       <WizardNavButtons
         onNext={handleNext}
+        saving={saving}
+        isFirst
         nextLabel={checkingSlug ? 'Checking...' : 'Continue'}
-        nextDisabled={checkingSlug}
+        nextDisabled={checkingSlug || saving}
       />
 
       <UploadWorkbookModal

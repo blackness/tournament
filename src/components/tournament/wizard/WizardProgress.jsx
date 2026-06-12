@@ -8,7 +8,7 @@ const STEPS = [
   { n: 5, label: 'Teams' },
   { n: 6, label: 'Schedule' },
   { n: 7, label: 'Playoffs' },
-  { n: 8, label: 'Review' },
+  { n: 8, label: 'Constraints' },
   { n: 9, label: 'Publish' },
 ]
 
@@ -18,7 +18,6 @@ export function WizardProgress({ currentStep, onGoToStep }) {
 
   return (
     <div className="w-full">
-      {/* Desktop: horizontal step row */}
       <div className="hidden sm:flex items-center">
         {STEPS.map((step, idx) => {
           const done = currentStep > step.n
@@ -27,7 +26,6 @@ export function WizardProgress({ currentStep, onGoToStep }) {
 
           return (
             <div key={step.n} className="flex items-center flex-1 last:flex-none">
-              {/* Step circle */}
               <button
                 onClick={() => done && onGoToStep?.(step.n)}
                 disabled={!done}
@@ -41,7 +39,6 @@ export function WizardProgress({ currentStep, onGoToStep }) {
                 {done ? <Check size={14} /> : step.n}
               </button>
 
-              {/* Label */}
               <span
                 className={`ml-2 text-xs font-medium ${
                   active
@@ -54,7 +51,6 @@ export function WizardProgress({ currentStep, onGoToStep }) {
                 {step.label}
               </span>
 
-              {/* Connector line */}
               {idx < STEPS.length - 1 && (
                 <div className={`flex-1 h-px mx-3 ${done ? 'bg-[var(--accent)]' : ''}`} />
               )}
@@ -63,7 +59,6 @@ export function WizardProgress({ currentStep, onGoToStep }) {
         })}
       </div>
 
-      {/* Mobile: compact "Step X of N — Label" */}
       <div className="sm:hidden">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-semibold text-[var(--text-primary)]">

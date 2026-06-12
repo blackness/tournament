@@ -9,6 +9,8 @@ import {
 } from '../../../lib/playoffs/playoffPresets'
 import { buildPlayoffPreview } from '../../../lib/playoffs/playoffPreviewBuilder'
 import { buildPlayoffStructure } from '../../../lib/playoffs/playoffStructureGenerator'
+import { finalizePlayoffRoundOneTeams } from '../../../lib/playoffs/finalizePlayoffRoundOneTeams'
+import { schedulePlayoffRoundOneFromDay } from '../../../lib/playoffs/schedulePlayoffRoundOneFromDay'
 import {
   AlertTriangle,
   Trophy,
@@ -25,9 +27,15 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
     pools,
     poolAssignments,
     playoffConfigs,
+    generatedMatches,
     generatedPlayoffMatches,
+    generatedSlots,
+    tournamentDays,
+    venues,
+    scheduleConfig,
     setPlayoffConfig,
     setGeneratedPlayoffMatches,
+    setGeneratedSchedule,
   } = useWizardStore()
 
   const [activeDivisionId, setActiveDivisionId] = useState(divisions[0]?.id ?? null)
@@ -35,6 +43,7 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
   const [loadingStandings, setLoadingStandings] = useState(false)
   const [formError, setFormError] = useState(null)
   const [showDebug, setShowDebug] = useState(false)
+  const [selectedPlayoffDayId, setSelectedPlayoffDayId] = useState('')
 
   const activeDivision =
     divisions.find(d => d.id === activeDivisionId) || divisions[0] || null
@@ -44,6 +53,19 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
       setActiveDivisionId(divisions[0].id)
     }
   }, [activeDivisionId, divisions])
+
+  useEffect(() => {
+    if (!selectedPlayoffDayId && (tournamentDays?.length || 0) > 0) {
+      const defaultDay =
+        tournamentDays[1] ||
+        tournamentDays[0] ||
+        null
+
+      if (defaultDay?.id) {
+        setSelectedPlayoffDayId(defaultDay.id)
+      }
+    }
+  }, [selectedPlayoffDayId, tournamentDays])
 
   useEffect(() => {
     async function loadStandings() {
@@ -60,6 +82,8 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
           .from('pool_standings_display')
           .select(`
             pool_id,
+            pool_name,
+            pool_short_name,
             division_id,
             rank,
             team_id,
@@ -87,6 +111,9 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
 
     loadStandings()
   }, [activeDivision?.dbId])
+
+  const selectedPlayoffDay =
+    (tournamentDays || []).find(day => day.id === selectedPlayoffDayId) || null
 
   const structure = useMemo(() => {
     if (!activeDivision) return null
@@ -194,6 +221,85 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
     ])
   }
 
+  function handleFinalizeRoundOneTeams() {
+    if (!activeDivision) return
+
+    const activeDivisionMatches = (generatedPlayoffMatches || []).filter(
+      m => m.division_id === activeDivision.id
+    )
+
+    const beforeCount = activeDivisionMatches.filter(
+      m => m.team_a_id && m.team_b_id
+    ).length
+
+    const finalizedDivisionMatches = finalizePlayoffRoundOneTeams({
+      matches: activeDivisionMatches,
+      standingsRows,
+      pools,
+    })
+
+    const afterCount = finalizedDivisionMatches.filter(
+      m => m.team_a_id && m.team_b_id
+    ).length
+
+    if (afterCount === beforeCount) {
+      setFormError('No round 1 playoff teams could be resolved from the current standings.')
+    } else {
+      setFormError(null)
+    }
+
+    const otherDivisionMatches = (generatedPlayoffMatches || []).filter(
+      m => m.division_id !== activeDivision.id
+    )
+
+    setGeneratedPlayoffMatches([
+      ...otherDivisionMatches,
+      ...finalizedDivisionMatches,
+    ])
+  }
+
+  function handleScheduleRoundOne() {
+    if (!activeDivision) return
+
+    const activeDivisionMatches = (generatedPlayoffMatches || []).filter(
+      m => m.division_id === activeDivision.id
+    )
+
+    const result = schedulePlayoffRoundOneFromDay({
+      playoffMatches: activeDivisionMatches,
+      existingMatches: generatedMatches,
+      tournamentDay: selectedPlayoffDay,
+      venues,
+      scheduleConfig,
+    })
+
+    if (result?.warnings?.length) {
+      setFormError(result.warnings.join(' '))
+    } else {
+      setFormError(null)
+    }
+
+    const otherDivisionMatches = (generatedPlayoffMatches || []).filter(
+      m => m.division_id !== activeDivision.id
+    )
+
+    setGeneratedPlayoffMatches([
+      ...otherDivisionMatches,
+      ...(result?.matches || []),
+    ])
+
+    const mergedSlots = [
+      ...(generatedSlots || []),
+      ...(result?.generatedSlots || []),
+    ]
+
+    setGeneratedSchedule({
+      slots: mergedSlots,
+      matches: generatedMatches,
+      conflicts: [],
+    })
+  }
+
   function validate() {
     if (!divisions.length) {
       setFormError('Add at least one division before configuring playoffs.')
@@ -271,6 +377,33 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
             standingsRows={standingsRows}
           />
 
+          <div className="rounded-xl border border-[var(--border)] p-4 space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                Playoff round 1 scheduling
+              </h3>
+              <p className="text-xs text-[var(--text-muted)] mt-1">
+                Choose which tournament day to use for round 1 playoff games. Day 2 is often the natural choice.
+              </p>
+            </div>
+
+            <div className="field-group">
+              <label className="field-label text-xs">Tournament day</label>
+              <select
+                className="field-input text-sm"
+                value={selectedPlayoffDayId}
+                onChange={e => setSelectedPlayoffDayId(e.target.value)}
+              >
+                {(tournamentDays || []).map(day => (
+                  <option key={day.id} value={day.id}>
+                    Day {day.dayIndex ?? '—'} — {day.eventDate || 'No date'}
+                    {day.label ? ` (${day.label})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
           <div className="rounded-xl border border-dashed border-[var(--border)] p-4 bg-[var(--bg-raised)]">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -317,6 +450,10 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
                 <DebugRow
                   label="Generated playoff matches"
                   value={divisionGeneratedPlayoffMatches.length}
+                />
+                <DebugRow
+                  label="Selected playoff day"
+                  value={selectedPlayoffDay?.eventDate || 'None'}
                 />
               </div>
             )}
@@ -400,7 +537,7 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
             )}
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button
               type="button"
               onClick={handleGenerateStructure}
@@ -410,6 +547,24 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
               <Braces size={14} />
               Generate playoff structure
             </button>
+
+            <button
+              type="button"
+              onClick={handleFinalizeRoundOneTeams}
+              disabled={divisionGeneratedPlayoffMatches.length === 0}
+              className="btn-secondary btn btn-sm"
+            >
+              Finalize round 1 teams
+            </button>
+
+            <button
+              type="button"
+              onClick={handleScheduleRoundOne}
+              disabled={divisionGeneratedPlayoffMatches.length === 0 || !selectedPlayoffDayId}
+              className="btn-secondary btn btn-sm"
+            >
+              Schedule round 1
+            </button>
           </div>
 
           <PlayoffPreviewCard
@@ -418,7 +573,14 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
             preview={preview}
           />
 
-          <GeneratedStructureCard matches={divisionGeneratedPlayoffMatches} />
+          <GeneratedStructureCard
+  matches={divisionGeneratedPlayoffMatches}
+  allPlayoffMatches={generatedPlayoffMatches}
+  teams={teams}
+  venues={venues}
+  slots={generatedSlots}
+  setGeneratedPlayoffMatches={setGeneratedPlayoffMatches}
+/>
         </>
       )}
 
@@ -644,8 +806,87 @@ function PlayoffPreviewCard({ division, preset, preview }) {
     </div>
   )
 }
+function formatPlayoffDateTime(iso) {
+  if (!iso) return '—'
 
-function GeneratedStructureCard({ matches = [] }) {
+  return new Date(iso).toLocaleString('en-CA', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+}
+function GeneratedStructureCard({
+  matches = [],
+  allPlayoffMatches = [],
+  teams = [],
+  venues = [],
+  slots = [],
+  setGeneratedPlayoffMatches,
+}) {
+  const [editingMatchId, setEditingMatchId] = useState(null)
+  const [draftTeamAId, setDraftTeamAId] = useState('')
+  const [draftTeamBId, setDraftTeamBId] = useState('')
+  const [draftSlotId, setDraftSlotId] = useState('')
+
+  const teamMap = Object.fromEntries(
+    (teams || []).map(team => [team.dbId || team.id, team])
+  )
+
+  const venueMap = Object.fromEntries(
+    (venues || []).map(venue => [venue.dbId || venue.id, venue])
+  )
+
+  const slotMap = Object.fromEntries(
+    (slots || []).map(slot => [slot.id, slot])
+  )
+
+  function startEdit(match) {
+    setEditingMatchId(match.id)
+    setDraftTeamAId(match.team_a_id || match.teamAId || '')
+    setDraftTeamBId(match.team_b_id || match.teamBId || '')
+    setDraftSlotId(match.time_slot_id || match.slot_id || match.slotId || '')
+  }
+
+  function cancelEdit() {
+    setEditingMatchId(null)
+    setDraftTeamAId('')
+    setDraftTeamBId('')
+    setDraftSlotId('')
+  }
+
+  function saveEdit(match) {
+    const selectedSlot = slotMap[draftSlotId] || null
+    const nextVenueId = selectedSlot?.venue_id || null
+
+    const updatedDivisionMatches = (matches || []).map(m =>
+      m.id === match.id
+        ? {
+            ...m,
+            team_a_id: draftTeamAId || null,
+            team_b_id: draftTeamBId || null,
+            time_slot_id: draftSlotId || null,
+            slot_id: draftSlotId || null,
+            slotId: draftSlotId || null,
+            venue_id: nextVenueId,
+            venueId: nextVenueId,
+            scheduled_start: selectedSlot?.scheduled_start || null,
+            scheduled_end: selectedSlot?.scheduled_end || null,
+          }
+        : m
+    )
+
+    const otherMatches = (allPlayoffMatches || []).filter(m => !matches.some(dm => dm.id === m.id))
+
+    setGeneratedPlayoffMatches([
+      ...otherMatches,
+      ...updatedDivisionMatches,
+    ])
+
+    cancelEdit()
+  }
+
   return (
     <div className="rounded-xl border border-[var(--border)] p-4 space-y-4">
       <div className="flex items-center gap-2">
@@ -661,26 +902,167 @@ function GeneratedStructureCard({ matches = [] }) {
         </div>
       ) : (
         <div className="space-y-2">
-          {matches.map(match => (
-            <div
-              key={match.id}
-              className="rounded-lg border border-[var(--border)] px-3 py-2 bg-[var(--bg-surface)]"
-            >
-              <p className="text-sm font-medium text-[var(--text-primary)]">
-                {match.match_code} — {match.display_label || match.round_label || 'Playoff match'}
-              </p>
-              <p className="text-xs text-[var(--text-muted)] mt-1">
-                {match.source_a_type}:{match.source_a_ref} vs {match.source_b_type}:{match.source_b_ref}
-              </p>
-              {(match.winner_to_match_code || match.loser_to_match_code) && (
-                <p className="text-xs text-[var(--text-muted)] mt-1">
-                  {match.winner_to_match_code ? `Winner → ${match.winner_to_match_code}` : ''}
-                  {match.winner_to_match_code && match.loser_to_match_code ? ' • ' : ''}
-                  {match.loser_to_match_code ? `Loser → ${match.loser_to_match_code}` : ''}
-                </p>
-              )}
-            </div>
-          ))}
+          {matches.map(match => {
+            const teamA =
+              teamMap[match.team_a_id] ||
+              teamMap[match.teamAId] ||
+              null
+
+            const teamB =
+              teamMap[match.team_b_id] ||
+              teamMap[match.teamBId] ||
+              null
+
+            const slotId =
+              match.time_slot_id ||
+              match.slot_id ||
+              match.slotId ||
+              null
+
+            const slot =
+              slotMap[slotId] ||
+              null
+
+            const venue =
+              venueMap[match.venue_id] ||
+              venueMap[match.venueId] ||
+              (slot ? venueMap[slot.venue_id] : null) ||
+              null
+
+            const isEditing = editingMatchId === match.id
+
+            return (
+              <div
+                key={match.id}
+                className="rounded-lg border border-[var(--border)] px-3 py-3 bg-[var(--bg-surface)]"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-[var(--text-primary)]">
+                      {match.match_code} — {match.display_label || match.round_label || 'Playoff match'}
+                    </p>
+
+                    <p className="text-xs text-[var(--text-muted)] mt-1">
+                      {match.source_a_type}:{match.source_a_ref} vs {match.source_b_type}:{match.source_b_ref}
+                    </p>
+                  </div>
+
+                  {!isEditing ? (
+                    <button
+                      type="button"
+                      className="btn-secondary btn btn-sm"
+                      onClick={() => startEdit(match)}
+                    >
+                      Edit
+                    </button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="btn-primary btn btn-sm"
+                        onClick={() => saveEdit(match)}
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost btn btn-sm"
+                        onClick={cancelEdit}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {!isEditing ? (
+                  <>
+                    <p className="text-sm text-[var(--text-primary)] mt-2 font-medium">
+                      {(teamA?.shortName || teamA?.name || 'TBD')} vs {(teamB?.shortName || teamB?.name || 'TBD')}
+                    </p>
+
+                    {(teamA || teamB) && (
+                      <p className="text-xs text-[var(--text-muted)] mt-1">
+                        {teamA?.name || 'TBD'} vs {teamB?.name || 'TBD'}
+                      </p>
+                    )}
+
+                    <p className="text-xs text-[var(--text-muted)] mt-2">
+                      {slot?.scheduled_start
+                        ? `Scheduled: ${formatPlayoffDateTime(slot.scheduled_start)}`
+                        : 'Scheduled: —'}
+                      {' • '}
+                      {venue?.name || venue?.shortName || 'Venue: —'}
+                    </p>
+                  </>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                    <div className="field-group">
+                      <label className="field-label text-xs">Team A</label>
+                      <select
+                        className="field-input text-sm"
+                        value={draftTeamAId}
+                        onChange={e => setDraftTeamAId(e.target.value)}
+                      >
+                        <option value="">TBD</option>
+                        {(teams || []).map(team => (
+                          <option key={team.dbId || team.id} value={team.dbId || team.id}>
+                            {team.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="field-group">
+                      <label className="field-label text-xs">Team B</label>
+                      <select
+                        className="field-input text-sm"
+                        value={draftTeamBId}
+                        onChange={e => setDraftTeamBId(e.target.value)}
+                      >
+                        <option value="">TBD</option>
+                        {(teams || []).map(team => (
+                          <option key={team.dbId || team.id} value={team.dbId || team.id}>
+                            {team.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="field-group">
+                      <label className="field-label text-xs">Time slot</label>
+                      <select
+                        className="field-input text-sm"
+                        value={draftSlotId}
+                        onChange={e => setDraftSlotId(e.target.value)}
+                      >
+                        <option value="">Unscheduled</option>
+                        {(slots || []).map(slot => {
+                          const slotVenue =
+                            venueMap[slot.venue_id] ||
+                            null
+
+                          return (
+                            <option key={slot.id} value={slot.id}>
+                              {formatPlayoffDateTime(slot.scheduled_start)} — {slotVenue?.name || 'Venue'}
+                            </option>
+                          )
+                        })}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {(match.winner_to_match_code || match.loser_to_match_code) && (
+                  <p className="text-xs text-[var(--text-muted)] mt-2">
+                    {match.winner_to_match_code ? `Winner → ${match.winner_to_match_code}` : ''}
+                    {match.winner_to_match_code && match.loser_to_match_code ? ' • ' : ''}
+                    {match.loser_to_match_code ? `Loser → ${match.loser_to_match_code}` : ''}
+                  </p>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../lib/AuthContext'
 import { supabase, db } from '../../lib/supabase'
 import { TOURNAMENT_STATUS_LABELS, TOURNAMENT_STATUS } from '../../lib/constants'
 import { PageLoader } from '../../components/ui/LoadingSpinner'
+import { getMatchSourceLabels } from '../../lib/playoffs/matchSourceLabels'
 import {
   Trophy, Calendar, MapPin, Users, ExternalLink, Edit,
-  Trash2, AlertTriangle, X, ChevronRight, Play, Link2, Copy, Check,
+  Trash2, AlertTriangle, X, ChevronRight, Play, Copy, Check,
   CheckCircle, Archive, Eye, Lock
 } from 'lucide-react'
 import { ResumeMatchButton } from '../../pages/director/ResumeMatchButton'
@@ -22,29 +23,28 @@ const STATUS_FLOW = {
 }
 
 export function DirectorHQ() {
-  const { tournamentId }              = useParams()
-  const { user }                      = useAuth()
-  const navigate                      = useNavigate()
-  const [tournament, setTournament]   = useState(null)
-  const [divisions, setDivisions]     = useState([])
-  const [venues, setVenues]         = useState([])
-  const [teams, setTeams]           = useState([])
-  const [matches, setMatches]         = useState([])
-  const [loading, setLoading]         = useState(true)
-  const [showDelete, setShowDelete]   = useState(false)
-  const [deleting, setDeleting]       = useState(false)
-  const [advancing, setAdvancing]     = useState(false)
+  const { tournamentId } = useParams()
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const [tournament, setTournament] = useState(null)
+  const [divisions, setDivisions] = useState([])
+  const [venues, setVenues] = useState([])
+  const [teams, setTeams] = useState([])
+  const [matches, setMatches] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showDelete, setShowDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [advancing, setAdvancing] = useState(false)
   const [seedingBracket, setSeedingBracket] = useState(false)
-  const [seedResult, setSeedResult]     = useState(null)
-  const [teamFollows, setTeamFollows]   = useState({})
-  const [error, setError]             = useState(null)
+  const [seedResult, setSeedResult] = useState(null)
+  const [teamFollows, setTeamFollows] = useState({})
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     async function load() {
       const { data: t } = await db.tournaments.byId(tournamentId)
       if (!t) { navigate('/director'); return }
 
-      // Allow access if user is the tournament director OR has a director/co_director role
       const isOwner = t.director_id === user?.id
       if (!isOwner) {
         const { data: role } = await supabase
@@ -69,18 +69,39 @@ export function DirectorHQ() {
 
       const { data: m } = await supabase
         .from('matches')
-       .select('id, status, score_a, score_b, scorekeeper_pin, tournament_id, venue_id, time_slot_id, match_code, round_label, team_a:tournament_teams!team_a_id(name, id), team_b:tournament_teams!team_b_id(name, id), time_slot:time_slots(scheduled_start), venue:venues(name)')
+        .select(`
+          id,
+          status,
+          score_a,
+          score_b,
+          scorekeeper_pin,
+          tournament_id,
+          venue_id,
+          time_slot_id,
+          match_code,
+          bracket_type,
+          round_label,
+          display_label,
+          source_a_type,
+          source_a_ref,
+          source_b_type,
+          source_b_ref,
+          team_a:tournament_teams!team_a_id(name, id, short_name, primary_color),
+          team_b:tournament_teams!team_b_id(name, id, short_name, primary_color),
+          time_slot:time_slots(scheduled_start),
+          venue:venues(name)
+        `)
         .eq('tournament_id', tournamentId)
         .neq('status', 'cancelled')
         .order('time_slot(scheduled_start)')
-        
+
       setMatches(m ?? [])
 
-      // Fetch team follow counts
       const { data: follows } = await supabase
         .from('team_follows')
         .select('team_id, is_spectator')
         .eq('tournament_id', tournamentId)
+
       if (follows) {
         const counts = {}
         let spectators = 0
@@ -128,20 +149,18 @@ export function DirectorHQ() {
     }
   }
 
-
   async function seedBracket() {
     setSeedingBracket(true)
     setSeedResult(null)
     setError(null)
     try {
-      // Check if any bracket matches have already been played
       const { data: playedBracket } = await supabase
         .from('matches')
         .select('id, status, round_label')
         .eq('tournament_id', tournamentId)
         .eq('phase', 2)
         .neq('status', 'scheduled')
-      
+
       if (playedBracket?.length > 0) {
         const labels = playedBracket.map(m => m.round_label ?? 'a game').join(', ')
         setError(`Cannot re-seed — ${labels} has already been played. Use "Change teams" to fix individual games.`)
@@ -149,7 +168,6 @@ export function DirectorHQ() {
         return
       }
 
-      // Fetch final pool standings ordered by rank
       const { data: standings, error: stErr } = await supabase
         .from('pool_standings_display')
         .select('team_id, pool_id, rank, pool_name, team_name')
@@ -158,7 +176,6 @@ export function DirectorHQ() {
         .order('rank')
       if (stErr) throw new Error(stErr.message)
 
-      // Group by pool
       const byPool = {}
       for (const s of standings) {
         if (!byPool[s.pool_name]) byPool[s.pool_name] = []
@@ -168,7 +185,6 @@ export function DirectorHQ() {
       const pools = Object.keys(byPool).sort()
       if (pools.length < 2) throw new Error('Need at least 2 pools to seed bracket')
 
-      // Fetch bracket matches (phase 2, no teams yet)
       const { data: bracketMatches } = await supabase
         .from('matches')
         .select('id, bracket_position, notes, team_a_id, team_b_id')
@@ -176,8 +192,6 @@ export function DirectorHQ() {
         .eq('phase', 2)
         .order('match_number')
 
-      // Build seed map: pool letter + rank → team_id
-      // e.g. A1, A2, B1, B2, etc.
       const seedMap = {}
       for (const pool of pools) {
         const letter = pool.replace('Pool ', '')
@@ -186,25 +200,19 @@ export function DirectorHQ() {
         }
       }
 
-      // Parse bracket notes to slot teams
-      // notes format: 'bracket:A1-vs-B4' or 'bracket:1A-vs-2D'
       const updates = []
       for (const m of bracketMatches) {
         if (!m.notes?.startsWith('bracket:')) continue
-        if (m.team_a_id && m.team_b_id) continue // already seeded
+        if (m.team_a_id && m.team_b_id) continue
 
         const inner = m.notes.replace('bracket:', '')
         const [rawA, rawB] = inner.split('-vs-')
 
-        // Normalize: '1A' → 'A1', 'A1' → 'A1'
         const normalize = s => {
           if (!s) return null
-          // skip non-seed labels like winG1, winnerV etc
           if (s.startsWith('win') || s.startsWith('loser') || s.startsWith('semi')) return null
-          // '1A' format
           const m1 = s.match(/^(\d+)([A-Z])$/)
           if (m1) return m1[2] + m1[1]
-          // 'A1' format
           const m2 = s.match(/^([A-Z])(\d+)$/)
           if (m2) return m2[1] + m2[2]
           return null
@@ -223,7 +231,6 @@ export function DirectorHQ() {
         }
       }
 
-      // Apply updates
       let seeded = 0
       for (const u of updates) {
         const { id, ...fields } = u
@@ -233,10 +240,30 @@ export function DirectorHQ() {
 
       setSeedResult(`✓ Seeded ${seeded} bracket game${seeded !== 1 ? 's' : ''} successfully`)
 
-      // Refresh matches
       const { data: refreshed } = await supabase
         .from('matches')
-       .select('id, status, score_a, score_b, scorekeeper_pin, tournament_id, venue_id, time_slot_id, match_code, round_label, team_a:tournament_teams!team_a_id(name, id), team_b:tournament_teams!team_b_id(name, id), time_slot:time_slots(scheduled_start), venue:venues(name)')
+        .select(`
+          id,
+          status,
+          score_a,
+          score_b,
+          scorekeeper_pin,
+          tournament_id,
+          venue_id,
+          time_slot_id,
+          match_code,
+          bracket_type,
+          round_label,
+          display_label,
+          source_a_type,
+          source_a_ref,
+          source_b_type,
+          source_b_ref,
+          team_a:tournament_teams!team_a_id(name, id, short_name, primary_color),
+          team_b:tournament_teams!team_b_id(name, id, short_name, primary_color),
+          time_slot:time_slots(scheduled_start),
+          venue:venues(name)
+        `)
         .eq('tournament_id', tournamentId)
         .neq('status', 'cancelled')
         .order('time_slot(scheduled_start)')
@@ -252,24 +279,22 @@ export function DirectorHQ() {
   if (loading) return <PageLoader />
   if (!tournament) return null
 
-  const flow      = STATUS_FLOW[tournament.status]
+  const flow = STATUS_FLOW[tournament.status]
   const StatusIcon = flow?.icon
   const liveCount = matches.filter(m => m.status === 'in_progress').length
   const doneCount = matches.filter(m => m.status === 'complete' || m.status === 'forfeit').length
   const totalCount = matches.length
 
   const statusBadge = {
-    draft:     'badge-gray',
+    draft: 'badge-gray',
     published: 'badge-blue',
-    live:      'badge-green',
-    review:    'badge-yellow',
-    archived:  'badge-gray',
+    live: 'badge-green',
+    review: 'badge-yellow',
+    archived: 'badge-gray',
   }[tournament.status] ?? 'badge-gray'
 
   return (
-    <div style={{maxWidth:800}}>
-
-      {/* Header */}
+    <div style={{ maxWidth: 800 }}>
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -296,8 +321,8 @@ export function DirectorHQ() {
           <Link to={'/t/' + tournament.slug} target="_blank" className="btn-ghost btn btn-sm">
             <ExternalLink size={14} /> Public page
           </Link>
-          <Link to={'/director/' + tournamentId + '/edit'} className="btn-secondary btn btn-sm">
-            <Edit size={14} /> Edit
+          <Link to={`/director/${tournamentId}/edit?step=1`} className="btn-secondary btn btn-sm">
+            <Edit size={14} /> Open Wizard
           </Link>
           <button onClick={() => setShowDelete(true)} className="btn-ghost btn btn-sm text-red-500 hover:bg-red-50">
             <Trash2 size={14} /> Delete
@@ -309,9 +334,8 @@ export function DirectorHQ() {
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>
       )}
 
-      {/* Status transition */}
       {flow?.next && (
-        <div className=" border border-[var(--border)] rounded-xl p-4 flex items-center justify-between gap-4">
+        <div className="border border-[var(--border)] rounded-xl p-4 flex items-center justify-between gap-4">
           <div>
             <p className="text-sm font-semibold text-[var(--text-primary)]">
               {tournament.status === 'draft' && 'Ready to publish? Teams and spectators will be able to see this tournament.'}
@@ -332,12 +356,10 @@ export function DirectorHQ() {
               <StatusIcon size={15} />
               {advancing ? 'Updating...' : flow.label}
             </button>
-            
           )}
         </div>
       )}
 
-      {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatCard label="Divisions" value={divisions.length} />
         <StatCard label="Games" value={totalCount} />
@@ -345,16 +367,70 @@ export function DirectorHQ() {
         <StatCard label="Completed" value={doneCount + (totalCount > 0 ? '/' + totalCount : '')} />
       </div>
 
-      {/* Quick links */}
       <div>
         <h2 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">Manage</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <QuickLink to={'/director/' + tournamentId + '/schedule'} label="Schedule editor" sub="Drag to adjust game times" />
-          <QuickLink to={'/director/' + tournamentId + '/bracket'} label="Generate brackets" sub="Seed teams from pool standings" />
-          <QuickLink to={'/director/' + tournamentId + '/roster'} label="Roster manager" sub="Add and manage players" />
-          <QuickLink to={'/director/' + tournamentId + '/constraints'} label="Constraint review" sub="Review scheduling conflicts" />
-          <QuickLink to={'/director/' + tournamentId + '/qr'} label="QR codes" sub="Print field QR cards" />
-          <QuickLink to={'/director/' + tournamentId + '/scorekeeper-sheet'} label="Scorekeeper sheet" sub="Print QR codes for all games" />
+          <QuickLink
+            to={`/director/${tournamentId}/edit?step=1`}
+            label="Tournament basics"
+            sub="Name, dates, public settings"
+          />
+          <QuickLink
+            to={`/director/${tournamentId}/edit?step=3`}
+            label="Divisions"
+            sub="Formats, structure, division setup"
+          />
+          <QuickLink
+            to={`/director/${tournamentId}/edit?step=4`}
+            label="Venues"
+            sub="Fields, courts, and venue setup"
+          />
+          <QuickLink
+            to={`/director/${tournamentId}/edit?step=5`}
+            label="Teams & Pools"
+            sub="Teams, seeds, pools, assignments"
+          />
+          <QuickLink
+            to={`/director/${tournamentId}/edit?step=6`}
+            label="Schedule setup"
+            sub="Tournament days and schedule generation"
+            />
+
+            <QuickLink
+            to={`/director/${tournamentId}/schedule`}
+            label="Schedule editor"
+            sub="Move games, change teams, fields, and times"
+            />
+          <QuickLink
+            to={`/director/${tournamentId}/edit?step=7`}
+            label="Playoffs"
+            sub="Advancement, bracket generation, round 1 setup"
+          />
+          <QuickLink
+            to={`/director/${tournamentId}/edit?step=8`}
+            label="Review & Publish"
+            sub="Final review and publishing"
+          />
+          <QuickLink
+            to={'/director/' + tournamentId + '/roster'}
+            label="Roster manager"
+            sub="Add and manage players"
+          />
+          <QuickLink
+            to={'/director/' + tournamentId + '/constraints'}
+            label="Constraint review"
+            sub="Review scheduling conflicts"
+          />
+          <QuickLink
+            to={'/director/' + tournamentId + '/qr'}
+            label="QR codes"
+            sub="Print field QR cards"
+          />
+          <QuickLink
+            to={'/director/' + tournamentId + '/scorekeeper-sheet'}
+            label="Scorekeeper sheet"
+            sub="Print QR codes for all games"
+          />
           {divisions.map(div => (
             <QuickLink
               key={div.id}
@@ -367,12 +443,10 @@ export function DirectorHQ() {
         </div>
       </div>
 
-      {/* MyTeam follower counts */}
       {Object.keys(teamFollows).length > 0 && (
         <div style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, padding:'16px 20px', marginBottom:0 }}>
           <p style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)', margin:'0 0 12px' }}>My Team followers</p>
           <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-            {/* Spectators row */}
             {(teamFollows['__spectators__'] ?? 0) > 0 && (
               <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                 <span style={{ fontSize:13, color:'var(--text-muted)', width:160, flexShrink:0, fontStyle:'italic' }}>Just spectating</span>
@@ -404,45 +478,45 @@ export function DirectorHQ() {
         </div>
       )}
 
-      {/* Seed Bracket */}
       {divisions.length > 0 && matches.some(m => m.status === 'complete') && (
         <div style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, padding:'16px 20px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:16 }}>
           <div>
-            <p style={{ fontSize:14, fontWeight:600, color:'var(--text-primary)', margin:0 }}>Seed bracket from standings</p>
+            <p style={{ fontSize:14, fontWeight:600, color:'var(--text-primary)', margin:0 }}>Playoffs</p>
             <p style={{ fontSize:12, color:'var(--text-muted)', margin:'3px 0 0' }}>
-              Reads final pool standings and slots teams into bracket games automatically.
+              Finalize playoff structure, assign teams, and schedule round 1 games.
             </p>
             {seedResult && <p style={{ fontSize:12, color:'#4ade80', margin:'4px 0 0', fontWeight:600 }}>{seedResult}</p>}
           </div>
-          <button onClick={seedBracket} disabled={seedingBracket}
-            style={{ flexShrink:0, padding:'10px 20px', background:'var(--accent)', color:'var(--bg-base)', border:'none', borderRadius:10, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'inherit', opacity: seedingBracket ? 0.6 : 1, whiteSpace:'nowrap' }}>
-            {seedingBracket ? 'Seeding...' : '⚡ Seed Bracket'}
-          </button>
+          <Link
+            to={`/director/${tournamentId}/edit?step=7`}
+            className="btn btn-primary"
+            style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+          >
+            Open Playoffs
+          </Link>
         </div>
       )}
 
-      {/* Stream URLs per venue */}
       <StreamManager tournamentId={tournamentId} />
-
-      {/* PIN management */}
       <PinManager tournamentId={tournamentId} matches={matches} onPinsUpdated={() => window.location.reload()} />
 
-      {/* Games */}
       <CreateLiveGameButton
-  tournamentId={tournamentId}
-  divisions={divisions}
-  venues={venues}
-  teams={teams}
-  buildScoreUrl={match => `/director/${tournamentId}/matches/${match.id}/score`}
-/>
+        tournamentId={tournamentId}
+        divisions={divisions}
+        venues={venues}
+        teams={teams}
+        buildScoreUrl={match => `/director/${tournamentId}/matches/${match.id}/score`}
+      />
+
       {matches.length > 0 && (
         <MatchList
           matches={matches}
+          teams={teams}
           tournamentId={tournamentId}
           timezone={tournament.timezone || 'America/Toronto'}
         />
       )}
-      {/* Delete modal */}
+
       {showDelete && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
           <div className=" rounded-2xl  w-full max-w-md p-6 space-y-4">
@@ -842,10 +916,11 @@ function StreamManager({ tournamentId }) {
     </div>
   )
 }
+
 function PinManager({ tournamentId, matches, onPinsUpdated }) {
-  const [open, setOpen]       = useState(false)
-  const [pin, setPin]         = useState('')
-  const [saving, setSaving]   = useState(false)
+  const [open, setOpen] = useState(false)
+  const [pin, setPin] = useState('')
+  const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState(null)
 
   const unpinnedCount = matches.filter(m => !['complete','forfeit','cancelled'].includes(m.status) && !m.scorekeeper_pin).length
@@ -853,7 +928,6 @@ function PinManager({ tournamentId, matches, onPinsUpdated }) {
   async function generatePins() {
     setSaving(true)
     const tournamentPin = pin.trim() || Math.floor(1000 + Math.random() * 9000).toString()
-    // Apply to all non-completed matches (overwrite existing PINs too)
     const toPin = matches.filter(m => !['complete', 'forfeit', 'cancelled'].includes(m.status))
     for (const m of toPin) {
       await supabase.from('matches').update({ scorekeeper_pin: tournamentPin }).eq('id', m.id)
@@ -914,8 +988,18 @@ function PinManager({ tournamentId, matches, onPinsUpdated }) {
   )
 }
 
-function MatchList({ matches, tournamentId, timezone }) {
+function MatchList({ matches, teams, tournamentId, timezone }) {
   const [filter, setFilter] = useState('unplayed')
+
+  const normalizedTeams = useMemo(
+    () =>
+      teams.map(t => ({
+        id: t.id,
+        name: t.name,
+        short_name: t.short_name || t.shortName || null,
+      })),
+    [teams]
+  )
 
   const filtered = filter === 'all'
     ? matches
@@ -927,25 +1011,28 @@ function MatchList({ matches, tournamentId, timezone }) {
 
   const counts = {
     unplayed: matches.filter(m => m.status === 'scheduled').length,
-    live:     matches.filter(m => m.status === 'in_progress').length,
-    done:     matches.filter(m => m.status === 'complete' || m.status === 'forfeit').length,
+    live: matches.filter(m => m.status === 'in_progress').length,
+    done: matches.filter(m => m.status === 'complete' || m.status === 'forfeit').length,
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <h2 className="text-sm font-semibold text-[var(--text-secondary)]">Games ({matches.length})</h2>
-        <div className="flex  rounded-lg p-0.5 gap-0.5">
+        <div className="flex rounded-lg p-0.5 gap-0.5">
           {[
             ['unplayed', 'Unplayed', counts.unplayed],
-            ['live',     'Live',     counts.live],
-            ['done',     'Done',     counts.done],
-            ['all',      'All',      matches.length],
+            ['live', 'Live', counts.live],
+            ['done', 'Done', counts.done],
+            ['all', 'All', matches.length],
           ].map(([val, label, count]) => (
-            <button key={val} onClick={() => setFilter(val)}
+            <button
+              key={val}
+              onClick={() => setFilter(val)}
               className={'px-2.5 py-1 rounded-md text-xs font-medium transition-colors ' + (
                 filter === val ? 'bg-[var(--bg-surface)] text-[var(--text-primary)]' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-              )}>
+              )}
+            >
               {label} {count > 0 && <span className="ml-0.5 opacity-60">{count}</span>}
             </button>
           ))}
@@ -962,6 +1049,7 @@ function MatchList({ matches, tournamentId, timezone }) {
               match={m}
               tournamentId={tournamentId}
               timezone={timezone}
+              normalizedTeams={normalizedTeams}
             />
           ))}
         </div>
@@ -971,11 +1059,11 @@ function MatchList({ matches, tournamentId, timezone }) {
 }
 
 function ScoreEditor({ match: m, onClose, onSaved }) {
-  const [scoreA, setScoreA]   = useState(m.score_a ?? 0)
-  const [scoreB, setScoreB]   = useState(m.score_b ?? 0)
+  const [scoreA, setScoreA] = useState(m.score_a ?? 0)
+  const [scoreB, setScoreB] = useState(m.score_b ?? 0)
   const [isForfeit, setIsForfeit] = useState(false)
   const [forfeitTeam, setForfeitTeam] = useState('a')
-  const [saving, setSaving]   = useState(false)
+  const [saving, setSaving] = useState(false)
 
   async function handleSave() {
     setSaving(true)
@@ -985,14 +1073,13 @@ function ScoreEditor({ match: m, onClose, onSaved }) {
                    : finalB > finalA ? m.team_b?.id : null
 
     await supabase.from('matches').update({
-      score_a:      finalA,
-      score_b:      finalB,
-      winner_id:    winnerId,
-      status:       isForfeit ? 'forfeit' : 'complete',
+      score_a: finalA,
+      score_b: finalB,
+      winner_id: winnerId,
+      status: isForfeit ? 'forfeit' : 'complete',
       completed_at: new Date().toISOString(),
     }).eq('id', m.id)
 
-    // Recompute standings
     await supabase.rpc('fn_recompute_standings', { p_match_id: m.id }).catch(() => {})
     setSaving(false)
     onSaved()
@@ -1084,7 +1171,6 @@ function CopyLinkButton({ matchId, pin }) {
 
   return (
     <div className="flex items-center gap-1 flex-shrink-0">
-      {/* Copy URL only */}
       <button
         onClick={copyUrl}
         title="Copy scorekeeper link"
@@ -1098,7 +1184,6 @@ function CopyLinkButton({ matchId, pin }) {
         <span className="text-[10px] font-medium">{copiedUrl ? 'Copied!' : 'Link'}</span>
       </button>
 
-      {/* Show PIN inline + copy it separately */}
       {pin && (
         <button
           onClick={copyPin}
@@ -1117,18 +1202,29 @@ function CopyLinkButton({ matchId, pin }) {
   )
 }
 
-function MatchRow({ match: m, tournamentId, timezone }) {
-  const isLive  = m.status === 'in_progress'
-  const isDone  = m.status === 'complete' || m.status === 'forfeit'
-  const hasTBD  = !m.team_a?.id || !m.team_b?.id
+function MatchRow({ match: m, tournamentId, timezone, normalizedTeams = [] }) {
+  const isLive = m.status === 'in_progress'
+  const isDone = m.status === 'complete' || m.status === 'forfeit'
+  const isBracketMatch = !!(m.match_code || m.bracket_type)
+
+  const sourceLabels = getMatchSourceLabels({
+    match: m,
+    teams: normalizedTeams,
+    pools: [],
+  })
+
+  const hasAssignedTeams = !!m.team_a?.id && !!m.team_b?.id
+  const hasResolvedBracketTeams = isBracketMatch && hasAssignedTeams
+
+  const hasTBD = !m.team_a?.id || !m.team_b?.id
   const isAdHoc = m.is_ad_hoc === true
 
-  const [editing, setEditing]   = useState(false)
+  const [editing, setEditing] = useState(false)
   const [allTeams, setAllTeams] = useState([])
   const [scoreEdit, setScoreEdit] = useState(false)
-  const [saving, setSaving]     = useState(false)
-  const [teamA, setTeamA]       = useState(m.team_a?.id ?? '')
-  const [teamB, setTeamB]       = useState(m.team_b?.id ?? '')
+  const [saving, setSaving] = useState(false)
+  const [teamA, setTeamA] = useState(m.team_a?.id ?? '')
+  const [teamB, setTeamB] = useState(m.team_b?.id ?? '')
 
   async function loadTeams() {
     const { data } = await supabase
@@ -1186,6 +1282,12 @@ function MatchRow({ match: m, tournamentId, timezone }) {
     : hasTBD ? 'rgba(234,179,8,0.03)'
     : 'var(--bg-surface)'
 
+  const primaryA = m.team_a?.name ?? sourceLabels.aPrimary ?? 'TBD'
+  const primaryB = m.team_b?.name ?? sourceLabels.bPrimary ?? 'TBD'
+
+  const secondaryA = hasResolvedBracketTeams ? sourceLabels.aPrimary : null
+  const secondaryB = hasResolvedBracketTeams ? sourceLabels.bPrimary : null
+
   return (
     <div
       style={{
@@ -1195,7 +1297,6 @@ function MatchRow({ match: m, tournamentId, timezone }) {
         overflow: 'hidden',
       }}
     >
-      {/* Row 1: Teams + score */}
       <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px' }}>
         {isLive && <span className="live-dot" style={{ flexShrink:0 }} />}
         {hasTBD && !isLive && (
@@ -1229,7 +1330,7 @@ function MatchRow({ match: m, tournamentId, timezone }) {
                   fontStyle: !m.team_a?.id ? 'italic' : 'normal',
                 }}
               >
-                {m.team_a?.name ?? 'TBD'}
+                {primaryA}
               </span>
 
               <span style={{ color:'var(--text-muted)', fontWeight:400, margin:'0 6px' }}>
@@ -1242,7 +1343,7 @@ function MatchRow({ match: m, tournamentId, timezone }) {
                   fontStyle: !m.team_b?.id ? 'italic' : 'normal',
                 }}
               >
-                {m.team_b?.name ?? 'TBD'}
+                {primaryB}
               </span>
             </p>
 
@@ -1264,9 +1365,16 @@ function MatchRow({ match: m, tournamentId, timezone }) {
             )}
           </div>
 
+          {hasResolvedBracketTeams && secondaryA && secondaryB && (
+            <p style={{ fontSize:11, color:'var(--text-muted)', margin:'2px 0 0' }}>
+              {secondaryA} vs {secondaryB}
+            </p>
+          )}
+
           <p style={{ fontSize:11, color:'var(--text-muted)', margin:'2px 0 0' }}>
             {m.time_slot?.scheduled_start ? formatTime(m.time_slot.scheduled_start, timezone) : ''}
-            {m.team_a?.id && m.team_b?.id && m.round_label ? ' · ' + m.round_label : ''}
+            {m.round_label ? ' · ' + m.round_label : ''}
+            {m.bracket_type ? ' · ' + m.bracket_type : ''}
           </p>
         </div>
 
@@ -1285,7 +1393,6 @@ function MatchRow({ match: m, tournamentId, timezone }) {
         )}
       </div>
 
-      {/* Row 2: Action buttons */}
       <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px 10px', flexWrap:'wrap' }}>
         {isLive ? (
           <Link
@@ -1563,6 +1670,7 @@ function MatchRow({ match: m, tournamentId, timezone }) {
     </div>
   )
 }
+
 function formatDate(d) {
   if (!d) return '-'
   return new Date(d + 'T12:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })

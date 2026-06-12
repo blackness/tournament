@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { PageLoader } from '../components/ui/LoadingSpinner'
@@ -59,6 +59,73 @@ export function SchedulePage() {
     }
   }, [storageKey, tab, quickView, fieldFilter])
 
+  const loadTournamentSchedule = useCallback(async tournamentRow => {
+    const { data: m } = await supabase
+      .from('matches')
+      .select(`
+        id,
+        status,
+        score_a,
+        score_b,
+        winner_id,
+        round_label,
+        display_label,
+        match_code,
+        bracket_type,
+        phase,
+        round,
+        match_number,
+        source_a_type,
+        source_a_ref,
+        source_b_type,
+        source_b_ref,
+        team_a:tournament_teams!team_a_id(id, name, short_name, seed, primary_color),
+        team_b:tournament_teams!team_b_id(id, name, short_name, seed, primary_color),
+        venue:venues(id, name, short_name, youtube_url),
+        division:divisions(id, name),
+        pool:pools(id, name),
+        time_slot:time_slots(id, scheduled_start, scheduled_end)
+      `)
+      .eq('tournament_id', tournamentRow.id)
+      .neq('status', 'cancelled')
+
+    const sortedMatches = (m ?? []).slice().sort((a, b) => {
+      const aTime = a.time_slot?.scheduled_start ? new Date(a.time_slot.scheduled_start).getTime() : Infinity
+      const bTime = b.time_slot?.scheduled_start ? new Date(b.time_slot.scheduled_start).getTime() : Infinity
+      if (aTime !== bTime) return aTime - bTime
+
+      const aVenue = a.venue?.name ?? ''
+      const bVenue = b.venue?.name ?? ''
+      if (aVenue !== bVenue) return aVenue.localeCompare(bVenue)
+
+      const aMatch = a.match_number ?? 9999
+      const bMatch = b.match_number ?? 9999
+      return aMatch - bMatch
+    })
+
+    setMatches(sortedMatches)
+
+    const divisionIds = [...new Set(sortedMatches.map(m => m.division?.id).filter(Boolean))]
+    let mergedStandings = {}
+
+    for (const divId of divisionIds) {
+      const map = await loadStandingsByPool(divId)
+      mergedStandings = { ...mergedStandings, ...map }
+    }
+
+    setStandingsByPool(mergedStandings)
+
+    const { data: v } = await supabase
+      .from('venues')
+      .select('id, name, short_name')
+      .eq('tournament_id', tournamentRow.id)
+      .order('sort_order')
+
+    setVenues(v ?? [])
+
+    return sortedMatches
+  }, [])
+
   useEffect(() => {
     async function load() {
       setLoading(true)
@@ -77,161 +144,111 @@ export function SchedulePage() {
 
       setTournament(t)
 
-      const { data: m } = await supabase
-        .from('matches')
-        .select(`
-          id,
-          status,
-          score_a,
-          score_b,
-          winner_id,
-          round_label,
-          display_label,
-          match_code,
-          bracket_type,
-          phase,
-          round,
-          match_number,
-          source_a_type,
-          source_a_ref,
-          source_b_type,
-          source_b_ref,
-          team_a:tournament_teams!team_a_id(id, name, short_name, seed, primary_color),
-          team_b:tournament_teams!team_b_id(id, name, short_name, seed, primary_color),
-          venue:venues(id, name, short_name, youtube_url),
-          division:divisions(id, name),
-          pool:pools(id, name),
-          time_slot:time_slots(id, scheduled_start, scheduled_end)
-        `)
-        .eq('tournament_id', t.id)
-        .neq('status', 'cancelled')
+      const sortedMatches = await loadTournamentSchedule(t)
+      const defaultView = getDefaultScheduleView(sortedMatches)
+      const savedRaw = localStorage.getItem(`schedule-view:${slug}`)
+      const hasSavedView = !!savedRaw
 
-      const sortedMatches = (m ?? []).slice().sort((a, b) => {
-        const aTime = a.time_slot?.scheduled_start ? new Date(a.time_slot.scheduled_start).getTime() : Infinity
-        const bTime = b.time_slot?.scheduled_start ? new Date(b.time_slot.scheduled_start).getTime() : Infinity
-        if (aTime !== bTime) return aTime - bTime
+      if (!hasSavedView) {
+        setTab(defaultView.tab)
+        setQuickView(defaultView.quickView)
+        setFieldFilter(defaultView.fieldFilter)
+      } else {
+        try {
+          const saved = JSON.parse(savedRaw || '{}')
 
-        const aVenue = a.venue?.name ?? ''
-        const bVenue = b.venue?.name ?? ''
-        if (aVenue !== bVenue) return aVenue.localeCompare(bVenue)
+          const candidateTab = saved.tab ?? defaultView.tab
+          const candidateQuickView = saved.quickView ?? null
+          const candidateFieldFilter = saved.fieldFilter ?? 'all'
 
-        const aMatch = a.match_number ?? 9999
-        const bMatch = b.match_number ?? 9999
-        return aMatch - bMatch
-      })
+          const candidateMatches = applyScheduleFilters(
+            sortedMatches,
+            candidateTab,
+            candidateQuickView,
+            candidateFieldFilter
+          )
 
-      setMatches(sortedMatches)
-
-      const divisionIds = [...new Set(sortedMatches.map(m => m.division?.id).filter(Boolean))]
-      let mergedStandings = {}
-
-      for (const divId of divisionIds) {
-        const map = await loadStandingsByPool(divId)
-        mergedStandings = { ...mergedStandings, ...map }
+          if (candidateMatches.length === 0 && sortedMatches.length > 0) {
+            setTab(defaultView.tab)
+            setQuickView(defaultView.quickView)
+            setFieldFilter(defaultView.fieldFilter)
+          } else {
+            setTab(candidateTab)
+            setQuickView(candidateQuickView)
+            setFieldFilter(candidateFieldFilter)
+          }
+        } catch {
+          setTab(defaultView.tab)
+          setQuickView(defaultView.quickView)
+          setFieldFilter(defaultView.fieldFilter)
+        }
       }
 
-      setStandingsByPool(mergedStandings)
-
-      const liveCount = sortedMatches.filter(x => x.status === 'in_progress').length
-      const unplayedCount = sortedMatches.filter(x => x.status === 'scheduled' && x.time_slot?.scheduled_start).length
-
-      const hadSavedView = !!localStorage.getItem(`schedule-view:${slug}`)
-      if (!hadSavedView) {
-        if (liveCount > 0) setTab('live')
-        else if (unplayedCount > 0) setTab('unplayed')
-        else setTab('finished')
-      }
-
-      const { data: v } = await supabase
-        .from('venues')
-        .select('id, name, short_name')
-        .eq('tournament_id', t.id)
-        .order('sort_order')
-
-      setVenues(v ?? [])
       setLoading(false)
     }
 
     load()
-  }, [slug])
+  }, [slug, loadTournamentSchedule])
 
   useEffect(() => {
     if (!tournament) return
+
+    let reloadTimeout = null
+
+    const scheduleReload = () => {
+      if (reloadTimeout) clearTimeout(reloadTimeout)
+      reloadTimeout = setTimeout(() => {
+        loadTournamentSchedule(tournament)
+      }, 150)
+    }
 
     const channel = supabase
       .channel('schedule-' + tournament.id)
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*',
           schema: 'public',
           table: 'matches',
           filter: 'tournament_id=eq.' + tournament.id,
         },
-        async payload => {
-          const updated = payload.new
-
-          const { data: fresh } = await supabase
-            .from('matches')
-            .select(`
-              id,
-              status,
-              score_a,
-              score_b,
-              winner_id,
-              round_label,
-              display_label,
-              match_code,
-              bracket_type,
-              phase,
-              round,
-              match_number,
-              source_a_type,
-              source_a_ref,
-              source_b_type,
-              source_b_ref,
-              team_a:tournament_teams!team_a_id(id, name, short_name, seed, primary_color),
-              team_b:tournament_teams!team_b_id(id, name, short_name, seed, primary_color),
-              venue:venues(id, name, short_name, youtube_url),
-              division:divisions(id, name),
-              pool:pools(id, name),
-              time_slot:time_slots(id, scheduled_start, scheduled_end)
-            `)
-            .eq('id', updated.id)
-            .single()
-
-          if (!fresh) return
-
-          setMatches(prev => {
-            const next = prev.some(m => m.id === fresh.id)
-              ? prev.map(m => (m.id === fresh.id ? fresh : m))
-              : [...prev, fresh]
-
-            return next.slice().sort((a, b) => {
-              const aTime = a.time_slot?.scheduled_start ? new Date(a.time_slot.scheduled_start).getTime() : Infinity
-              const bTime = b.time_slot?.scheduled_start ? new Date(b.time_slot.scheduled_start).getTime() : Infinity
-              if (aTime !== bTime) return aTime - bTime
-
-              const aVenue = a.venue?.name ?? ''
-              const bVenue = b.venue?.name ?? ''
-              if (aVenue !== bVenue) return aVenue.localeCompare(bVenue)
-
-              const aMatch = a.match_number ?? 9999
-              const bMatch = b.match_number ?? 9999
-              return aMatch - bMatch
-            })
-          })
-        }
+        scheduleReload
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'time_slots',
+          filter: 'tournament_id=eq.' + tournament.id,
+        },
+        scheduleReload
       )
       .subscribe()
 
-    return () => supabase.removeChannel(channel)
-  }, [tournament?.id])
+    return () => {
+      if (reloadTimeout) clearTimeout(reloadTimeout)
+      supabase.removeChannel(channel)
+    }
+  }, [tournament, loadTournamentSchedule])
+
+  useEffect(() => {
+    if (matches.length === 0) return
+
+    const visible = applyScheduleFilters(matches, tab, quickView, fieldFilter)
+
+    if (visible.length === 0) {
+      const defaultView = getDefaultScheduleView(matches)
+      setTab(defaultView.tab)
+      setQuickView(defaultView.quickView)
+      setFieldFilter(defaultView.fieldFilter)
+    }
+  }, [matches, tab, quickView, fieldFilter])
 
   const byTab = useMemo(
     () => ({
       live: matches.filter(m => m.status === 'in_progress'),
-      unplayed: matches.filter(m => m.status === 'scheduled' && m.time_slot?.scheduled_start),
+      unplayed: matches.filter(m => m.status === 'scheduled'),
       finished: matches.filter(m => ['complete', 'forfeit'].includes(m.status)),
       all: matches,
     }),
@@ -388,24 +405,50 @@ export function SchedulePage() {
               </h1>
             </div>
 
-            <button
-              onClick={() => cycleFieldFilter(fieldFilter, venues, setFieldFilter)}
-              style={{
-                border: '1px solid var(--border)',
-                background: 'var(--bg-base)',
-                color: 'var(--text-secondary)',
-                padding: '6px 10px',
-                borderRadius: 999,
-                fontSize: 12,
-                fontWeight: 600,
-                whiteSpace: 'nowrap',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                flexShrink: 0,
-              }}
-            >
-              {currentFieldLabel}
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <button
+                onClick={() => {
+                  const defaultView = getDefaultScheduleView(matches)
+                  setTab(defaultView.tab)
+                  setQuickView(defaultView.quickView)
+                  setFieldFilter(defaultView.fieldFilter)
+                  if (storageKey) localStorage.removeItem(storageKey)
+                }}
+                style={{
+                  border: '1px solid var(--border)',
+                  background: 'transparent',
+                  color: 'var(--text-muted)',
+                  padding: '6px 10px',
+                  borderRadius: 999,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Reset view
+              </button>
+
+              <button
+                onClick={() => cycleFieldFilter(fieldFilter, venues, setFieldFilter)}
+                style={{
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-base)',
+                  color: 'var(--text-secondary)',
+                  padding: '6px 10px',
+                  borderRadius: 999,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  flexShrink: 0,
+                }}
+              >
+                {currentFieldLabel}
+              </button>
+            </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -437,6 +480,22 @@ export function SchedulePage() {
       </div>
 
       <div style={{ maxWidth: 760, margin: '0 auto', padding: '16px' }}>
+        {filtered.length === 0 && matches.length > 0 && (
+          <div
+            style={{
+              marginBottom: 14,
+              padding: '10px 12px',
+              borderRadius: 10,
+              border: '1px solid var(--border)',
+              background: 'var(--bg-surface)',
+              color: 'var(--text-muted)',
+              fontSize: 12,
+            }}
+          >
+            No games match the current filters. Try Reset view.
+          </div>
+        )}
+
         {featuredMatches.length > 0 && (
           <div style={{ marginBottom: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
@@ -567,6 +626,98 @@ function cycleFieldFilter(current, venues, setFieldFilter) {
   setFieldFilter(next)
 }
 
+function applyScheduleFilters(matches, tab, quickView, fieldFilter) {
+  const byTab = {
+    live: matches.filter(m => m.status === 'in_progress'),
+    unplayed: matches.filter(m => m.status === 'scheduled'),
+    finished: matches.filter(m => ['complete', 'forfeit'].includes(m.status)),
+    all: matches,
+  }
+
+  let filtered = byTab[tab] ?? []
+
+  if (quickView?.startsWith('day:')) {
+    const selectedDate = quickView.slice(4)
+    filtered = filtered.filter(m => getMatchDate(m) === selectedDate)
+  } else if (quickView?.startsWith('bracket:')) {
+    const selectedBracketType = quickView.slice(8)
+    filtered = filtered.filter(m => m.bracket_type === selectedBracketType)
+  }
+
+  if (fieldFilter !== 'all') {
+    filtered = filtered.filter(m => m.venue?.id === fieldFilter)
+  }
+
+  return filtered
+}
+
+function getDefaultScheduleView(matches) {
+  const now = new Date()
+
+  const liveMatches = matches.filter(m => m.status === 'in_progress')
+  if (liveMatches.length > 0) {
+    return {
+      tab: 'live',
+      quickView: null,
+      fieldFilter: 'all',
+    }
+  }
+
+  const scheduledMatches = matches.filter(m => m.status === 'scheduled')
+
+  const upcomingByDate = [...new Set(
+    scheduledMatches
+      .map(m => getMatchDate(m))
+      .filter(Boolean)
+  )].sort()
+
+  const todayDate = now.toLocaleDateString('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'America/Toronto',
+  })
+
+  if (upcomingByDate.includes(todayDate)) {
+    return {
+      tab: 'unplayed',
+      quickView: `day:${todayDate}`,
+      fieldFilter: 'all',
+    }
+  }
+
+  if (upcomingByDate.length > 0) {
+    return {
+      tab: 'unplayed',
+      quickView: `day:${upcomingByDate[0]}`,
+      fieldFilter: 'all',
+    }
+  }
+
+  if (scheduledMatches.length > 0) {
+    return {
+      tab: 'unplayed',
+      quickView: null,
+      fieldFilter: 'all',
+    }
+  }
+
+  const finishedMatches = matches.filter(m => ['complete', 'forfeit'].includes(m.status))
+  if (finishedMatches.length > 0) {
+    return {
+      tab: 'finished',
+      quickView: null,
+      fieldFilter: 'all',
+    }
+  }
+
+  return {
+    tab: 'all',
+    quickView: null,
+    fieldFilter: 'all',
+  }
+}
+
 function GameCard({
   match: m,
   featured = false,
@@ -581,14 +732,13 @@ function GameCard({
   const hasStream = !!m.venue?.youtube_url
   const hasAssignedTeams = !!(m.team_a?.id && m.team_b?.id)
   const specialHighlight = getMatchHighlight(m.match_code)
+  const isBracketMatch = !!m.match_code || !!m.bracket_type
 
   const sourceLabels = getMatchSourceLabels({
     match: m,
     teams: normalizedTeams,
     pools: [],
   })
-
-  const isBracketMatch = !!m.match_code || !!m.bracket_type
 
   const bracketBadge =
     m.bracket_type === 'play_in'
@@ -608,12 +758,16 @@ function GameCard({
         seedsLocked: false,
       })
 
+  const hasResolvedBracketTeams =
+    isBracketMatch &&
+    !!(m.team_a?.id && m.team_b?.id)
+
   const displayTeams = hasAssignedTeams
     ? {
         a: formatSeedName(m.team_a),
         b: formatSeedName(m.team_b),
-        subA: null,
-        subB: null,
+        subA: hasResolvedBracketTeams ? sourceLabels.aPrimary : null,
+        subB: hasResolvedBracketTeams ? sourceLabels.bPrimary : null,
       }
     : {
         a: resolved?.a?.primary || sourceLabels.aPrimary,

@@ -140,6 +140,15 @@ export function generateSchedule(config) {
       ? tournamentDays
       : scheduleDays
 
+console.log('[generateSchedule] venues', venues.map(v => ({ id: v.id, name: v.name })))
+console.log('[generateSchedule] scheduleConfig', {
+  startTime,
+  endTime,
+  gameDurationMinutes,
+  breakBetweenGamesMinutes,
+  minRestBetweenTeamGames,
+  generationMode,
+})
   const normalizedDays =
     inputDays.length > 0
       ? inputDays
@@ -190,7 +199,7 @@ export function generateSchedule(config) {
   if (normalizedDays.length === 0) {
     return { slots: [], matches: [], conflicts: [] }
   }
-
+console.log('[generateSchedule] normalizedDays', normalizedDays)
   const timeRounds = []
 
   for (const day of normalizedDays) {
@@ -364,6 +373,22 @@ console.log(
 
   const usedSlotIds = new Set(matches.map(m => m.slot_id).filter(Boolean))
   const usedSlots = slots.filter(s => usedSlotIds.has(s.id))
+
+  console.log('[generateSchedule] total allMatchups', allMatchups.length)
+console.log('[generateSchedule] matchupsToSchedule', matchupsToSchedule.length)
+console.log('[generateSchedule] total timeRounds', timeRounds.length)
+console.log('[generateSchedule] total slots', slots.length)
+console.log('[generateSchedule] unscheduled matches', matches.filter(m => !m.slot_id).length)
+console.log(
+  '[generateSchedule] unscheduled detail',
+  matches.filter(m => !m.slot_id).map(m => ({
+    round: m.round,
+    team_a_id: m.team_a_id,
+    team_b_id: m.team_b_id,
+    pool_id: m.pool_id,
+    division_id: m.division_id,
+  }))
+)
 
   const conflicts = validateSchedule(matches, usedSlots, minRestBetweenTeamGames)
 

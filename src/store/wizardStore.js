@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { DEFAULT_TIEBREAKERS, SCHEDULE_DEFAULTS } from '../lib/constants'
+import { DEFAULT_TIEBREAKERS } from '../lib/constants'
 
 // ─── Initial state ─────────────────────────────────────────────────────────────
 const INITIAL_STATE = {
@@ -46,21 +46,6 @@ const INITIAL_STATE = {
   tournamentDays: [],
   rosters: [],
 
-  // ── Step 6: Schedule ──────────────────────────────────────────────────────────
-  scheduleConfig: {
-    startTime: null,
-    endTime: null,
-    lunchBreakStart: null,
-    lunchBreakEnd: null,
-    gameDurationMinutes: SCHEDULE_DEFAULTS.gameDurationMinutes,
-    breakBetweenGamesMinutes: SCHEDULE_DEFAULTS.breakBetweenGamesMinutes,
-    minRestBetweenTeamGames: SCHEDULE_DEFAULTS.minRestBetweenTeamGames,
-    generationMode: 'round',
-  },
-  generatedSlots: [],
-  generatedMatches: [],
-  scheduleConflicts: [],
-
   // ── Step 7: Playoffs ──────────────────────────────────────────────────────────
   playoffConfigs: {},
   generatedPlayoffMatches: [],
@@ -71,14 +56,6 @@ const INITIAL_STATE = {
 
   // ── Step 9: Preview / publish ─────────────────────────────────────────────────
   isPublished: false,
-}
-
-function clearGeneratedScheduleState() {
-  return {
-    generatedSlots: [],
-    generatedMatches: [],
-    scheduleConflicts: [],
-  }
 }
 
 export const useWizardStore = create(
@@ -120,7 +97,6 @@ export const useWizardStore = create(
       setDivisions: divisions =>
         set({
           divisions,
-          ...clearGeneratedScheduleState(),
           isDirty: true,
         }),
 
@@ -160,7 +136,6 @@ export const useWizardStore = create(
             poolAssignments: nextAssignments,
             rosters: s.rosters.filter(r => nextTeams.some(t => t.id === r.teamId)),
             playoffConfigs: nextPlayoffConfigs,
-            ...clearGeneratedScheduleState(),
             isDirty: true,
           }
         }),
@@ -175,35 +150,30 @@ export const useWizardStore = create(
       setVenues: venues =>
         set({
           venues,
-          ...clearGeneratedScheduleState(),
           isDirty: true,
         }),
 
       addVenue: venue =>
         set(s => ({
           venues: [...s.venues, venue],
-          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
       updateVenue: (id, updates) =>
         set(s => ({
           venues: s.venues.map(v => v.id === id ? { ...v, ...updates } : v),
-          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
       removeVenue: id =>
         set(s => ({
           venues: s.venues.filter(v => v.id !== id),
-          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
       reorderVenues: ordered =>
         set({
           venues: ordered.map((v, i) => ({ ...v, sortOrder: i })),
-          ...clearGeneratedScheduleState(),
           isDirty: true,
         }),
 
@@ -219,7 +189,6 @@ export const useWizardStore = create(
             teams,
             poolAssignments: nextAssignments,
             rosters: s.rosters.filter(r => nextTeamIds.has(r.teamId)),
-            ...clearGeneratedScheduleState(),
             isDirty: true,
           }
         }),
@@ -227,21 +196,18 @@ export const useWizardStore = create(
       addTeam: team =>
         set(s => ({
           teams: [...s.teams, team],
-          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
       addTeams: newTeams =>
         set(s => ({
           teams: [...s.teams, ...newTeams],
-          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
       updateTeam: (id, updates) =>
         set(s => ({
           teams: s.teams.map(t => t.id === id ? { ...t, ...updates } : t),
-          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
@@ -252,7 +218,6 @@ export const useWizardStore = create(
             Object.entries(s.poolAssignments).filter(([tid]) => tid !== id)
           ),
           rosters: s.rosters.filter(r => r.teamId !== id),
-          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
@@ -271,7 +236,6 @@ export const useWizardStore = create(
           return {
             pools,
             poolAssignments: nextAssignments,
-            ...clearGeneratedScheduleState(),
             isDirty: true,
           }
         }),
@@ -279,14 +243,12 @@ export const useWizardStore = create(
       addPool: pool =>
         set(s => ({
           pools: [...s.pools, pool],
-          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
       updatePool: (id, updates) =>
         set(s => ({
           pools: s.pools.map(p => p.id === id ? { ...p, ...updates } : p),
-          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
@@ -296,7 +258,6 @@ export const useWizardStore = create(
           poolAssignments: Object.fromEntries(
             Object.entries(s.poolAssignments).filter(([, pid]) => pid !== id)
           ),
-          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
@@ -317,7 +278,6 @@ export const useWizardStore = create(
           return {
             pools: nextPools,
             poolAssignments: nextAssignments,
-            ...clearGeneratedScheduleState(),
             isDirty: true,
           }
         }),
@@ -328,18 +288,16 @@ export const useWizardStore = create(
             ...s.poolAssignments,
             [teamId]: poolId,
           },
-          ...clearGeneratedScheduleState(),
           isDirty: true,
         })),
 
       setPoolAssignments: assignments =>
-        set(s => ({
+        set({
           poolAssignments: {
             ...(assignments || {}),
           },
-          ...clearGeneratedScheduleState(),
           isDirty: true,
-        })),
+        }),
 
       setTournamentDays: days =>
         set({
@@ -351,36 +309,6 @@ export const useWizardStore = create(
         set({
           rosters,
           isDirty: true,
-        }),
-
-      // ── Step 6: Schedule ───────────────────────────────────────────────────────
-      setScheduleConfig: config =>
-        set(s => ({
-          scheduleConfig: { ...s.scheduleConfig, ...config },
-          isDirty: true,
-        })),
-
-      setGeneratedSchedule: ({ slots, matches, conflicts }) =>
-        set({
-          generatedSlots: slots,
-          generatedMatches: matches,
-          scheduleConflicts: conflicts,
-          isDirty: true,
-        }),
-
-      updateMatchSlot: (matchId, slotId, venueId) =>
-        set(s => ({
-          generatedMatches: s.generatedMatches.map(m =>
-            m.id === matchId ? { ...m, slot_id: slotId, venue_id: venueId } : m
-          ),
-          isDirty: true,
-        })),
-
-      clearSchedule: () =>
-        set({
-          generatedSlots: [],
-          generatedMatches: [],
-          scheduleConflicts: [],
         }),
 
       // ── Step 7: Playoffs ───────────────────────────────────────────────────────
@@ -395,17 +323,19 @@ export const useWizardStore = create(
           },
           isDirty: true,
         })),
-setGeneratedPlayoffMatches: matches =>
-  set({
-    generatedPlayoffMatches: matches || [],
-    isDirty: true,
-  }),
 
-clearGeneratedPlayoffMatches: () =>
-  set({
-    generatedPlayoffMatches: [],
-    isDirty: true,
-  }),
+      setGeneratedPlayoffMatches: matches =>
+        set({
+          generatedPlayoffMatches: matches || [],
+          isDirty: true,
+        }),
+
+      clearGeneratedPlayoffMatches: () =>
+        set({
+          generatedPlayoffMatches: [],
+          isDirty: true,
+        }),
+
       clearPlayoffConfig: divisionId =>
         set(state => {
           const nextPlayoffConfigs = { ...(state.playoffConfigs || {}) }
@@ -444,11 +374,6 @@ clearGeneratedPlayoffMatches: () =>
           .filter(t => t.divisionId === divisionId)
           .filter(t => !poolAssignments[t.id])
       },
-
-      hasUnacknowledgedErrors: () =>
-        get().scheduleConflicts
-          .filter(c => c.severity === 'error')
-          .some(c => !get().acknowledgedConflicts.includes(`${c.type}:${c.teamId}`)),
 
       getEnabledStats: () => {
         const { sportConfig, enabledStatIds } = get()
@@ -505,11 +430,6 @@ clearGeneratedPlayoffMatches: () =>
         poolAssignments: s.poolAssignments,
         tournamentDays: s.tournamentDays,
         rosters: s.rosters,
-
-        // Step 6
-        scheduleConfig: s.scheduleConfig,
-        generatedMatches: s.generatedMatches,
-        generatedSlots: s.generatedSlots,
 
         // Step 7
         playoffConfigs: s.playoffConfigs,

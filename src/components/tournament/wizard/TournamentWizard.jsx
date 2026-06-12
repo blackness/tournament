@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useWizardStore } from '../../../store/wizardStore'
 import { useAuth } from '../../../lib/AuthContext'
 import { db, supabase } from '../../../lib/supabase'
@@ -29,8 +29,10 @@ const STEP_COMPONENTS = [
 
 export function TournamentWizard({ mode = 'create', tournamentId: existingId }) {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { user } = useAuth()
   const [loadingEdit, setLoadingEdit] = useState(mode === 'edit')
+  const [hasAppliedRequestedStep, setHasAppliedRequestedStep] = useState(false)
 
   const {
     currentStep,
@@ -43,6 +45,13 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
     setFields,
   } = useWizardStore()
 
+  const requestedStep = parseRequestedStep(searchParams.get('step'))
+
+  const backToDirectorHref =
+    existingId || tournamentId
+      ? `/director/${existingId || tournamentId}`
+      : '/director'
+
   useEffect(() => {
     if (mode === 'edit' && existingId) {
       loadExistingTournament(existingId)
@@ -52,6 +61,25 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
       // Fresh create -- already handled by WizardPage reset
     }
   }, [mode, existingId])
+
+  useEffect(() => {
+    if (!requestedStep) return
+    if (loadingEdit) return
+    if (hasAppliedRequestedStep) return
+    if (requestedStep < 1 || requestedStep > STEP_COMPONENTS.length) return
+
+    if (currentStep !== requestedStep) {
+      goToStep(requestedStep)
+    }
+
+    setHasAppliedRequestedStep(true)
+  }, [
+    requestedStep,
+    loadingEdit,
+    currentStep,
+    goToStep,
+    hasAppliedRequestedStep,
+  ])
 
   async function loadExistingTournament(id) {
     setLoadingEdit(true)
@@ -108,13 +136,6 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
         .select('*')
         .eq('tournament_id', id)
         .order('day_index')
-
-      const { data: slotRows } = await supabase
-        .from('time_slots')
-        .select('*')
-        .eq('tournament_id', id)
-        .order('scheduled_start')
-        .limit(1)
 
       const divisions = (divs ?? []).map(d => ({
         id: d.id,
@@ -179,19 +200,16 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
         label: day.label,
       }))
 
-      const firstSlot = slotRows?.[0]
-      const scheduleConfig = firstSlot
-        ? {
-            startTime: extractTimeValue(firstSlot.scheduled_start),
-            endTime: '',
-            lunchBreakStart: null,
-            lunchBreakEnd: null,
-            gameDurationMinutes: t.game_duration_minutes ?? 90,
-            breakBetweenGamesMinutes: t.break_between_games_minutes ?? 30,
-            minRestBetweenTeamGames: t.min_rest_minutes ?? 90,
-            generationMode: 'round',
-          }
-        : useWizardStore.getState().scheduleConfig
+      const scheduleConfig = {
+        startTime: formatTimeValue(t.default_day_start_time) || '09:00',
+        endTime: formatTimeValue(t.default_day_end_time) || '23:00',
+        lunchBreakStart: null,
+        lunchBreakEnd: null,
+        gameDurationMinutes: t.game_duration_minutes ?? 90,
+        breakBetweenGamesMinutes: t.break_between_games_minutes ?? 30,
+        minRestBetweenTeamGames: t.min_rest_minutes ?? 90,
+        generationMode: t.schedule_generation_mode || 'round',
+      }
 
       const sportTemplate = t.sport_template
       const enabledStatIds =
@@ -240,14 +258,23 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
+      <div className="mb-3">
+        <Link
+          to={backToDirectorHref}
+          className="text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)] inline-flex items-center gap-1"
+        >
+          ← Back to Director HQ
+        </Link>
+      </div>
+
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-[var(--text-primary)]">
-          {mode === 'create' ? 'Create Tournament' : 'Edit Tournament'}
+          {mode === 'create' ? 'Create Tournament' : 'Tournament Wizard'}
         </h1>
         <p className="text-sm text-[var(--text-muted)] mt-1">
           {mode === 'create'
             ? 'Fill out each step to set up your tournament.'
-            : 'Update your tournament settings. All fields are prefilled from the current saved data.'}
+            : 'Update your tournament settings using the wizard. All fields are prefilled from the current saved data.'}
         </p>
       </div>
 
@@ -288,14 +315,28 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
   )
 }
 
-function extractTimeValue(value) {
+function parseRequestedStep(raw) {
+  if (!raw) return null
+  const parsed = Number(raw)
+  if (!Number.isInteger(parsed)) return null
+  return parsed
+}
+
+function formatTimeValue(value) {
   if (!value) return ''
 
-  const dt = new Date(value)
+  if (typeof value === 'string') {
+    return value.slice(0, 5)
+  }
 
-  return dt.toLocaleTimeString('en-CA', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
+  try {
+    const dt = new Date(value)
+    return dt.toLocaleTimeString('en-CA', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+  } catch {
+    return ''
+  }
 }
