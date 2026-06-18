@@ -33,19 +33,6 @@ export function SchedulePage() {
     if (!storageKey) return
 
     try {
-      const saved = JSON.parse(localStorage.getItem(storageKey) || '{}')
-      if (saved.tab) setTab(saved.tab)
-      if (saved.quickView ?? null) setQuickView(saved.quickView ?? null)
-      if (saved.fieldFilter) setFieldFilter(saved.fieldFilter)
-    } catch (err) {
-      console.warn('Failed to read schedule view state', err)
-    }
-  }, [storageKey])
-
-  useEffect(() => {
-    if (!storageKey) return
-
-    try {
       localStorage.setItem(
         storageKey,
         JSON.stringify({
@@ -236,8 +223,15 @@ export function SchedulePage() {
     if (matches.length === 0) return
 
     const visible = applyScheduleFilters(matches, tab, quickView, fieldFilter)
+    if (visible.length > 0) return
 
-    if (visible.length === 0) {
+    const currentTabHasMatches =
+      (tab === 'live' && matches.some(m => m.status === 'in_progress')) ||
+      (tab === 'unplayed' && matches.some(m => m.status === 'scheduled')) ||
+      (tab === 'finished' && matches.some(m => ['complete', 'forfeit'].includes(m.status))) ||
+      tab === 'all'
+
+    if (!currentTabHasMatches) {
       const defaultView = getDefaultScheduleView(matches)
       setTab(defaultView.tab)
       setQuickView(defaultView.quickView)

@@ -69,7 +69,7 @@ export function StandingsPage() {
     async function load() {
       const { data: div } = await supabase
         .from('divisions')
-        .select('id, name, teams_advance_per_pool, tiebreaker_order, tournament:tournaments(id, name, slug, primary_color, tiebreaker_order)')
+        .select('id, name, teams_advance_per_pool, tiebreaker_order, tournament:tournaments(id, name, slug, primary_color, tiebreaker_order, allow_ties)')
         .eq('id', divisionId)
         .single()
 
@@ -129,6 +129,7 @@ export function StandingsPage() {
   if (loading) return <PageLoader />
 
   const tournament = division?.tournament
+  const allowTies = tournament?.allow_ties === true
   const tiebreakerOrder = division?.tiebreaker_order ?? tournament?.tiebreaker_order ?? []
   const brandColor = tournament?.primary_color ?? '#8b5cf6'
 
@@ -207,6 +208,7 @@ export function StandingsPage() {
       }
     }
   }
+
   const completedCrossovers = crossoverMatches.filter(
     m => (m.status === 'complete' || m.status === 'forfeit') && m.winner_id
   )
@@ -256,6 +258,10 @@ export function StandingsPage() {
         </div>
       ) : (
         pools.map(pool => {
+          const columns = allowTies
+            ? ['#', 'Team', 'W', 'L', 'T', '+/-', 'PF', 'PA', 'GP']
+            : ['#', 'Team', 'W', 'L', '+/-', 'PF', 'PA', 'GP']
+
           const poolTeams = teams
             .filter(team => team.pool_id === pool.id)
             .map(team => {
@@ -269,6 +275,7 @@ export function StandingsPage() {
                 seed: team.seed ?? null,
                 wins: stats?.wins ?? 0,
                 losses: stats?.losses ?? 0,
+                ties: stats?.ties ?? stats?.draws ?? 0,
                 point_diff: stats?.point_diff ?? 0,
                 points_scored: stats?.points_scored ?? 0,
                 points_against: stats?.points_against ?? 0,
@@ -317,7 +324,7 @@ export function StandingsPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 480 }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                      {['#', 'Team', 'W', 'L', '+/-', 'PF', 'PA', 'GP'].map((h, i) => (
+                      {columns.map((h, i) => (
                         <th
                           key={h}
                           style={{
@@ -340,7 +347,7 @@ export function StandingsPage() {
                     {poolTeams.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={9}
+                          colSpan={allowTies ? 10 : 9}
                           style={{
                             padding: '24px',
                             textAlign: 'center',
@@ -448,6 +455,21 @@ export function StandingsPage() {
                               {row.losses ?? 0}
                             </td>
 
+                            {allowTies && (
+                              <td
+                                style={{
+                                  padding: '11px 14px',
+                                  textAlign: 'center',
+                                  fontFamily: 'DM Mono, monospace',
+                                  fontSize: 13,
+                                  color: 'var(--text-secondary)',
+                                  verticalAlign: 'top',
+                                }}
+                              >
+                                {row.ties ?? 0}
+                              </td>
+                            )}
+
                             <td
                               style={{
                                 padding: '11px 14px',
@@ -459,8 +481,8 @@ export function StandingsPage() {
                                   diff > 0
                                     ? '#4ade80'
                                     : diff < 0
-                                    ? '#f87171'
-                                    : 'var(--text-muted)',
+                                      ? '#f87171'
+                                      : 'var(--text-muted)',
                                 verticalAlign: 'top',
                               }}
                             >
@@ -728,8 +750,10 @@ function FavButton({ teamId }) {
 
 const TIEBREAKER_LABELS = {
   head_to_head: 'Head-to-head',
-  point_diff: 'Most wins',
-  points_scored: 'Least points against',
-  points_against: 'Points for',
-  sotg: 'Disk flip',
+  wins: 'Most wins',
+  point_diff: 'Point differential',
+  points_scored: 'Points for',
+  points_against: 'Least points against',
+  sotg: 'Spirit of the Game',
+  disc_flip: 'Disc flip',
 }

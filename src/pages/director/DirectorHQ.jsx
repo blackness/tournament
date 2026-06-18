@@ -322,7 +322,7 @@ export function DirectorHQ() {
             <ExternalLink size={14} /> Public page
           </Link>
           <Link to={`/director/${tournamentId}/edit?step=1`} className="btn-secondary btn btn-sm">
-            <Edit size={14} /> Open Wizard
+            <Edit size={14} /> Tournament Wizard
           </Link>
           <button onClick={() => setShowDelete(true)} className="btn-ghost btn btn-sm text-red-500 hover:bg-red-50">
             <Trash2 size={14} /> Delete
@@ -391,16 +391,10 @@ export function DirectorHQ() {
             sub="Teams, seeds, pools, assignments"
           />
           <QuickLink
-            to={`/director/${tournamentId}/edit?step=6`}
-            label="Schedule setup"
-            sub="Tournament days and schedule generation"
-            />
-
-            <QuickLink
             to={`/director/${tournamentId}/schedule`}
-            label="Schedule editor"
-            sub="Move games, change teams, fields, and times"
-            />
+            label="Schedule"
+            sub="Days, settings, generation, games, fields, and times"
+          />
           <QuickLink
             to={`/director/${tournamentId}/edit?step=7`}
             label="Playoffs"

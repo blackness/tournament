@@ -140,15 +140,6 @@ export function generateSchedule(config) {
       ? tournamentDays
       : scheduleDays
 
-console.log('[generateSchedule] venues', venues.map(v => ({ id: v.id, name: v.name })))
-console.log('[generateSchedule] scheduleConfig', {
-  startTime,
-  endTime,
-  gameDurationMinutes,
-  breakBetweenGamesMinutes,
-  minRestBetweenTeamGames,
-  generationMode,
-})
   const normalizedDays =
     inputDays.length > 0
       ? inputDays
@@ -199,7 +190,7 @@ console.log('[generateSchedule] scheduleConfig', {
   if (normalizedDays.length === 0) {
     return { slots: [], matches: [], conflicts: [] }
   }
-console.log('[generateSchedule] normalizedDays', normalizedDays)
+
   const timeRounds = []
 
   for (const day of normalizedDays) {
@@ -248,15 +239,7 @@ console.log('[generateSchedule] normalizedDays', normalizedDays)
       return assignedPoolId === pool.id
     }),
   }))
-console.log(
-    '[generateSchedule] poolsWithTeams',
-    poolsWithTeams.map(pool => ({
-      poolId: pool.id,
-      poolName: pool.name,
-      teamCount: pool.teams.length,
-      teams: pool.teams.map(t => t.name),
-    }))
-  )
+
   const allMatchups = []
 
   for (const pool of poolsWithTeams) {
@@ -274,8 +257,8 @@ console.log(
   }
 
   for (const division of divisions) {
-
-    if (division.formatType !== FORMAT_TYPES.SINGLE_ELIM) continue
+    const formatType = division.formatType ?? division.format_type
+    if (formatType !== FORMAT_TYPES.SINGLE_ELIM) continue
 
     const divisionTeams = teams.filter(t => t.divisionId === division.id)
     const matchups = generateSingleElimRound1Matchups(
@@ -374,21 +357,9 @@ console.log(
   const usedSlotIds = new Set(matches.map(m => m.slot_id).filter(Boolean))
   const usedSlots = slots.filter(s => usedSlotIds.has(s.id))
 
-  console.log('[generateSchedule] total allMatchups', allMatchups.length)
-console.log('[generateSchedule] matchupsToSchedule', matchupsToSchedule.length)
-console.log('[generateSchedule] total timeRounds', timeRounds.length)
-console.log('[generateSchedule] total slots', slots.length)
-console.log('[generateSchedule] unscheduled matches', matches.filter(m => !m.slot_id).length)
-console.log(
-  '[generateSchedule] unscheduled detail',
-  matches.filter(m => !m.slot_id).map(m => ({
-    round: m.round,
-    team_a_id: m.team_a_id,
-    team_b_id: m.team_b_id,
-    pool_id: m.pool_id,
-    division_id: m.division_id,
-  }))
-)
+  if (matches.some(m => !m.slot_id)) {
+    console.warn('[generateSchedule] Some matches could not be assigned to slots')
+  }
 
   const conflicts = validateSchedule(matches, usedSlots, minRestBetweenTeamGames)
 
@@ -466,7 +437,11 @@ export function validateSchedule(matches, slots, minRestMinutes) {
   const slotUsage = {}
 
   for (const match of matches) {
-    if (!match.team_a_id || !match.team_b_id) {
+    const isBracketMatch = !!match.bracket_type
+    const isPlayable = !!match.team_a_id && !!match.team_b_id
+    const slotId = match.slot_id || match.slotId || match.time_slot_id || null
+
+    if (!isPlayable && !isBracketMatch) {
       conflicts.push({
         type: 'missing_team',
         severity: 'error',
@@ -486,18 +461,20 @@ export function validateSchedule(matches, slots, minRestMinutes) {
       })
     }
 
-    if (!match.slot_id) {
-      conflicts.push({
-        type: 'unscheduled',
-        severity: 'error',
-        teamId: match.team_a_id,
-        matchIds: [match.id],
-        message: 'A game could not be scheduled - not enough time slots',
-      })
+    if (!slotId) {
+      if (isPlayable) {
+        conflicts.push({
+          type: 'unscheduled',
+          severity: 'error',
+          teamId: match.team_a_id,
+          matchIds: [match.id],
+          message: 'A game could not be scheduled - not enough time slots',
+        })
+      }
       continue
     }
 
-    const slot = slotMap[match.slot_id]
+    const slot = slotMap[slotId]
     if (!slot) {
       conflicts.push({
         type: 'missing_slot',
@@ -519,8 +496,8 @@ export function validateSchedule(matches, slots, minRestMinutes) {
       })
     }
 
-    if (!slotUsage[match.slot_id]) slotUsage[match.slot_id] = []
-    slotUsage[match.slot_id].push(match)
+    if (!slotUsage[slotId]) slotUsage[slotId] = []
+    slotUsage[slotId].push(match)
 
     for (const teamId of [match.team_a_id, match.team_b_id]) {
       if (!teamId) continue
@@ -545,16 +522,24 @@ export function validateSchedule(matches, slots, minRestMinutes) {
   // Team overlap + rest checks
   for (const [teamId, games] of Object.entries(teamGames)) {
     const scheduled = games
-      .filter(g => g.slot_id && slotMap[g.slot_id])
+      .filter(g => {
+        const gSlotId = g.slot_id || g.slotId || g.time_slot_id || null
+        return gSlotId && slotMap[gSlotId]
+      })
       .sort((a, b) => {
-        const aStart = new Date(slotMap[a.slot_id].scheduled_start).getTime()
-        const bStart = new Date(slotMap[b.slot_id].scheduled_start).getTime()
+        const aSlotId = a.slot_id || a.slotId || a.time_slot_id
+        const bSlotId = b.slot_id || b.slotId || b.time_slot_id
+        const aStart = new Date(slotMap[aSlotId].scheduled_start).getTime()
+        const bStart = new Date(slotMap[bSlotId].scheduled_start).getTime()
         return aStart - bStart
       })
 
     for (let i = 1; i < scheduled.length; i++) {
-      const prevSlot = slotMap[scheduled[i - 1].slot_id]
-      const nextSlot = slotMap[scheduled[i].slot_id]
+      const prevSlotId = scheduled[i - 1].slot_id || scheduled[i - 1].slotId || scheduled[i - 1].time_slot_id
+      const nextSlotId = scheduled[i].slot_id || scheduled[i].slotId || scheduled[i].time_slot_id
+
+      const prevSlot = slotMap[prevSlotId]
+      const nextSlot = slotMap[nextSlotId]
 
       const prevEnd = new Date(prevSlot.scheduled_end).getTime()
       const nextStart = new Date(nextSlot.scheduled_start).getTime()
@@ -586,7 +571,6 @@ export function validateSchedule(matches, slots, minRestMinutes) {
 
   return dedupeConflicts(conflicts)
 }
-
 function dedupeConflicts(conflicts) {
   const seen = new Set()
   const result = []

@@ -21,6 +21,7 @@ export function WizardStep2Sport({ onNext, onBack, isFirst }) {
     sportConfig,
     enabledStatIds,
     sotgEnabled,
+    allowTies,
     tiebreakerOrder,
     setSport,
     toggleStat,
@@ -76,6 +77,7 @@ export function WizardStep2Sport({ onNext, onBack, isFirst }) {
           tiebreaker_order: tiebreakerOrder,
           sotg_enabled: sotgEnabled,
           enabled_stat_ids: enabledStatIds,
+          allow_ties: allowTies,
         })
       }
 
@@ -214,6 +216,43 @@ export function WizardStep2Sport({ onNext, onBack, isFirst }) {
                 })}
               </div>
             )}
+          </div>
+
+          <div className="divider" />
+
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-1">
+              Game result rules
+            </h3>
+            <p className="text-xs text-[var(--text-muted)] mb-3">
+              Decide whether completed games may end with equal scores.
+            </p>
+
+            <div className="field-group">
+              <label className="field-label mb-2 block">Can games end in a tie?</label>
+
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setField('allowTies', false)}
+                  className={`btn btn-sm ${!allowTies ? 'btn-primary' : 'btn-secondary'}`}
+                >
+                  No
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setField('allowTies', true)}
+                  className={`btn btn-sm ${allowTies ? 'btn-primary' : 'btn-secondary'}`}
+                >
+                  Yes
+                </button>
+              </div>
+
+              <p className="text-xs text-[var(--text-muted)] mt-2">
+                If enabled, completed games may be saved with equal scores and standings will track ties.
+              </p>
+            </div>
           </div>
 
           {sportConfig.sotg_enabled !== undefined && (

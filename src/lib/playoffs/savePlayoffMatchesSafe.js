@@ -64,6 +64,72 @@ export async function savePlayoffMatchesSafe({
       .map(m => [m.match_code, m])
   )
 
+  // Build / find real time slots for any scheduled playoff matches
+  const inlinePlayoffSlots = (playoffMatches ?? [])
+    .filter(match =>
+      (match.slot_id || match.slotId || match.time_slot_id) &&
+      (match.scheduled_start || match.scheduledStart) &&
+      (match.scheduled_end || match.scheduledEnd) &&
+      (match.venue_id || match.venueId)
+    )
+    .map(match => ({
+      localSlotId: match.slot_id || match.slotId || match.time_slot_id,
+      localVenueId: match.venue_id || match.venueId || null,
+      scheduledStart: match.scheduled_start || match.scheduledStart || null,
+      scheduledEnd: match.scheduled_end || match.scheduledEnd || null,
+    }))
+
+  const uniqueInlinePlayoffSlots = Array.from(
+    new Map(
+      inlinePlayoffSlots.map(slot => [
+        String(slot.localSlotId),
+        slot,
+      ])
+    ).values()
+  )
+
+  const slotDbIdByLocalId = {}
+
+  for (const slot of uniqueInlinePlayoffSlots) {
+    const venueDbId = venueDbIdByLocalId[slot.localVenueId] || slot.localVenueId || null
+
+    if (!venueDbId || !slot.scheduledStart) continue
+
+    const { data: existingSlot, error: existingSlotErr } = await supabase
+      .from('time_slots')
+      .select('id, venue_id, scheduled_start, scheduled_end')
+      .eq('tournament_id', tournamentId)
+      .eq('venue_id', venueDbId)
+      .eq('scheduled_start', slot.scheduledStart)
+      .maybeSingle()
+
+    if (existingSlotErr) {
+      throw new Error(`Failed to check existing time slot: ${existingSlotErr.message}`)
+    }
+
+    if (existingSlot?.id) {
+      slotDbIdByLocalId[String(slot.localSlotId)] = existingSlot.id
+      continue
+    }
+
+    const { data: insertedSlot, error: insertSlotErr } = await supabase
+      .from('time_slots')
+      .insert({
+        tournament_id: tournamentId,
+        venue_id: venueDbId,
+        scheduled_start: slot.scheduledStart,
+        scheduled_end: slot.scheduledEnd,
+      })
+      .select('id')
+      .single()
+
+    if (insertSlotErr) {
+      throw new Error(`Failed to insert playoff time slot: ${insertSlotErr.message}`)
+    }
+
+    slotDbIdByLocalId[String(slot.localSlotId)] = insertedSlot.id
+  }
+
   const inserted = []
   const updated = []
   const skipped = []
@@ -85,19 +151,21 @@ export async function savePlayoffMatchesSafe({
     const localTeamAId = match.team_a_id || match.teamAId || null
     const localTeamBId = match.team_b_id || match.teamBId || null
     const localVenueId = match.venue_id || match.venueId || null
+    const localSlotId = match.slot_id || match.slotId || match.time_slot_id || null
 
     const divisionDbId = divisionDbIdByLocalId[localDivisionId] || localDivisionId || null
     const poolDbId = poolDbIdByLocalId[localPoolId] || localPoolId || null
     const teamADbId = teamDbIdByLocalId[localTeamAId] || localTeamAId || null
     const teamBDbId = teamDbIdByLocalId[localTeamBId] || localTeamBId || null
     const venueDbId = venueDbIdByLocalId[localVenueId] || localVenueId || null
+    const slotDbId = localSlotId ? slotDbIdByLocalId[String(localSlotId)] || null : null
 
     const payload = {
       tournament_id: tournamentId,
       division_id: divisionDbId,
       pool_id: poolDbId,
       venue_id: venueDbId,
-      time_slot_id: null,
+      time_slot_id: slotDbId,
       team_a_id: teamADbId,
       team_b_id: teamBDbId,
       round: match.round ?? null,

@@ -11,6 +11,7 @@ import { buildPlayoffPreview } from '../../../lib/playoffs/playoffPreviewBuilder
 import { buildPlayoffStructure } from '../../../lib/playoffs/playoffStructureGenerator'
 import { finalizePlayoffRoundOneTeams } from '../../../lib/playoffs/finalizePlayoffRoundOneTeams'
 import { schedulePlayoffRoundOneFromDay } from '../../../lib/playoffs/schedulePlayoffRoundOneFromDay'
+import { applyPlayoffScheduleTemplateToMatches } from '../../../lib/playoffs/applyPlayoffScheduleTemplateToMatches'
 import {
   AlertTriangle,
   Trophy,
@@ -29,13 +30,11 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
     playoffConfigs,
     generatedMatches,
     generatedPlayoffMatches,
-    generatedSlots,
     tournamentDays,
     venues,
     scheduleConfig,
     setPlayoffConfig,
     setGeneratedPlayoffMatches,
-    setGeneratedSchedule,
   } = useWizardStore()
 
   const [activeDivisionId, setActiveDivisionId] = useState(divisions[0]?.id ?? null)
@@ -43,10 +42,19 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
   const [loadingStandings, setLoadingStandings] = useState(false)
   const [formError, setFormError] = useState(null)
   const [showDebug, setShowDebug] = useState(false)
-  const [selectedPlayoffDayId, setSelectedPlayoffDayId] = useState('')
 
   const activeDivision =
     divisions.find(d => d.id === activeDivisionId) || divisions[0] || null
+
+  const activePlayoffConfig =
+    (activeDivision && playoffConfigs?.[activeDivision.id]) || {}
+
+  const [selectedPlayoffDayId, setSelectedPlayoffDayId] = useState(
+    activePlayoffConfig?.scheduleDayId || ''
+  )
+  const [playoffStartTime, setPlayoffStartTime] = useState(
+    activePlayoffConfig?.playoffStartTime || ''
+  )
 
   useEffect(() => {
     if (!activeDivisionId && divisions.length > 0) {
@@ -55,17 +63,66 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
   }, [activeDivisionId, divisions])
 
   useEffect(() => {
-    if (!selectedPlayoffDayId && (tournamentDays?.length || 0) > 0) {
-      const defaultDay =
-        tournamentDays[1] ||
-        tournamentDays[0] ||
-        null
+    if (!activeDivision) return
 
-      if (defaultDay?.id) {
-        setSelectedPlayoffDayId(defaultDay.id)
-      }
-    }
-  }, [selectedPlayoffDayId, tournamentDays])
+    const nextDayId = playoffConfigs?.[activeDivision.id]?.scheduleDayId || ''
+    const nextStartTime = playoffConfigs?.[activeDivision.id]?.playoffStartTime || ''
+
+    setSelectedPlayoffDayId(nextDayId)
+    setPlayoffStartTime(nextStartTime)
+  }, [activeDivision?.id, playoffConfigs])
+
+  useEffect(() => {
+    if (!activeDivision) return
+    if (selectedPlayoffDayId) return
+    if ((tournamentDays?.length || 0) === 0) return
+
+    const defaultDay =
+      tournamentDays[1] ||
+      tournamentDays[0] ||
+      null
+
+    if (!defaultDay?.id) return
+
+    setSelectedPlayoffDayId(defaultDay.id)
+
+    setPlayoffConfig(activeDivision.id, {
+      ...playoffConfigs?.[activeDivision.id],
+      scheduleDayId: defaultDay.id,
+      playoffStartTime:
+        playoffConfigs?.[activeDivision.id]?.playoffStartTime || '',
+    })
+  }, [activeDivision, selectedPlayoffDayId, tournamentDays, playoffConfigs, setPlayoffConfig])
+
+  const selectedPlayoffDay =
+    (tournamentDays || []).find(day => day.id === selectedPlayoffDayId) || null
+
+  useEffect(() => {
+    if (!activeDivision || !selectedPlayoffDay || playoffStartTime) return
+
+    const defaultStart =
+      selectedPlayoffDay.startTime ||
+      selectedPlayoffDay.start_time ||
+      scheduleConfig?.startTime ||
+      '09:00'
+
+    const normalized = String(defaultStart).slice(0, 5)
+
+    setPlayoffStartTime(normalized)
+
+    setPlayoffConfig(activeDivision.id, {
+      ...playoffConfigs?.[activeDivision.id],
+      scheduleDayId: selectedPlayoffDay.id,
+      playoffStartTime: normalized,
+    })
+  }, [
+    activeDivision,
+    selectedPlayoffDay,
+    playoffStartTime,
+    scheduleConfig?.startTime,
+    playoffConfigs,
+    setPlayoffConfig,
+  ])
 
   useEffect(() => {
     async function loadStandings() {
@@ -111,9 +168,6 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
 
     loadStandings()
   }, [activeDivision?.dbId])
-
-  const selectedPlayoffDay =
-    (tournamentDays || []).find(day => day.id === selectedPlayoffDayId) || null
 
   const structure = useMemo(() => {
     if (!activeDivision) return null
@@ -179,6 +233,7 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
     if (!activeDivision) return
 
     setPlayoffConfig(activeDivision.id, {
+      ...playoffConfigs?.[activeDivision.id],
       presetKey: preset.key,
       championshipTeams: preset.championshipTeams ?? null,
       bronzeGame: preset.defaults?.bronzeGame ?? false,
@@ -187,6 +242,8 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
       seedingMethod: preset.defaults?.seedingMethod ?? 'PRESET',
       generationScope: preset.defaults?.generationScope ?? 'first_round',
       locked: false,
+      scheduleDayId: playoffConfigs?.[activeDivision.id]?.scheduleDayId || selectedPlayoffDayId || '',
+      playoffStartTime: playoffConfigs?.[activeDivision.id]?.playoffStartTime || playoffStartTime || '',
     })
   }
 
@@ -211,13 +268,22 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
       setFormError(null)
     }
 
+    const templatedMatches = applyPlayoffScheduleTemplateToMatches({
+      matches: result?.matches || [],
+      matchScheduleTemplate:
+        playoffConfigs?.[activeDivision.id]?.matchScheduleTemplate || {},
+      tournamentDay: selectedPlayoffDay,
+      venues,
+      gameDurationMinutes: Number(scheduleConfig?.gameDurationMinutes ?? 90),
+    })
+
     const otherDivisionMatches = (generatedPlayoffMatches || []).filter(
       m => m.division_id !== activeDivision.id
     )
 
     setGeneratedPlayoffMatches([
       ...otherDivisionMatches,
-      ...(result?.matches || []),
+      ...templatedMatches,
     ])
   }
 
@@ -232,10 +298,19 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
       m => m.team_a_id && m.team_b_id
     ).length
 
-    const finalizedDivisionMatches = finalizePlayoffRoundOneTeams({
+    const finalizedDivisionMatchesRaw = finalizePlayoffRoundOneTeams({
       matches: activeDivisionMatches,
       standingsRows,
       pools,
+    })
+
+    const finalizedDivisionMatches = applyPlayoffScheduleTemplateToMatches({
+      matches: finalizedDivisionMatchesRaw,
+      matchScheduleTemplate:
+        playoffConfigs?.[activeDivision.id]?.matchScheduleTemplate || {},
+      tournamentDay: selectedPlayoffDay,
+      venues,
+      gameDurationMinutes: Number(scheduleConfig?.gameDurationMinutes ?? 90),
     })
 
     const afterCount = finalizedDivisionMatches.filter(
@@ -243,7 +318,7 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
     ).length
 
     if (afterCount === beforeCount) {
-      setFormError('No round 1 playoff teams could be resolved from the current standings.')
+      setFormError('No playoff teams could be resolved from the current standings.')
     } else {
       setFormError(null)
     }
@@ -261,14 +336,20 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
   function handleScheduleRoundOne() {
     if (!activeDivision) return
 
+    if (!playoffStartTime && !selectedPlayoffDay?.startTime && !selectedPlayoffDay?.start_time) {
+      setFormError('Choose a playoff start time before scheduling playoff games.')
+      return
+    }
+
     const activeDivisionMatches = (generatedPlayoffMatches || []).filter(
       m => m.division_id === activeDivision.id
     )
 
     const result = schedulePlayoffRoundOneFromDay({
       playoffMatches: activeDivisionMatches,
-      existingMatches: generatedMatches,
+      existingMatches: generatedMatches || [],
       tournamentDay: selectedPlayoffDay,
+      playoffStartTime,
       venues,
       scheduleConfig,
     })
@@ -287,17 +368,6 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
       ...otherDivisionMatches,
       ...(result?.matches || []),
     ])
-
-    const mergedSlots = [
-      ...(generatedSlots || []),
-      ...(result?.generatedSlots || []),
-    ]
-
-    setGeneratedSchedule({
-      slots: mergedSlots,
-      matches: generatedMatches,
-      conflicts: [],
-    })
   }
 
   function validate() {
@@ -380,10 +450,10 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
           <div className="rounded-xl border border-[var(--border)] p-4 space-y-3">
             <div>
               <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-                Playoff round 1 scheduling
+                Playoff scheduling
               </h3>
               <p className="text-xs text-[var(--text-muted)] mt-1">
-                Choose which tournament day to use for round 1 playoff games. Day 2 is often the natural choice.
+                Choose which tournament day to use for playable playoff games and when playoff scheduling should begin.
               </p>
             </div>
 
@@ -392,7 +462,20 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
               <select
                 className="field-input text-sm"
                 value={selectedPlayoffDayId}
-                onChange={e => setSelectedPlayoffDayId(e.target.value)}
+                onChange={e => {
+                  const nextDayId = e.target.value
+
+                  setSelectedPlayoffDayId(nextDayId)
+                  setPlayoffStartTime('')
+
+                  if (activeDivision) {
+                    setPlayoffConfig(activeDivision.id, {
+                      ...playoffConfigs?.[activeDivision.id],
+                      scheduleDayId: nextDayId,
+                      playoffStartTime: '',
+                    })
+                  }
+                }}
               >
                 {(tournamentDays || []).map(day => (
                   <option key={day.id} value={day.id}>
@@ -401,6 +484,30 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="field-group">
+              <label className="field-label text-xs">Playoff start time</label>
+              <input
+                type="time"
+                className="field-input text-sm"
+                value={playoffStartTime}
+                onChange={e => {
+                  const nextTime = e.target.value
+                  setPlayoffStartTime(nextTime)
+
+                  if (activeDivision) {
+                    setPlayoffConfig(activeDivision.id, {
+                      ...playoffConfigs?.[activeDivision.id],
+                      scheduleDayId: selectedPlayoffDayId,
+                      playoffStartTime: nextTime,
+                    })
+                  }
+                }}
+              />
+              <p className="text-[11px] text-[var(--text-muted)] mt-1">
+                Playable playoff games will be scheduled from this time onward on the selected day.
+              </p>
             </div>
           </div>
 
@@ -455,6 +562,10 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
                   label="Selected playoff day"
                   value={selectedPlayoffDay?.eventDate || 'None'}
                 />
+                <DebugRow
+                  label="Playoff start time"
+                  value={playoffStartTime || 'None'}
+                />
               </div>
             )}
           </div>
@@ -489,8 +600,8 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
                         (isSelected
                           ? 'border-blue-500 bg-blue-50'
                           : isRecommended
-                          ? 'border-green-300 bg-green-50/50'
-                          : 'border-[var(--border)] bg-[var(--bg-surface)] hover:border-[var(--border-mid)]')
+                            ? 'border-green-300 bg-green-50/50'
+                            : 'border-[var(--border)] bg-[var(--bg-surface)] hover:border-[var(--border-mid)]')
                       }
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -554,7 +665,7 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
               disabled={divisionGeneratedPlayoffMatches.length === 0}
               className="btn-secondary btn btn-sm"
             >
-              Finalize round 1 teams
+              Finalize playoff teams
             </button>
 
             <button
@@ -563,7 +674,7 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
               disabled={divisionGeneratedPlayoffMatches.length === 0 || !selectedPlayoffDayId}
               className="btn-secondary btn btn-sm"
             >
-              Schedule round 1
+              Schedule playable playoff games
             </button>
           </div>
 
@@ -574,13 +685,12 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
           />
 
           <GeneratedStructureCard
-  matches={divisionGeneratedPlayoffMatches}
-  allPlayoffMatches={generatedPlayoffMatches}
-  teams={teams}
-  venues={venues}
-  slots={generatedSlots}
-  setGeneratedPlayoffMatches={setGeneratedPlayoffMatches}
-/>
+            matches={divisionGeneratedPlayoffMatches}
+            allPlayoffMatches={generatedPlayoffMatches}
+            teams={teams}
+            venues={venues}
+            setGeneratedPlayoffMatches={setGeneratedPlayoffMatches}
+          />
         </>
       )}
 
@@ -623,8 +733,8 @@ function DetectedStructureCard({ division, structure, loadingStandings, standing
         {loadingStandings
           ? 'Loading standings for preview...'
           : standingsRows.length > 0
-          ? 'Standings loaded. Presets can preview real qualifiers and seeds.'
-          : 'No standings rows found yet. Presets can still be configured, but previews may be incomplete.'}
+            ? 'Standings loaded. Presets can preview real qualifiers and seeds.'
+            : 'No standings rows found yet. Presets can still be configured, but previews may be incomplete.'}
       </div>
     </div>
   )
@@ -806,6 +916,7 @@ function PlayoffPreviewCard({ division, preset, preview }) {
     </div>
   )
 }
+
 function formatPlayoffDateTime(iso) {
   if (!iso) return '—'
 
@@ -817,18 +928,17 @@ function formatPlayoffDateTime(iso) {
     hour12: true,
   })
 }
+
 function GeneratedStructureCard({
   matches = [],
   allPlayoffMatches = [],
   teams = [],
   venues = [],
-  slots = [],
   setGeneratedPlayoffMatches,
 }) {
   const [editingMatchId, setEditingMatchId] = useState(null)
   const [draftTeamAId, setDraftTeamAId] = useState('')
   const [draftTeamBId, setDraftTeamBId] = useState('')
-  const [draftSlotId, setDraftSlotId] = useState('')
 
   const teamMap = Object.fromEntries(
     (teams || []).map(team => [team.dbId || team.id, team])
@@ -838,41 +948,25 @@ function GeneratedStructureCard({
     (venues || []).map(venue => [venue.dbId || venue.id, venue])
   )
 
-  const slotMap = Object.fromEntries(
-    (slots || []).map(slot => [slot.id, slot])
-  )
-
   function startEdit(match) {
     setEditingMatchId(match.id)
     setDraftTeamAId(match.team_a_id || match.teamAId || '')
     setDraftTeamBId(match.team_b_id || match.teamBId || '')
-    setDraftSlotId(match.time_slot_id || match.slot_id || match.slotId || '')
   }
 
   function cancelEdit() {
     setEditingMatchId(null)
     setDraftTeamAId('')
     setDraftTeamBId('')
-    setDraftSlotId('')
   }
 
   function saveEdit(match) {
-    const selectedSlot = slotMap[draftSlotId] || null
-    const nextVenueId = selectedSlot?.venue_id || null
-
     const updatedDivisionMatches = (matches || []).map(m =>
       m.id === match.id
         ? {
             ...m,
             team_a_id: draftTeamAId || null,
             team_b_id: draftTeamBId || null,
-            time_slot_id: draftSlotId || null,
-            slot_id: draftSlotId || null,
-            slotId: draftSlotId || null,
-            venue_id: nextVenueId,
-            venueId: nextVenueId,
-            scheduled_start: selectedSlot?.scheduled_start || null,
-            scheduled_end: selectedSlot?.scheduled_end || null,
           }
         : m
     )
@@ -913,20 +1007,23 @@ function GeneratedStructureCard({
               teamMap[match.teamBId] ||
               null
 
-            const slotId =
-              match.time_slot_id ||
-              match.slot_id ||
-              match.slotId ||
+            const scheduledStart =
+              match.scheduled_start ||
+              match.scheduledStart ||
               null
 
-            const slot =
-              slotMap[slotId] ||
+            const scheduledEnd =
+              match.scheduled_end ||
+              match.scheduledEnd ||
+              null
+
+            const venueId =
+              match.venue_id ||
+              match.venueId ||
               null
 
             const venue =
-              venueMap[match.venue_id] ||
-              venueMap[match.venueId] ||
-              (slot ? venueMap[slot.venue_id] : null) ||
+              venueMap[venueId] ||
               null
 
             const isEditing = editingMatchId === match.id
@@ -988,15 +1085,15 @@ function GeneratedStructureCard({
                     )}
 
                     <p className="text-xs text-[var(--text-muted)] mt-2">
-                      {slot?.scheduled_start
-                        ? `Scheduled: ${formatPlayoffDateTime(slot.scheduled_start)}`
+                      {scheduledStart
+                        ? `Scheduled: ${formatPlayoffDateTime(scheduledStart)}`
                         : 'Scheduled: —'}
                       {' • '}
                       {venue?.name || venue?.shortName || 'Venue: —'}
                     </p>
                   </>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
                     <div className="field-group">
                       <label className="field-label text-xs">Team A</label>
                       <select
@@ -1028,28 +1125,6 @@ function GeneratedStructureCard({
                         ))}
                       </select>
                     </div>
-
-                    <div className="field-group">
-                      <label className="field-label text-xs">Time slot</label>
-                      <select
-                        className="field-input text-sm"
-                        value={draftSlotId}
-                        onChange={e => setDraftSlotId(e.target.value)}
-                      >
-                        <option value="">Unscheduled</option>
-                        {(slots || []).map(slot => {
-                          const slotVenue =
-                            venueMap[slot.venue_id] ||
-                            null
-
-                          return (
-                            <option key={slot.id} value={slot.id}>
-                              {formatPlayoffDateTime(slot.scheduled_start)} — {slotVenue?.name || 'Venue'}
-                            </option>
-                          )
-                        })}
-                      </select>
-                    </div>
                   </div>
                 )}
 
@@ -1058,6 +1133,12 @@ function GeneratedStructureCard({
                     {match.winner_to_match_code ? `Winner → ${match.winner_to_match_code}` : ''}
                     {match.winner_to_match_code && match.loser_to_match_code ? ' • ' : ''}
                     {match.loser_to_match_code ? `Loser → ${match.loser_to_match_code}` : ''}
+                  </p>
+                )}
+
+                {scheduledStart && scheduledEnd && (
+                  <p className="text-[11px] text-[var(--text-muted)] mt-1">
+                    Ends: {formatPlayoffDateTime(scheduledEnd)}
                   </p>
                 )}
               </div>

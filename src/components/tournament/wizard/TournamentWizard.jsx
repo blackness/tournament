@@ -222,6 +222,7 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
         name: t.name,
         description: t.description ?? '',
         slug: t.slug,
+        allowTies: t.allow_ties ?? false,
         startDate: t.start_date,
         endDate: t.end_date,
         timezone: t.timezone ?? 'America/Toronto',

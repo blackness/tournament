@@ -67,6 +67,7 @@ export function applyWorkbookToWizardState(validatedResult) {
       startDate: tournamentRow.start_date || '',
       endDate: tournamentRow.end_date || '',
       timezone: tournamentRow.timezone || 'America/Toronto',
+      allowTies: parseBooleanLike(tournamentRow.allow_ties) ?? false,
       venueName: tournamentRow.host_school || '',
       venueAddress: tournamentRow.location || '',
       primaryColor: tournamentRow.primary_color || '#8b5cf6',

@@ -4,16 +4,19 @@ export function schedulePlayoffRoundOneFromDay({
   playoffMatches = [],
   existingMatches = [],
   tournamentDay = null,
+  playoffStartTime = '',
   venues = [],
   scheduleConfig = {},
 }) {
   const warnings = []
+  const normalizedDay = normalizeTournamentDay(tournamentDay)
+  const currentMatches = Array.isArray(existingMatches) ? existingMatches : []
 
-  if (!tournamentDay?.eventDate) {
+  if (!normalizedDay.eventDate) {
     return {
       matches: playoffMatches,
       generatedSlots: [],
-      warnings: ['Select a tournament day before scheduling playoff round 1.'],
+      warnings: ['Select a tournament day before scheduling playoff games.'],
     }
   }
 
@@ -25,22 +28,25 @@ export function schedulePlayoffRoundOneFromDay({
     }
   }
 
-  const roundOnePlayable = [...(playoffMatches || [])]
-    .filter(match => Number(match.round ?? 0) === 1)
+  const playableMatches = [...(playoffMatches || [])]
     .filter(match => !!match.bracket_type)
     .filter(match => !!match.team_a_id && !!match.team_b_id)
     .filter(match => !(match.slot_id || match.slotId || match.time_slot_id))
     .sort((a, b) => {
+      const aRound = Number(a.round ?? 999)
+      const bRound = Number(b.round ?? 999)
+      if (aRound !== bRound) return aRound - bRound
+
       const aCode = a.match_code || ''
       const bCode = b.match_code || ''
       return aCode.localeCompare(bCode)
     })
 
-  if (roundOnePlayable.length === 0) {
+  if (playableMatches.length === 0) {
     return {
       matches: playoffMatches,
       generatedSlots: [],
-      warnings: ['No finalized round 1 playoff matches are ready to schedule.'],
+      warnings: ['No playable unscheduled playoff matches are ready to schedule.'],
     }
   }
 
@@ -48,17 +54,18 @@ export function schedulePlayoffRoundOneFromDay({
   const breakBetweenGamesMinutes = Number(scheduleConfig?.breakBetweenGamesMinutes ?? 30)
 
   const dayStartTime =
-    tournamentDay.startTime ||
+    playoffStartTime ||
+    normalizedDay.startTime ||
     scheduleConfig?.startTime ||
     '09:00'
 
   const dayEndTime =
-    tournamentDay.endTime ||
+    normalizedDay.endTime ||
     scheduleConfig?.endTime ||
     '21:00'
 
-  const candidateSlots = buildCandidateSlotsForDay({
-    eventDate: tournamentDay.eventDate,
+  const rawCandidateSlots = buildCandidateSlotsForDay({
+    eventDate: normalizedDay.eventDate,
     startTime: dayStartTime,
     endTime: dayEndTime,
     venues,
@@ -66,29 +73,30 @@ export function schedulePlayoffRoundOneFromDay({
     breakBetweenGamesMinutes,
   })
 
+  const now = Date.now()
+  const candidateSlots = rawCandidateSlots.filter(slot => {
+    const startMs = new Date(slot.scheduled_start).getTime()
+    return Number.isFinite(startMs) && startMs >= now
+  })
+
   if (candidateSlots.length === 0) {
     return {
       matches: playoffMatches,
       generatedSlots: [],
-      warnings: ['No candidate slots could be generated for the selected tournament day.'],
+      warnings: ['No future candidate slots could be generated for the selected playoff day and start time.'],
     }
   }
 
-  const occupiedSlotKeys = new Set(
-    (existingMatches || [])
-      .filter(m => !!(m.time_slot_id || m.slot_id || m.slotId))
-      .map(m => {
-        const slotId = m.time_slot_id || m.slot_id || m.slotId
-        return `slot:${slotId}`
-      })
-  )
-
   const occupiedVenueTimeKeys = new Set(
-    (existingMatches || [])
-      .filter(m => !!m.venue_id || !!m.venueId)
-      .map(m => {
-        const venueId = m.venue_id || m.venueId || null
-        const start = m.scheduled_start || m.scheduledStart || null
+    currentMatches
+      .map(match => {
+        const venueId = match?.venue_id || match?.venueId || match?.venue?.id || null
+        const start =
+          match?.scheduled_start ||
+          match?.scheduledStart ||
+          match?.time_slot?.scheduled_start ||
+          null
+
         if (!venueId || !start) return null
         return `vt:${venueId}:${start}`
       })
@@ -96,12 +104,8 @@ export function schedulePlayoffRoundOneFromDay({
   )
 
   const availableSlots = candidateSlots.filter(slot => {
-    const slotKey = `slot:${slot.id}`
     const venueTimeKey = `vt:${slot.venue_id}:${slot.scheduled_start}`
-
-    if (occupiedSlotKeys.has(slotKey)) return false
-    if (occupiedVenueTimeKeys.has(venueTimeKey)) return false
-    return true
+    return !occupiedVenueTimeKeys.has(venueTimeKey)
   })
 
   if (availableSlots.length === 0) {
@@ -116,11 +120,11 @@ export function schedulePlayoffRoundOneFromDay({
   const newGeneratedSlots = []
   let slotCursor = 0
 
-  for (const match of roundOnePlayable) {
+  for (const match of playableMatches) {
     const slot = availableSlots[slotCursor]
 
     if (!slot) {
-      warnings.push(`Not enough open slots to schedule ${match.match_code || 'a playoff game'}.`)
+      warnings.push(`Not enough open slots to schedule ${match.match_code || 'a playable playoff game'}.`)
       continue
     }
 
@@ -163,6 +167,13 @@ function buildCandidateSlotsForDay({
   const dayEnd = toDateTime(eventDate, endTime)
 
   if (!dayStart || !dayEnd || dayEnd <= dayStart) {
+    console.error('[buildCandidateSlotsForDay] invalid day window', {
+      eventDate,
+      startTime,
+      endTime,
+      parsedStart: dayStart,
+      parsedEnd: dayEnd,
+    })
     return []
   }
 
@@ -196,7 +207,36 @@ function buildCandidateSlotsForDay({
   return slots
 }
 
+function normalizeTournamentDay(day) {
+  return {
+    eventDate: day?.eventDate || day?.event_date || '',
+    startTime: day?.startTime || day?.start_time || '',
+    endTime: day?.endTime || day?.end_time || '',
+    label: day?.label || '',
+  }
+}
+
 function toDateTime(dateStr, timeStr) {
   if (!dateStr || !timeStr) return null
-  return new Date(`${dateStr}T${timeStr}:00`)
+
+  const normalizedDate = String(dateStr).slice(0, 10)
+  const rawTime = String(timeStr).trim()
+
+  let normalizedTime = rawTime
+
+  if (rawTime.includes('T')) {
+    const parsed = new Date(rawTime)
+    if (Number.isNaN(parsed.getTime())) return null
+
+    const hh = String(parsed.getHours()).padStart(2, '0')
+    const mm = String(parsed.getMinutes()).padStart(2, '0')
+    normalizedTime = `${hh}:${mm}`
+  } else {
+    normalizedTime = rawTime.slice(0, 5)
+  }
+
+  const dt = new Date(`${normalizedDate}T${normalizedTime}:00`)
+  if (Number.isNaN(dt.getTime())) return null
+
+  return dt
 }

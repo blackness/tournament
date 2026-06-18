@@ -156,74 +156,94 @@ useEffect(() => {
     load()
   }, [slug, user?.id, authLoading])
   
-  useEffect(() => {
+useEffect(() => {
     if (!tournament) return
+
+    let reloadTimeout = null
+
+    const reloadHomeData = () => {
+      if (reloadTimeout) clearTimeout(reloadTimeout)
+
+      reloadTimeout = setTimeout(async () => {
+        const { data: m } = await supabase
+          .from('matches')
+          .select(`
+            id,
+            status,
+            score_a,
+            score_b,
+            winner_id,
+            round_label,
+            display_label,
+            pool_id,
+            phase,
+            bracket_position,
+            match_code,
+            bracket_type,
+            source_a_type,
+            source_a_ref,
+            source_b_type,
+            source_b_ref,
+            team_a:tournament_teams!team_a_id(id, name, short_name, seed, primary_color),
+            team_b:tournament_teams!team_b_id(id, name, short_name, seed, primary_color),
+            venue:venues(name, short_name, youtube_url),
+            time_slot:time_slots(scheduled_start)
+          `)
+          .eq('tournament_id', tournament.id)
+          .neq('status', 'cancelled')
+          .order('time_slot(scheduled_start)')
+
+        setMatches(m ?? [])
+
+        if (divisions?.length > 0) {
+          const { data: st } = await supabase
+            .from('pool_standings_display')
+            .select('*')
+            .in('division_id', divisions.map(d => d.id))
+            .order('pool_id')
+            .order('rank')
+
+          setStandings(st ?? [])
+        }
+
+        let mergedStandings = {}
+        for (const div of divisions ?? []) {
+          const map = await loadStandingsByPool(div.id)
+          mergedStandings = { ...mergedStandings, ...map }
+        }
+        setStandingsByPool(mergedStandings)
+      }, 150)
+    }
 
     const ch = supabase
       .channel('home-rt-' + tournament.id)
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*',
           schema: 'public',
           table: 'matches',
           filter: 'tournament_id=eq.' + tournament.id,
         },
-        async () => {
-          const { data: m } = await supabase
-            .from('matches')
-            .select(`
-              id,
-              status,
-              score_a,
-              score_b,
-              winner_id,
-              round_label,
-              display_label,
-              pool_id,
-              phase,
-              bracket_position,
-              match_code,
-              bracket_type,
-              source_a_type,
-              source_a_ref,
-              source_b_type,
-              source_b_ref,
-              team_a:tournament_teams!team_a_id(id, name, short_name, seed, primary_color),
-              team_b:tournament_teams!team_b_id(id, name, short_name, seed, primary_color),
-              venue:venues(name, short_name, youtube_url),
-              time_slot:time_slots(scheduled_start)
-            `)
-            .eq('tournament_id', tournament.id)
-            .neq('status', 'cancelled')
-            .order('time_slot(scheduled_start)')
-
-          setMatches(m ?? [])
-
-          if (divisions?.length > 0) {
-            const { data: st } = await supabase
-              .from('pool_standings_display')
-              .select('*')
-              .in('division_id', divisions.map(d => d.id))
-              .order('pool_id')
-              .order('rank')
-
-            setStandings(st ?? [])
-          }
-
-          let mergedStandings = {}
-          for (const div of divisions ?? []) {
-            const map = await loadStandingsByPool(div.id)
-            mergedStandings = { ...mergedStandings, ...map }
-          }
-          setStandingsByPool(mergedStandings)
-        }
+        reloadHomeData
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'time_slots',
+          filter: 'tournament_id=eq.' + tournament.id,
+        },
+        reloadHomeData
       )
       .subscribe()
 
-    return () => supabase.removeChannel(ch)
+    return () => {
+      if (reloadTimeout) clearTimeout(reloadTimeout)
+      supabase.removeChannel(ch)
+    }
   }, [tournament?.id, divisions])
-
   function pickTeam(team) {
     setMyTeam(team)
     setShowPicker(false)
@@ -326,10 +346,6 @@ useEffect(() => {
   const myStanding = myTeam ? standings.find(s => s.team_id === myTeam.id) : null
 
   const filteredTeams = teams
-
-console.log('CreateLiveGameModal divisions', divisions)
-console.log('CreateLiveGameModal teams', teams)
-console.log('filteredTeams', filteredTeams)
 
   const fmtTime = iso =>
     iso

@@ -48,6 +48,7 @@ export function WizardStep8Preview({ onBack, isLast }) {
   const [savedMatches, setSavedMatches] = useState([])
   const [savedSlots, setSavedSlots] = useState([])
   const [hasProtectedMatches, setHasProtectedMatches] = useState(false)
+  const [showCompletedMatches, setShowCompletedMatches] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -104,6 +105,7 @@ export function WizardStep8Preview({ onBack, isLast }) {
       if (!active) return
 
       const nextMatches = matchData ?? []
+
       setSavedSlots(slotData ?? [])
       setSavedMatches(nextMatches)
       setHasProtectedMatches(
@@ -181,7 +183,28 @@ export function WizardStep8Preview({ onBack, isLast }) {
         ...(generatedPlayoffMatches ?? []),
       ]
 
-      const scheduleSlotsToSave = generatedSlots ?? []
+      const inlinePlayoffSlots = (generatedPlayoffMatches ?? [])
+        .filter(match =>
+          (match.slot_id || match.slotId || match.time_slot_id) &&
+          (match.scheduled_start || match.scheduledStart) &&
+          (match.scheduled_end || match.scheduledEnd) &&
+          (match.venue_id || match.venueId)
+        )
+        .map(match => ({
+          id: match.slot_id || match.slotId || match.time_slot_id,
+          venue_id: match.venue_id || match.venueId || null,
+          scheduled_start: match.scheduled_start || match.scheduledStart || null,
+          scheduled_end: match.scheduled_end || match.scheduledEnd || null,
+        }))
+
+      const scheduleSlotsToSave = Array.from(
+        new Map(
+          [
+            ...(generatedSlots ?? []),
+            ...inlinePlayoffSlots,
+          ].map(slot => [slot.id, slot])
+        ).values()
+      )
 
       const divisionDbIdByLocalId = Object.fromEntries(
         (divisions ?? [])
@@ -226,29 +249,36 @@ export function WizardStep8Preview({ onBack, isLast }) {
       }
 
       const slotDbIdByLocalId = {}
+      const insertedSlotRecords = []
 
       for (const slot of scheduleSlotsToSave) {
         const localVenueId = slot.venue_id || slot.venueId || null
         const venueDbId = venueDbIdByLocalId[localVenueId] || localVenueId || null
+        const scheduledStart = slot.scheduled_start || null
+        const scheduledEnd = slot.scheduled_end || null
 
         const payload = {
           tournament_id: tournamentId,
           venue_id: venueDbId,
-          scheduled_start: slot.scheduled_start || null,
-          scheduled_end: slot.scheduled_end || null,
+          scheduled_start: scheduledStart,
+          scheduled_end: scheduledEnd,
         }
 
         const { data: insertedSlot, error: insertSlotErr } = await supabase
           .from('time_slots')
           .insert(payload)
-          .select('id')
+          .select('id, venue_id, scheduled_start, scheduled_end')
           .single()
 
         if (insertSlotErr) {
           throw new Error(`Failed to save time slot: ${insertSlotErr.message}`)
         }
 
-        slotDbIdByLocalId[slot.id] = insertedSlot.id
+        if (slot.id) {
+          slotDbIdByLocalId[String(slot.id)] = insertedSlot.id
+        }
+
+        insertedSlotRecords.push(insertedSlot)
       }
 
       for (const match of scheduleMatchesToSave) {
@@ -264,7 +294,33 @@ export function WizardStep8Preview({ onBack, isLast }) {
         const teamADbId = teamDbIdByLocalId[localTeamAId] || localTeamAId || null
         const teamBDbId = teamDbIdByLocalId[localTeamBId] || localTeamBId || null
         const venueDbId = venueDbIdByLocalId[localVenueId] || localVenueId || null
-        const slotDbId = slotDbIdByLocalId[localSlotId] || null
+
+        const scheduledStart = match.scheduled_start || match.scheduledStart || null
+        const scheduledEnd = match.scheduled_end || match.scheduledEnd || null
+
+        const scheduledStartMs = scheduledStart ? new Date(scheduledStart).getTime() : null
+        const scheduledEndMs = scheduledEnd ? new Date(scheduledEnd).getTime() : null
+
+        const fallbackSlot = insertedSlotRecords.find(slot => {
+          if (!venueDbId || !scheduledStartMs) return false
+          if (slot.venue_id !== venueDbId) return false
+
+          const slotStartMs = slot.scheduled_start ? new Date(slot.scheduled_start).getTime() : null
+          const slotEndMs = slot.scheduled_end ? new Date(slot.scheduled_end).getTime() : null
+
+          if (slotStartMs !== scheduledStartMs) return false
+
+          if (scheduledEndMs != null && slotEndMs != null) {
+            return slotEndMs === scheduledEndMs
+          }
+
+          return true
+        })
+
+        const slotDbId =
+          (localSlotId ? slotDbIdByLocalId[String(localSlotId)] : null) ||
+          fallbackSlot?.id ||
+          null
 
         const payload = {
           tournament_id: tournamentId,
@@ -339,8 +395,40 @@ export function WizardStep8Preview({ onBack, isLast }) {
     ...(generatedPlayoffMatches ?? []),
   ]
 
-  const scheduleMatches = savedMatches.length > 0 ? savedMatches : localCombinedMatches
-  const scheduleSlots = savedSlots.length > 0 ? savedSlots : generatedSlots
+  const playoffMatchesToAppend = generatedPlayoffMatches ?? []
+
+  const allScheduleMatches = savedMatches.length > 0 ? savedMatches : localCombinedMatches
+
+  const inlinePreviewPlayoffSlots = (generatedPlayoffMatches ?? [])
+    .filter(match =>
+      (match.slot_id || match.slotId || match.time_slot_id) &&
+      (match.scheduled_start || match.scheduledStart) &&
+      (match.scheduled_end || match.scheduledEnd) &&
+      (match.venue_id || match.venueId)
+    )
+    .map(match => ({
+      id: match.slot_id || match.slotId || match.time_slot_id,
+      venue_id: match.venue_id || match.venueId || null,
+      scheduled_start: match.scheduled_start || match.scheduledStart || null,
+      scheduled_end: match.scheduled_end || match.scheduledEnd || null,
+    }))
+
+  const scheduleSlots = savedSlots.length > 0
+    ? savedSlots
+    : Array.from(
+        new Map(
+          [
+            ...(generatedSlots ?? []),
+            ...inlinePreviewPlayoffSlots,
+          ].map(slot => [slot.id, slot])
+        ).values()
+      )
+
+  const scheduleMatches = showCompletedMatches
+    ? allScheduleMatches
+    : allScheduleMatches.filter(
+        m => !['complete', 'forfeit'].includes(m.status)
+      )
 
   const teamMap = Object.fromEntries(
     teams.map(t => [t.dbId || t.id, t])
@@ -376,7 +464,14 @@ export function WizardStep8Preview({ onBack, isLast }) {
 
   const byTime = {}
   for (const m of scheduleMatches) {
-    const slot = slotMap[m.slot_id || m.time_slot_id]
+    const slot =
+      slotMap[m.slot_id || m.time_slot_id] ||
+      ((m.scheduled_start || m.scheduledStart)
+        ? {
+            scheduled_start: m.scheduled_start || m.scheduledStart,
+          }
+        : null)
+
     const key = slot ? slot.scheduled_start : 'unscheduled'
     if (!byTime[key]) byTime[key] = []
     byTime[key].push(m)
@@ -505,8 +600,98 @@ export function WizardStep8Preview({ onBack, isLast }) {
         </div>
       </div>
 
+      {hasProtectedMatches && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold text-amber-900">
+              Playoff matches to append
+            </h3>
+            <p className="text-xs text-amber-800 mt-1">
+              These playoff matches will be added to the existing tournament schedule without removing completed, forfeited, or live games.
+            </p>
+          </div>
+
+          {playoffMatchesToAppend.length === 0 ? (
+            <p className="text-sm text-amber-800">No playoff matches are currently queued to append.</p>
+          ) : (
+            <div className="space-y-2">
+              {playoffMatchesToAppend.map(match => {
+                const teamA = teamMap[match.team_a_id] || null
+                const teamB = teamMap[match.team_b_id] || null
+
+                const slotId = match.slot_id || match.slotId || match.time_slot_id || null
+                const slot =
+                  slotMap[slotId] ||
+                  ((match.scheduled_start || match.scheduledStart)
+                    ? {
+                        scheduled_start: match.scheduled_start || match.scheduledStart,
+                        venue_id: match.venue_id || match.venueId || null,
+                      }
+                    : null)
+
+                const venueId = match.venue_id || match.venueId || slot?.venue_id || null
+                const venue = venueMap[venueId] || null
+
+                const sourceLabels = getMatchSourceLabels({
+                  match,
+                  teams: normalizedTeams,
+                  pools: normalizedPools,
+                })
+
+                const label =
+                  match.match_code ||
+                  match.display_label ||
+                  match.round_label ||
+                  (match.round ? `Round ${match.round}` : 'Playoff match')
+
+                return (
+                  <div
+                    key={match.id}
+                    className="rounded-lg border border-amber-200 bg-white/70 px-3 py-2"
+                  >
+                    <p className="text-sm font-medium text-amber-950">
+                      {label}
+                    </p>
+
+                    <p className="text-xs text-amber-900 mt-1">
+                      {(teamA?.shortName || teamA?.name || sourceLabels.aPrimary || 'TBD')}
+                      {' vs '}
+                      {(teamB?.shortName || teamB?.name || sourceLabels.bPrimary || 'TBD')}
+                    </p>
+
+                    <p className="text-xs text-amber-700 mt-1">
+                      {slot?.scheduled_start
+                        ? formatDateTime(slot.scheduled_start)
+                        : 'Unscheduled'}
+                      {' • '}
+                      {venue?.shortName || venue?.name || 'Venue: —'}
+                    </p>
+
+                    <p className="text-[11px] text-amber-700 mt-1">
+                      {match.bracket_type ? `${match.bracket_type} bracket` : 'playoff'}
+                      {match.round ? ` • Round ${match.round}` : ''}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       <div>
-        <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-2">Scheduled Games</h3>
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Scheduled Games</h3>
+
+          <label className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+            <input
+              type="checkbox"
+              checked={showCompletedMatches}
+              onChange={e => setShowCompletedMatches(e.target.checked)}
+            />
+            Show completed games
+          </label>
+        </div>
 
         {scheduleMatches.length === 0 ? (
           <div className="p-4 rounded-xl border border-[var(--border)] text-sm text-[var(--text-muted)]">
@@ -536,7 +721,13 @@ export function WizardStep8Preview({ onBack, isLast }) {
                       divisionMap[m.division_id] ||
                       (pool ? divisionMap[pool.divisionId] : null)
                     const venue = venueMap[m.venue_id]
-                    const slot = slotMap[m.slot_id || m.time_slot_id]
+                    const slot =
+                      slotMap[m.slot_id || m.time_slot_id] ||
+                      ((m.scheduled_start || m.scheduledStart)
+                        ? {
+                            scheduled_start: m.scheduled_start || m.scheduledStart,
+                          }
+                        : null)
 
                     const sourceLabels = getMatchSourceLabels({
                       match: m,
@@ -628,7 +819,7 @@ export function WizardStep8Preview({ onBack, isLast }) {
         <ChecklistItem ok={divisions.length > 0} label={`${divisions.length} division${divisions.length !== 1 ? 's' : ''} configured`} />
         <ChecklistItem ok={venues.length > 0} label={`${venues.length} field${venues.length !== 1 ? 's' : ''} added`} />
         <ChecklistItem ok={teams.length > 0} label={`${teams.length} team${teams.length !== 1 ? 's' : ''} registered`} />
-        <ChecklistItem ok={scheduleMatches.length > 0} label={`${scheduleMatches.length} games scheduled`} warn={scheduleMatches.length === 0} />
+        <ChecklistItem ok={allScheduleMatches.length > 0} label={`${allScheduleMatches.length} games scheduled`} warn={allScheduleMatches.length === 0} />
         <ChecklistItem
           ok={!hasProtectedMatches}
           label={

@@ -5,48 +5,6 @@ import { PageLoader } from '../components/ui/LoadingSpinner'
 import { Trophy, ChevronLeft, ZoomIn, ZoomOut, Medal } from 'lucide-react'
 import { getMatchHighlight } from '../lib/highlights/matchHighlights'
 
-function useThemeColors() {
-  const [colors, setColors] = useState(() => resolveColors())
-
-  useEffect(() => {
-    const observer = new MutationObserver(() => setColors(resolveColors()))
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['data-theme'],
-    })
-    return () => observer.disconnect()
-  }, [])
-
-  return colors
-}
-
-function resolveColors() {
-  const s = getComputedStyle(document.documentElement)
-  const get = v => s.getPropertyValue(v).trim()
-  return {
-    textMuted: get('--text-muted') || '#55556a',
-    textPrimary: get('--text-primary') || '#f0f0f2',
-    border: get('--border') || '#2a2a32',
-    bgSurface: get('--bg-surface') || '#111114',
-    bgBase: get('--bg-base') || '#0a0a0c',
-  }
-}
-function useIsMobile(breakpoint = 768) {
-  const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== 'undefined' ? window.innerWidth < breakpoint : false
-  )
-
-  useEffect(() => {
-    function handleResize() {
-      setIsMobile(window.innerWidth < breakpoint)
-    }
-
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [breakpoint])
-
-  return isMobile
-}
 const NODE_W = 200
 const NODE_H = 104
 const H_GAP = 80
@@ -70,12 +28,6 @@ export function BracketPage() {
 
   const themeColors = useThemeColors()
   const isMobile = useIsMobile()
-  useEffect(() => {
-    window._bracketSlug = slug
-    return () => {
-      delete window._bracketSlug
-    }
-  }, [slug])
 
   useEffect(() => {
     async function load() {
@@ -145,7 +97,6 @@ export function BracketPage() {
   const tournament = division?.tournament
   const color = tournament?.primary_color ?? '#8b5cf6'
   const {
-    mode = 'none',
     nodes = [],
     champion,
     second,
@@ -342,6 +293,7 @@ export function BracketPage() {
                   themeColors={themeColors}
                   primaryColor={color}
                   onSelectRound={setMobileFocusedRound}
+                  tournamentSlug={slug}
                 />
               )}
             </div>
@@ -402,7 +354,13 @@ export function BracketPage() {
                   ))}
 
                   {desktopNodes.map(node => (
-                    <BracketNode key={node.id} node={node} primaryColor={color} themeColors={themeColors} />
+                    <BracketNode
+                      key={node.id}
+                      node={node}
+                      primaryColor={color}
+                      themeColors={themeColors}
+                      tournamentSlug={slug}
+                    />
                   ))}
                 </svg>
               </div>
@@ -417,76 +375,20 @@ export function BracketPage() {
 function CompactHeroPodium({ champion, second, third, fourth, tournamentSlug, isMobile }) {
   const cards = isMobile
     ? [
-        champion && {
-          key: 'gold',
-          medal: 'gold',
-          title: 'Gold',
-          team: champion,
-          icon: <Trophy size={14} />,
-        },
-        second && {
-          key: 'silver',
-          medal: 'silver',
-          title: 'Silver',
-          team: second,
-          icon: <Medal size={13} />,
-        },
-        third && {
-          key: 'bronze',
-          medal: 'bronze',
-          title: 'Bronze',
-          team: third,
-          icon: <Medal size={13} />,
-        },
-        fourth && {
-          key: 'antique-bronze',
-          medal: 'antiqueBronze',
-          title: 'Antique Bronze',
-          team: fourth,
-          icon: <Medal size={13} />,
-        },
+        champion && { key: 'gold', medal: 'gold', title: 'Gold', team: champion, icon: <Trophy size={14} /> },
+        second && { key: 'silver', medal: 'silver', title: 'Silver', team: second, icon: <Medal size={13} /> },
+        third && { key: 'bronze', medal: 'bronze', title: 'Bronze', team: third, icon: <Medal size={13} /> },
+        fourth && { key: 'antique-bronze', medal: 'antiqueBronze', title: 'Antique Bronze', team: fourth, icon: <Medal size={13} /> },
       ].filter(Boolean)
     : [
-        second && {
-          key: 'silver',
-          medal: 'silver',
-          title: 'Silver',
-          team: second,
-          icon: <Medal size={13} />,
-        },
-        champion && {
-          key: 'gold',
-          medal: 'gold',
-          title: 'Gold',
-          team: champion,
-          icon: <Trophy size={14} />,
-        },
-        third && {
-          key: 'bronze',
-          medal: 'bronze',
-          title: 'Bronze',
-          team: third,
-          icon: <Medal size={13} />,
-        },
-        fourth && {
-          key: 'antique-bronze',
-          medal: 'antiqueBronze',
-          title: 'Antique Bronze',
-          team: fourth,
-          icon: <Medal size={13} />,
-        },
+        second && { key: 'silver', medal: 'silver', title: 'Silver', team: second, icon: <Medal size={13} /> },
+        champion && { key: 'gold', medal: 'gold', title: 'Gold', team: champion, icon: <Trophy size={14} /> },
+        third && { key: 'bronze', medal: 'bronze', title: 'Bronze', team: third, icon: <Medal size={13} /> },
+        fourth && { key: 'antique-bronze', medal: 'antiqueBronze', title: 'Antique Bronze', team: fourth, icon: <Medal size={13} /> },
       ].filter(Boolean)
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'flex-end',
-        gap: 8,
-        flexWrap: 'wrap',
-        justifyContent: 'center',
-      }}
-    >
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
       {cards.map(card => (
         <CompactPodiumCard
           key={card.key}
@@ -500,6 +402,7 @@ function CompactHeroPodium({ champion, second, third, fourth, tournamentSlug, is
     </div>
   )
 }
+
 function CompactPodiumCard({ medal, title, team, tournamentSlug, icon }) {
   const styles = {
     gold: {
@@ -529,38 +432,10 @@ function CompactPodiumCard({ medal, title, team, tournamentSlug, icon }) {
   }
 
   const sizeMap = {
-    gold: {
-      width: 196,
-      minHeight: 100,
-      padding: '14px 16px',
-      labelSize: 11,
-      nameSize: 17,
-      nameWeight: 800,
-    },
-    silver: {
-      width: 170,
-      minHeight: 90,
-      padding: '12px 14px',
-      labelSize: 10,
-      nameSize: 17,
-      nameWeight: 750,
-    },
-    bronze: {
-      width: 152,
-      minHeight: 80,
-      padding: '10px 12px',
-      labelSize: 10,
-      nameSize: 13,
-      nameWeight: 700,
-    },
-    antiqueBronze: {
-      width: 140,
-      minHeight: 70,
-      padding: '9px 11px',
-      labelSize: 9,
-      nameSize: 17,
-      nameWeight: 700,
-    },
+    gold: { width: 196, minHeight: 100, padding: '14px 16px', labelSize: 11, nameSize: 17, nameWeight: 800 },
+    silver: { width: 170, minHeight: 90, padding: '12px 14px', labelSize: 10, nameSize: 17, nameWeight: 750 },
+    bronze: { width: 152, minHeight: 80, padding: '10px 12px', labelSize: 10, nameSize: 13, nameWeight: 700 },
+    antiqueBronze: { width: 140, minHeight: 70, padding: '9px 11px', labelSize: 9, nameSize: 17, nameWeight: 700 },
   }
 
   const s = styles[medal] ?? styles.bronze
@@ -621,14 +496,45 @@ function CompactPodiumCard({ medal, title, team, tournamentSlug, icon }) {
     </div>
   )
 }
+
 async function loadBracketForDivision(divisionId) {
   const graphMatches = await loadGraphBracketMatches(divisionId)
   if (graphMatches.length > 0) {
+    const championshipLayout = layoutGraphBracket(graphMatches, 'championship')
+    const consolationLayout = layoutGraphBracket(graphMatches, 'consolation')
+    const medalSummary = buildMedalSummary(graphMatches)
+
     return {
-      mode: 'legacy',
-      ...layoutDualBracket(graphMatches),
+      mode: 'graph',
+      nodes: [
+        ...(championshipLayout?.nodes ?? []),
+        ...(consolationLayout?.nodes ?? []),
+      ],
+      championshipLayout,
+      consolationLayout,
+      champion: medalSummary.champion,
+      second: medalSummary.second,
+      third: medalSummary.third,
+      fourth: medalSummary.fourth,
     }
   }
+
+  const legacyMatches = await loadLegacyBracketMatches(divisionId)
+  if (legacyMatches.length > 0) {
+    return {
+      mode: 'legacy',
+      ...layoutLegacyBracket(legacyMatches),
+    }
+  }
+
+  return {
+    mode: 'none',
+    nodes: [],
+    championshipLayout: null,
+    consolationLayout: null,
+  }
+}
+
 async function loadGraphBracketMatches(divisionId) {
   const { data, error } = await supabase
     .from('matches')
@@ -706,47 +612,31 @@ async function loadLegacyBracketMatches(divisionId) {
   return data ?? []
 }
 
-
-  const legacyMatches = await loadLegacyBracketMatches(divisionId)
-  if (legacyMatches.length > 0) {
-    return {
-      mode: 'legacy',
-      ...layoutLegacyBracket(legacyMatches),
-    }
-  }
-
-  return {
-    mode: 'none',
-    nodes: [],
-    championshipLayout: null,
-    consolationLayout: null,
-  }
-}
-function BracketNode({ node, primaryColor, themeColors }) {
+function BracketNode({ node, primaryColor, themeColors, tournamentSlug }) {
   const { x, y, match, team_a, team_b, team_a_source, team_b_source, label } = node
   const isLive = match?.status === 'in_progress'
   const isDone = match?.status === 'complete' || match?.status === 'forfeit'
   const winnerId = match?.winner_id
   const highlight = getMatchHighlight(match?.match_code)
 
-  const isFinal = match?.match_code === 'P24' || label === 'Gold Medal Game'
-  const isBronze = match?.match_code === 'P23' || label === 'Bronze Medal Game'
+  const isFinal = match?.placement_min === 1 || label === 'Gold Medal Game'
+  const isBronze = match?.placement_min === 3 || label === 'Bronze Medal Game'
 
   const cardStroke = isLive
     ? '#22c55e'
     : highlight
-    ? highlight.border
-    : isFinal
-    ? primaryColor
-    : themeColors.border
+      ? highlight.border
+      : isFinal
+        ? primaryColor
+        : themeColors.border
 
   const cardFill = isLive
     ? 'rgba(34,197,94,0.06)'
     : highlight
-    ? highlight.bg
-    : isFinal
-    ? primaryColor + '0d'
-    : themeColors.bgSurface
+      ? highlight.bg
+      : isFinal
+        ? primaryColor + '0d'
+        : themeColors.bgSurface
 
   const strokeW = isLive || isFinal || highlight ? 1.5 : 1
 
@@ -811,10 +701,10 @@ function BracketNode({ node, primaryColor, themeColors }) {
             highlight
               ? highlight.color
               : isFinal
-              ? primaryColor
-              : isBronze
-              ? '#b45309'
-              : themeColors.textMuted
+                ? primaryColor
+                : isBronze
+                  ? '#b45309'
+                  : themeColors.textMuted
           }
           style={{ fontFamily: 'DM Sans, system-ui', letterSpacing: '0.08em' }}
         >
@@ -839,6 +729,7 @@ function BracketNode({ node, primaryColor, themeColors }) {
         showScore={isLive || isDone}
         primaryColor={highlight?.color ?? primaryColor}
         themeColors={themeColors}
+        tournamentSlug={tournamentSlug}
       />
 
       <line
@@ -861,6 +752,7 @@ function BracketNode({ node, primaryColor, themeColors }) {
         showScore={isLive || isDone}
         primaryColor={highlight?.color ?? primaryColor}
         themeColors={themeColors}
+        tournamentSlug={tournamentSlug}
       />
 
       {timeLabel && (
@@ -879,12 +771,12 @@ function BracketNode({ node, primaryColor, themeColors }) {
   )
 }
 
-function NodeTeamRow({ x, y, team, source, score, isWinner, isLoser, showScore, primaryColor, themeColors }) {
+function NodeTeamRow({ x, y, team, source, score, isWinner, isLoser, showScore, primaryColor, themeColors, tournamentSlug }) {
   const rowH = TEAM_ROW_H
   const dotColor = team?.primary_color ?? themeColors.textMuted
   const opacity = isLoser ? 0.35 : 1
   const nameStr = team ? team.name ?? team.short_name ?? 'TBD' : prettifySource(source)
-  const teamLink = team?.id ? '/t/' + (window._bracketSlug ?? '') + '/team/' + team.id : null
+  const teamLink = team?.id ? '/t/' + tournamentSlug + '/team/' + team.id : null
   const truncated = nameStr.length > 18 ? nameStr.slice(0, 17) + '..' : nameStr
   const textColor = isWinner ? primaryColor : themeColors.textPrimary
   const fontWeight = isWinner ? '700' : '500'
@@ -973,7 +865,7 @@ function shiftPath(path, shiftX, shiftY) {
     .replace(/V([0-9.-]+)/g, (_, y) => `V${Number(y) - shiftY}`)
 }
 
-function MobileOverviewView({ championshipLayout, consolationLayout, themeColors, primaryColor, onSelectRound }) {
+function MobileOverviewView({ championshipLayout, consolationLayout, themeColors, primaryColor, onSelectRound, tournamentSlug }) {
   return (
     <div className="space-y-5">
       <MobileOverviewBracket
@@ -983,6 +875,7 @@ function MobileOverviewView({ championshipLayout, consolationLayout, themeColors
         primaryColor={primaryColor}
         bracketType="championship"
         onSelectRound={onSelectRound}
+        tournamentSlug={tournamentSlug}
       />
 
       <MobileOverviewBracket
@@ -992,12 +885,13 @@ function MobileOverviewView({ championshipLayout, consolationLayout, themeColors
         primaryColor={primaryColor}
         bracketType="consolation"
         onSelectRound={onSelectRound}
+        tournamentSlug={tournamentSlug}
       />
     </div>
   )
 }
 
-function MobileOverviewBracket({ title, layout, themeColors, primaryColor, bracketType, onSelectRound }) {
+function MobileOverviewBracket({ title, layout, themeColors, primaryColor, bracketType, onSelectRound, tournamentSlug }) {
   if (!layout?.nodes?.length) return null
 
   const mobileLayout = normalizeLayoutForMobile(layout)
@@ -1048,7 +942,13 @@ function MobileOverviewBracket({ title, layout, themeColors, primaryColor, brack
               ))}
 
               {mobileLayout.nodes.map(node => (
-                <BracketNode key={node.id} node={node} primaryColor={primaryColor} themeColors={themeColors} />
+                <BracketNode
+                  key={node.id}
+                  node={node}
+                  primaryColor={primaryColor}
+                  themeColors={themeColors}
+                  tournamentSlug={tournamentSlug}
+                />
               ))}
             </svg>
           </div>
@@ -1228,19 +1128,26 @@ function getRoundsFromNodes(nodes) {
     grouped[node.round].push(node)
   }
 
+  const totalRounds = Object.keys(grouped).length
+
   return Object.entries(grouped)
     .map(([round, matches]) => ({
       round: Number(round),
-      title: mobileRoundTitle(Number(round)),
-      matches: matches.sort((a, b) => matchPosition(a.match) - matchPosition(b.match)),
+      title: mobileRoundTitle(Number(round), totalRounds),
+      matches: matches.sort((a, b) => compareGraphMatches(a.match, b.match)),
     }))
     .sort((a, b) => a.round - b.round)
 }
 
-function mobileRoundTitle(round) {
-  if (round === 1) return 'Quarter-finals'
-  if (round === 2) return 'Semi-finals'
-  if (round === 3) return 'Finals'
+function mobileRoundTitle(round, totalRounds) {
+  const roundsRemaining = totalRounds - round + 1
+
+  if (roundsRemaining === 1) return 'Final'
+  if (roundsRemaining === 2) return 'Semi-finals'
+  if (roundsRemaining === 3) return 'Quarter-finals'
+  if (roundsRemaining === 4) return 'Round of 16'
+  if (roundsRemaining === 5) return 'Round of 32'
+
   return `Round ${round}`
 }
 
@@ -1261,7 +1168,7 @@ function prettifySource(source) {
   }
 
   if (/^P\d+$/.test(source)) return source
-  if (/^X\d+$/.test(source)) return source
+  if (/^XO-\d+$/.test(source)) return source
   if (source.startsWith('Winner ')) return source
   if (source.startsWith('Loser ')) return source
 
@@ -1294,73 +1201,264 @@ function friendlyMatchLabel(match) {
   return custom[code] ?? match?.round_label ?? match?.display_label ?? code
 }
 
-function roundOrder(match) {
-  const code = match?.match_code
-  if (!code) return match?.round ?? 99
+function layoutGraphBracket(matches, bracketType) {
+  const bracketMatches = matches.filter(m => m.bracket_type === bracketType)
 
-  if (['P1','P2','P3','P4','P5','P6','P7','P8'].includes(code)) return 1
-  if (['P9','P10','P11','P12','P13','P14','P15','P16'].includes(code)) return 2
-  if (['P17','P18','P19','P20','P21','P22','P23','P24'].includes(code)) return 3
-
-  return match?.round ?? 99
-}
-
-function matchPosition(match) {
-  const code = match?.match_code
-  if (!code) return match?.match_number ?? 999
-
-  const order = {
-    P1: 1, P2: 2, P3: 3, P4: 4,
-    P5: 1, P6: 2, P7: 3, P8: 4,
-    P9: 1, P10: 2, P11: 3, P12: 4,
-    P13: 1, P14: 2, P15: 3, P16: 4,
-    P17: 1, P18: 2, P19: 3, P20: 4,
-    P24: 1, P23: 2, P21: 3, P22: 4,
+  if (bracketMatches.length === 0) {
+    return {
+      nodes: [],
+      edges: [],
+      titles: [],
+      svgW: 600,
+      svgH: 300,
+      bracketType,
+    }
   }
 
-  return order[code] ?? match?.match_number ?? 999
+  const incomingRefsByMatchCode = {}
+
+  for (const match of bracketMatches) {
+    if (!match.match_code) continue
+    incomingRefsByMatchCode[match.match_code] = getMatchDependencyCodes(match)
+  }
+
+  const rootMatch = findBracketRoot(bracketMatches, incomingRefsByMatchCode)
+  if (!rootMatch) {
+    return layoutFallbackLinearBracket(bracketMatches, bracketType)
+  }
+
+  const depthByCode = {}
+  assignDepthsFromRoot(rootMatch.match_code, incomingRefsByMatchCode, depthByCode, 0)
+
+  const nodesByDepth = {}
+  for (const match of bracketMatches) {
+    const depth = depthByCode[match.match_code]
+    if (depth == null) continue
+    if (!nodesByDepth[depth]) nodesByDepth[depth] = []
+    nodesByDepth[depth].push(match)
+  }
+
+  const allDepths = Object.keys(nodesByDepth).map(Number).sort((a, b) => b - a)
+  const maxDepth = allDepths.length > 0 ? Math.max(...allDepths) : 0
+  const totalRounds = maxDepth + 1
+
+  const rounds = {}
+  for (const depth of allDepths) {
+    const displayRound = maxDepth - depth + 1
+    rounds[displayRound] = (nodesByDepth[depth] ?? [])
+      .slice()
+      .sort(compareGraphMatches)
+      .map((m, idx) => ({
+        id: m.id,
+        match: m,
+        round: displayRound,
+        position: idx + 1,
+        team_a: m.team_a,
+        team_b: m.team_b,
+        team_a_source: sourceLabel(m.source_a_type, m.source_a_ref),
+        team_b_source: sourceLabel(m.source_b_type, m.source_b_ref),
+        label: graphRoundLabel(displayRound, totalRounds, m),
+        match_code: m.match_code,
+        bracket_type: m.bracket_type,
+      }))
+  }
+
+  const flatNodes = Object.values(rounds).flat()
+  const nodes = flatNodes.map(n => ({
+    ...n,
+    x: nodeXForBracket(n.round, 0, false),
+    y: nodeY(n, rounds),
+  }))
+
+  const nodeByCode = Object.fromEntries(
+    nodes.filter(node => node.match_code).map(node => [node.match_code, node])
+  )
+
+  const edges = []
+  for (const node of nodes) {
+    const deps = getMatchDependencyCodes(node.match)
+    for (const depCode of deps) {
+      const src = nodeByCode[depCode]
+      if (!src) continue
+
+      const sX = src.x + NODE_W
+      const sY = src.y + TEAM_AREA_TOP + TEAM_ROW_H
+      const tX = node.x
+      const tY = node.y + TEAM_AREA_TOP + TEAM_ROW_H
+      const midX = sX + H_GAP / 2
+
+      edges.push({
+        d: `M${sX} ${sY} H${midX} V${tY} H${tX}`,
+      })
+    }
+  }
+
+  const maxNodes = Math.max(...Object.values(rounds).map(r => r.length), 1)
+  const svgH = PADDING * 2 + TITLE_Y_PAD + maxNodes * (NODE_H + V_GAP) - V_GAP
+  const svgW = PADDING * 2 + totalRounds * NODE_W + (totalRounds - 1) * H_GAP
+
+  const titles = [
+    {
+      id: `title-${bracketType}`,
+      x: PADDING,
+      y: PADDING,
+      label: bracketType === 'championship' ? 'Championship Bracket' : 'Consolation Bracket',
+      anchor: 'start',
+    },
+  ]
+
+  return {
+    nodes,
+    edges,
+    titles,
+    svgW,
+    svgH,
+    bracketType,
+  }
 }
 
-function compareMatches(a, b) {
-  const ao = roundOrder(a)
-  const bo = roundOrder(b)
-  if (ao !== bo) return ao - bo
-  return matchPosition(a) - matchPosition(b)
+function getMatchDependencyCodes(match) {
+  const refs = []
+
+  if (isMatchDependency(match?.source_a_type, match?.source_a_ref)) {
+    refs.push(match.source_a_ref)
+  }
+
+  if (isMatchDependency(match?.source_b_type, match?.source_b_ref)) {
+    refs.push(match.source_b_ref)
+  }
+
+  return refs
 }
 
-function layoutDualBracket(matches) {
-  const championshipMatches = matches
-    .filter(m => ['P5','P6','P7','P8','P13','P14','P15','P16','P21','P22','P23','P24'].includes(m.match_code))
-    .sort(compareMatches)
+function isMatchDependency(type, ref) {
+  if (!type || !ref) return false
+  return type === 'winner' || type === 'loser'
+}
 
-  const consolationMatches = matches
-    .filter(m => ['P1','P2','P3','P4','P9','P10','P11','P12','P17','P18','P19','P20'].includes(m.match_code))
-    .sort(compareMatches)
+function findBracketRoot(bracketMatches, incomingRefsByMatchCode) {
+  const dependencyCodes = new Set()
 
-  const champLayout = layoutSingleBracket({
-    matches: championshipMatches,
-    offsetX: 0,
-    offsetY: 0,
-    mirrored: false,
-    title: 'Championship Bracket',
-    titleAlign: 'start',
-    bracketType: 'championship',
+  Object.values(incomingRefsByMatchCode).forEach(deps => {
+    deps.forEach(code => dependencyCodes.add(code))
   })
 
-  const consLayout = layoutSingleBracket({
-    matches: consolationMatches,
-    offsetX: 0,
-    offsetY: 0,
-    mirrored: false,
-    title: 'Consolation Bracket',
-    titleAlign: 'start',
-    bracketType: 'consolation',
+  const candidates = bracketMatches.filter(m => {
+    if (!m.match_code) return false
+    return !dependencyCodes.has(m.match_code)
   })
 
-  const nodes = [...champLayout.nodes, ...consLayout.nodes]
+  if (candidates.length === 1) return candidates[0]
 
-  const gold = matches.find(m => m.match_code === 'P24')
-  const bronze = matches.find(m => m.match_code === 'P23')
+  const placementCandidate = candidates.find(m => m.placement_min === 1)
+  if (placementCandidate) return placementCandidate
+
+  return candidates.sort(compareGraphMatches).slice(-1)[0] ?? null
+}
+
+function assignDepthsFromRoot(matchCode, incomingRefsByMatchCode, depthByCode, depth) {
+  if (!matchCode) return
+
+  const existing = depthByCode[matchCode]
+  if (existing != null && existing <= depth) return
+
+  depthByCode[matchCode] = depth
+
+  const deps = incomingRefsByMatchCode[matchCode] ?? []
+  for (const depCode of deps) {
+    assignDepthsFromRoot(depCode, incomingRefsByMatchCode, depthByCode, depth + 1)
+  }
+}
+
+function compareGraphMatches(a, b) {
+  const aPlacement = a.placement_min ?? 999
+  const bPlacement = b.placement_min ?? 999
+  if (aPlacement !== bPlacement) return aPlacement - bPlacement
+
+  const aRound = a.round ?? 999
+  const bRound = b.round ?? 999
+  if (aRound !== bRound) return aRound - bRound
+
+  return (a.match_number ?? 999) - (b.match_number ?? 999)
+}
+
+function graphRoundLabel(displayRound, totalRounds, match) {
+  const roundsRemaining = totalRounds - displayRound + 1
+
+  if (roundsRemaining === 1) return 'Final'
+  if (roundsRemaining === 2) return 'Semi-final'
+  if (roundsRemaining === 3) return 'Quarter-final'
+  if (roundsRemaining === 4) return 'Round of 16'
+  if (roundsRemaining === 5) return 'Round of 32'
+
+  return friendlyMatchLabel(match)
+}
+
+function layoutFallbackLinearBracket(matches, bracketType) {
+  const grouped = {}
+
+  for (const match of matches) {
+    const round = match.round ?? 1
+    if (!grouped[round]) grouped[round] = []
+    grouped[round].push(match)
+  }
+
+  const rounds = {}
+  Object.keys(grouped)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .forEach(roundNum => {
+      rounds[roundNum] = grouped[roundNum]
+        .slice()
+        .sort(compareGraphMatches)
+        .map((m, idx) => ({
+          id: m.id,
+          match: m,
+          round: roundNum,
+          position: idx + 1,
+          team_a: m.team_a,
+          team_b: m.team_b,
+          team_a_source: sourceLabel(m.source_a_type, m.source_a_ref),
+          team_b_source: sourceLabel(m.source_b_type, m.source_b_ref),
+          label: friendlyMatchLabel(m),
+          match_code: m.match_code,
+          bracket_type: m.bracket_type,
+        }))
+    })
+
+  const flatNodes = Object.values(rounds).flat()
+  const nodes = flatNodes.map(n => ({
+    ...n,
+    x: nodeXForBracket(n.round, 0, false),
+    y: nodeY(n, rounds),
+  }))
+
+  const maxNodes = Math.max(...Object.values(rounds).map(r => r.length), 1)
+  const totalRounds = Object.keys(rounds).length
+  const svgH = PADDING * 2 + TITLE_Y_PAD + maxNodes * (NODE_H + V_GAP) - V_GAP
+  const svgW = PADDING * 2 + totalRounds * NODE_W + (totalRounds - 1) * H_GAP
+
+  return {
+    nodes,
+    edges: [],
+    titles: [
+      {
+        id: `title-${bracketType}`,
+        x: PADDING,
+        y: PADDING,
+        label: bracketType === 'championship' ? 'Championship Bracket' : 'Consolation Bracket',
+        anchor: 'start',
+      },
+    ],
+    svgW,
+    svgH,
+    bracketType,
+  }
+}
+
+function buildMedalSummary(matches) {
+  const gold = matches.find(m => m.match_code === 'P24' || m.placement_min === 1)
+  const bronze = matches.find(m => m.match_code === 'P23' || m.placement_min === 3)
 
   let champion = null
   let second = null
@@ -1377,100 +1475,7 @@ function layoutDualBracket(matches) {
     fourth = bronze.team_a?.id === bronze.winner_id ? bronze.team_b : bronze.team_a
   }
 
-  return {
-    nodes,
-    edges: [],
-    titles: [],
-    svgW: Math.max(champLayout.svgW, consLayout.svgW),
-    svgH: Math.max(champLayout.svgH, consLayout.svgH),
-    champion,
-    second,
-    third,
-    fourth,
-    championshipNodes: champLayout.nodes,
-    consolationNodes: consLayout.nodes,
-    championshipLayout: champLayout,
-    consolationLayout: consLayout,
-  }
-}
-
-function layoutSingleBracket({ matches, offsetX = 0, offsetY = 0, mirrored = false, title = '', titleAlign = 'start', bracketType = null }) {
-  const grouped = {
-    1: matches.filter(m => roundOrder(m) === 1).sort(compareMatches),
-    2: matches.filter(m => roundOrder(m) === 2).sort(compareMatches),
-    3: matches.filter(m => roundOrder(m) === 3).sort(compareMatches),
-  }
-
-  const rounds = {}
-  for (const roundNum of [1, 2, 3]) {
-    rounds[roundNum] = grouped[roundNum].map((m, idx) => ({
-      id: m.id,
-      match: m,
-      round: roundNum,
-      position: idx + 1,
-      team_a: m.team_a,
-      team_b: m.team_b,
-      team_a_source: sourceLabel(m.source_a_type, m.source_a_ref),
-      team_b_source: sourceLabel(m.source_b_type, m.source_b_ref),
-      label: friendlyMatchLabel(m),
-      match_code: m.match_code,
-      bracket_type: bracketType ?? m.bracket_type,
-    }))
-  }
-
-  const flatNodes = Object.values(rounds).flat()
-
-  const nodes = flatNodes.map(n => ({
-    ...n,
-    x: nodeXForBracket(n.round, offsetX, mirrored),
-    y: nodeY(n, rounds) + offsetY + TITLE_Y_PAD,
-  }))
-
-  const edges = []
-  for (const next of nodes) {
-    if (next.round === 1) continue
-
-    const prevRoundNodes = nodes.filter(n => n.round === next.round - 1)
-    const pos = next.position
-    const src1 = prevRoundNodes.find(n => n.position === (pos - 1) * 2 + 1)
-    const src2 = prevRoundNodes.find(n => n.position === (pos - 1) * 2 + 2)
-
-    const tX = mirrored ? next.x + NODE_W : next.x
-    const tY = next.y + TEAM_AREA_TOP + TEAM_ROW_H
-
-    for (const src of [src1, src2].filter(Boolean)) {
-      const sX = mirrored ? src.x : src.x + NODE_W
-      const sY = src.y + TEAM_AREA_TOP + TEAM_ROW_H
-      const midX = mirrored ? sX - H_GAP / 2 : sX + H_GAP / 2
-
-      edges.push({
-        d: `M${sX} ${sY} H${midX} V${tY} H${tX}`,
-      })
-    }
-  }
-
-  const maxNodes = Math.max(...Object.values(rounds).map(r => r.length), 0)
-  const svgH = offsetY + PADDING * 2 + TITLE_Y_PAD + maxNodes * (NODE_H + V_GAP) - V_GAP
-  const svgW = PADDING * 2 + 3 * NODE_W + 2 * H_GAP
-
-  const titleX =
-    titleAlign === 'end'
-      ? offsetX + PADDING + (3 * NODE_W + 2 * H_GAP)
-      : offsetX + PADDING
-
-  const titles = title
-    ? [
-        {
-          id: `title-${title}`,
-          x: titleX,
-          y: PADDING,
-          label: title,
-          anchor: titleAlign === 'end' ? 'end' : 'start',
-        },
-      ]
-    : []
-
-  return { nodes, edges, titles, svgH, svgW, bracketType }
+  return { champion, second, third, fourth }
 }
 
 function layoutLegacyBracket(matches) {
@@ -1676,9 +1681,7 @@ function layoutLegacyBracket(matches) {
       svgH: topY + gapY * 5 + NODE_H + PADDING,
     },
     consolationLayout: {
-      nodes: fifthMatch
-        ? nodes.filter(n => n.label === '5th Place Game')
-        : [],
+      nodes: fifthMatch ? nodes.filter(n => n.label === '5th Place Game') : [],
       edges: [],
       titles: [
         {
@@ -1708,4 +1711,48 @@ function nodeY(slot, rounds) {
   const startY = PADDING + TITLE_Y_PAD + (maxH - totalH) / 2
   const idx = roundNodes.findIndex(n => n.id === slot.id)
   return startY + idx * (NODE_H + V_GAP)
+}
+
+function useThemeColors() {
+  const [colors, setColors] = useState(() => resolveColors())
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => setColors(resolveColors()))
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    })
+    return () => observer.disconnect()
+  }, [])
+
+  return colors
+}
+
+function resolveColors() {
+  const s = getComputedStyle(document.documentElement)
+  const get = v => s.getPropertyValue(v).trim()
+  return {
+    textMuted: get('--text-muted') || '#55556a',
+    textPrimary: get('--text-primary') || '#f0f0f2',
+    border: get('--border') || '#2a2a32',
+    bgSurface: get('--bg-surface') || '#111114',
+    bgBase: get('--bg-base') || '#0a0a0c',
+  }
+}
+
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < breakpoint : false
+  )
+
+  useEffect(() => {
+    function handleResize() {
+      setIsMobile(window.innerWidth < breakpoint)
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [breakpoint])
+
+  return isMobile
 }

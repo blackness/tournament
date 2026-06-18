@@ -408,12 +408,6 @@ export function ScheduleEditor({ embedded = false, footer = null }) {
         },
       })
 
-      console.log('[generateSchedule] full result', result)
-      console.log('[generateSchedule] slots count', result?.slots?.length)
-      console.log('[generateSchedule] matches count', result?.matches?.length)
-      console.log('[generateSchedule] first slot', result?.slots?.[0] || null)
-      console.log('[generateSchedule] first match', result?.matches?.[0] || null)
-
       const generatedSlots = result?.slots ?? []
       const generatedMatches = result?.matches ?? []
       const generatedConflicts = result?.conflicts ?? []
@@ -476,12 +470,13 @@ export function ScheduleEditor({ embedded = false, footer = null }) {
           .select('id, venue_id, scheduled_start, scheduled_end, offset_minutes')
 
         if (slotInsertError) throw slotInsertError
+
         insertedSlots = (savedSlots ?? []).sort((a, b) =>
           String(a.scheduled_start || '').localeCompare(String(b.scheduled_start || ''))
         )
       }
 
-     const makeSlotKey = slot => {
+      const makeSlotKey = slot => {
         const startMs = slot?.scheduled_start ? new Date(slot.scheduled_start).getTime() : ''
         const endMs = slot?.scheduled_end ? new Date(slot.scheduled_end).getTime() : ''
 
@@ -496,54 +491,14 @@ export function ScheduleEditor({ embedded = false, footer = null }) {
         insertedSlots.map(slot => [makeSlotKey(slot), slot])
       )
 
-      const slotIdMap = new Map()
-      normalizedSlots.forEach(slot => {
-        const inserted = insertedSlotByKey.get(makeSlotKey(slot))
-        if (inserted) {
-          slotIdMap.set(slot.id, inserted.id)
-        }
-      })
-
-      console.log(
-        '[handleGenerateSchedule] slotIdMap entries',
-        Array.from(slotIdMap.entries())
-      )
-      console.log(
-        '[handleGenerateSchedule] normalizedSlots',
-        normalizedSlots.map(slot => ({
-          id: slot.id,
-          key: makeSlotKey(slot),
-          venue_id: slot.venue_id,
-          scheduled_start: slot.scheduled_start,
-          scheduled_end: slot.scheduled_end,
-        }))
-      )
-      console.log(
-        '[handleGenerateSchedule] insertedSlots',
-        insertedSlots.map(slot => ({
-          id: slot.id,
-          key: makeSlotKey(slot),
-          venue_id: slot.venue_id,
-          scheduled_start: slot.scheduled_start,
-          scheduled_end: slot.scheduled_end,
-        }))
-      )
-
       if (normalizedMatches.length > 0) {
         const normalizedSlotById = new Map(normalizedSlots.map(slot => [slot.id, slot]))
 
         const matchRows = normalizedMatches.map((match, index) => {
           const originalSlot = normalizedSlotById.get(match.slot_id) ?? null
-          const savedSlotId = match.slot_id ? slotIdMap.get(match.slot_id) ?? null : null
-
-console.log('[handleGenerateSchedule] match slot mapping', {
-  matchId: match.id,
-  matchSlotId: match.slot_id,
-  slotMapHas: slotIdMap.has(match.slot_id),
-  mappedSlotId: match.slot_id ? slotIdMap.get(match.slot_id) ?? null : null,
-  originalSlot: originalSlot,
-})
-
+          const savedSlot =
+            originalSlot ? insertedSlotByKey.get(makeSlotKey(originalSlot)) ?? null : null
+          const savedSlotId = savedSlot?.id ?? null
 
           return {
             tournament_id: tournamentId,
@@ -551,7 +506,7 @@ console.log('[handleGenerateSchedule] match slot mapping', {
             pool_id: match.pool_id,
             team_a_id: match.team_a_id,
             team_b_id: match.team_b_id,
-            venue_id: match.venue_id ?? originalSlot?.venue_id ?? null,
+            venue_id: match.venue_id ?? originalSlot?.venue_id ?? savedSlot?.venue_id ?? null,
             time_slot_id: savedSlotId,
             round: match.round ?? 1,
             match_number: match.match_number ?? index + 1,
@@ -613,10 +568,12 @@ console.log('[handleGenerateSchedule] match slot mapping', {
       const previousConflicts = conflicts
       setSlots(refreshedSlots ?? [])
       setMatches(sortedMatches)
+
       const nextConflicts = generatedConflicts
       const introduced = getNewConflicts(previousConflicts, nextConflicts)
       setConflicts(nextConflicts)
       setNewConflictNotice(introduced.length > 0 ? introduced : [])
+
       showMessage('Schedule generated')
     } catch (err) {
       console.error('[handleGenerateSchedule] failed', err)
@@ -625,7 +582,6 @@ console.log('[handleGenerateSchedule] match slot mapping', {
       setGeneratingSchedule(false)
     }
   }
-
   async function handleClearGeneratedSchedule() {
     try {
       setClearingSchedule(true)
