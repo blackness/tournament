@@ -24,10 +24,17 @@ export function BracketPage() {
   const [zoom, setZoom] = useState(1)
   const [mobileFocusedRound, setMobileFocusedRound] = useState(null)
   const [desktopBracketTab, setDesktopBracketTab] = useState('championship')
+  const [selectedMatchId, setSelectedMatchId] = useState(null)
   const containerRef = useRef(null)
 
   const themeColors = useThemeColors()
   const isMobile = useIsMobile()
+
+  // Derived bracket presence flags (safe before early returns)
+  const championshipLayout = bracket?.championshipLayout ?? null
+  const consolationLayout = bracket?.consolationLayout ?? null
+  const hasChampionshipBracket = (championshipLayout?.nodes?.length ?? 0) > 0
+  const hasConsolationBracket = (consolationLayout?.nodes?.length ?? 0) > 0
 
   useEffect(() => {
     async function load() {
@@ -82,6 +89,44 @@ export function BracketPage() {
     return () => supabase.removeChannel(channel)
   }, [divisionId])
 
+  // Keep tab valid if consolation disappears
+  useEffect(() => {
+    if (desktopBracketTab === 'consolation' && !hasConsolationBracket && hasChampionshipBracket) {
+      setDesktopBracketTab('championship')
+    }
+  }, [desktopBracketTab, hasChampionshipBracket, hasConsolationBracket])
+
+  function focusMatchNode(node) {
+    if (!node || !containerRef.current) return
+
+    setSelectedMatchId(node.id)
+
+    const nextZoom = zoom < 0.75 ? 0.85 : zoom
+    if (nextZoom !== zoom) {
+      setZoom(nextZoom)
+    }
+
+    requestAnimationFrame(() => {
+      const container = containerRef.current
+      const effectiveZoom = nextZoom
+
+      const targetX = node.x * effectiveZoom
+      const targetY = node.y * effectiveZoom
+
+      const scrollLeft =
+        Math.max(0, targetX - container.clientWidth / 2 + (NODE_W * effectiveZoom) / 2)
+
+      const scrollTop =
+        Math.max(0, targetY - container.clientHeight / 2 + (NODE_H * effectiveZoom) / 2)
+
+      container.scrollTo({
+        left: scrollLeft,
+        top: scrollTop,
+        behavior: 'smooth',
+      })
+    })
+  }
+
   if (loading) return <PageLoader />
 
   if (notFound) {
@@ -102,9 +147,12 @@ export function BracketPage() {
     second,
     third,
     fourth,
-    championshipLayout = null,
-    consolationLayout = null,
   } = bracket ?? {}
+
+  const availableBracketTabs = [
+    hasChampionshipBracket && ['championship', 'Championship Bracket'],
+    hasConsolationBracket && ['consolation', 'Consolation Bracket'],
+  ].filter(Boolean)
 
   const selectedDesktopLayout =
     desktopBracketTab === 'championship'
@@ -299,30 +347,29 @@ export function BracketPage() {
             </div>
 
             <div className="hidden md:block">
-              <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {[
-                  ['championship', 'Championship Bracket'],
-                  ['consolation', 'Consolation Bracket'],
-                ].map(([key, label]) => (
-                  <button
-                    key={key}
-                    onClick={() => setDesktopBracketTab(key)}
-                    style={{
-                      padding: '8px 14px',
-                      borderRadius: 999,
-                      border: `1px solid ${desktopBracketTab === key ? color : 'var(--border)'}`,
-                      background: desktopBracketTab === key ? color + '15' : 'var(--bg-surface)',
-                      color: desktopBracketTab === key ? color : 'var(--text-muted)',
-                      fontSize: 13,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      fontFamily: 'inherit',
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              {availableBracketTabs.length > 1 && (
+                <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {availableBracketTabs.map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => setDesktopBracketTab(key)}
+                      style={{
+                        padding: '8px 14px',
+                        borderRadius: 999,
+                        border: `1px solid ${desktopBracketTab === key ? color : 'var(--border)'}`,
+                        background: desktopBracketTab === key ? color + '15' : 'var(--bg-surface)',
+                        color: desktopBracketTab === key ? color : 'var(--text-muted)',
+                        fontSize: 13,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               <div
                 style={{
@@ -360,6 +407,8 @@ export function BracketPage() {
                       primaryColor={color}
                       themeColors={themeColors}
                       tournamentSlug={slug}
+                      isSelected={selectedMatchId === node.id}
+                      onSelect={() => focusMatchNode(node)}
                     />
                   ))}
                 </svg>
@@ -612,33 +661,43 @@ async function loadLegacyBracketMatches(divisionId) {
   return data ?? []
 }
 
-function BracketNode({ node, primaryColor, themeColors, tournamentSlug }) {
+function isResolvedMatch(match) {
+  if (!match) return false
+  const isFinalStatus = match.status === 'complete' || match.status === 'forfeit'
+  return isFinalStatus && !!match.winner_id
+}
+
+function BracketNode({ node, primaryColor, themeColors, tournamentSlug, isSelected = false, onSelect = null }) {
   const { x, y, match, team_a, team_b, team_a_source, team_b_source, label } = node
   const isLive = match?.status === 'in_progress'
-  const isDone = match?.status === 'complete' || match?.status === 'forfeit'
-  const winnerId = match?.winner_id
+  const isDone = isResolvedMatch(match)
+  const winnerId = isDone ? match?.winner_id : null
   const highlight = getMatchHighlight(match?.match_code)
 
   const isFinal = match?.placement_min === 1 || label === 'Gold Medal Game'
   const isBronze = match?.placement_min === 3 || label === 'Bronze Medal Game'
 
-  const cardStroke = isLive
-    ? '#22c55e'
-    : highlight
-      ? highlight.border
-      : isFinal
-        ? primaryColor
-        : themeColors.border
+  const cardStroke = isSelected
+    ? primaryColor
+    : isLive
+      ? '#22c55e'
+      : highlight
+        ? highlight.border
+        : isFinal
+          ? primaryColor
+          : themeColors.border
 
-  const cardFill = isLive
-    ? 'rgba(34,197,94,0.06)'
-    : highlight
-      ? highlight.bg
-      : isFinal
-        ? primaryColor + '0d'
-        : themeColors.bgSurface
+  const cardFill = isSelected
+    ? primaryColor + '12'
+    : isLive
+      ? 'rgba(34,197,94,0.06)'
+      : highlight
+        ? highlight.bg
+        : isFinal
+          ? primaryColor + '0d'
+          : themeColors.bgSurface
 
-  const strokeW = isLive || isFinal || highlight ? 1.5 : 1
+  const strokeW = isSelected || isLive || isFinal || highlight ? 2 : 1
 
   const timeLabel = match?.time_slot?.scheduled_start
     ? new Date(match.time_slot.scheduled_start).toLocaleTimeString('en-CA', {
@@ -650,7 +709,11 @@ function BracketNode({ node, primaryColor, themeColors, tournamentSlug }) {
     : null
 
   return (
-    <g>
+    <g
+      data-bracket-match-id={node.id}
+      onClick={onSelect || undefined}
+      style={{ cursor: onSelect ? 'pointer' : 'default' }}
+    >
       <rect
         x={x}
         y={y}
@@ -868,25 +931,29 @@ function shiftPath(path, shiftX, shiftY) {
 function MobileOverviewView({ championshipLayout, consolationLayout, themeColors, primaryColor, onSelectRound, tournamentSlug }) {
   return (
     <div className="space-y-5">
-      <MobileOverviewBracket
-        title="Championship Bracket"
-        layout={championshipLayout}
-        themeColors={themeColors}
-        primaryColor={primaryColor}
-        bracketType="championship"
-        onSelectRound={onSelectRound}
-        tournamentSlug={tournamentSlug}
-      />
+      {(championshipLayout?.nodes?.length ?? 0) > 0 && (
+        <MobileOverviewBracket
+          title="Championship Bracket"
+          layout={championshipLayout}
+          themeColors={themeColors}
+          primaryColor={primaryColor}
+          bracketType="championship"
+          onSelectRound={onSelectRound}
+          tournamentSlug={tournamentSlug}
+        />
+      )}
 
-      <MobileOverviewBracket
-        title="Consolation Bracket"
-        layout={consolationLayout}
-        themeColors={themeColors}
-        primaryColor={primaryColor}
-        bracketType="consolation"
-        onSelectRound={onSelectRound}
-        tournamentSlug={tournamentSlug}
-      />
+      {(consolationLayout?.nodes?.length ?? 0) > 0 && (
+        <MobileOverviewBracket
+          title="Consolation Bracket"
+          layout={consolationLayout}
+          themeColors={themeColors}
+          primaryColor={primaryColor}
+          bracketType="consolation"
+          onSelectRound={onSelectRound}
+          tournamentSlug={tournamentSlug}
+        />
+      )}
     </div>
   )
 }
@@ -988,8 +1055,8 @@ function MobileFocusedRoundView({ focusedRound, tournamentSlug, onBack }) {
 
 function MobileFocusedMatchCard({ node, tournamentSlug }) {
   const { match, team_a, team_b, team_a_source, team_b_source, label, match_code } = node
-  const isDone = match?.status === 'complete' || match?.status === 'forfeit'
-  const winnerId = match?.winner_id
+  const isDone = isResolvedMatch(match)
+  const winnerId = isDone ? match?.winner_id : null
   const highlight = getMatchHighlight(match_code)
 
   return (
@@ -1457,20 +1524,27 @@ function layoutFallbackLinearBracket(matches, bracketType) {
 }
 
 function buildMedalSummary(matches) {
-  const gold = matches.find(m => m.match_code === 'P24' || m.placement_min === 1)
-  const bronze = matches.find(m => m.match_code === 'P23' || m.placement_min === 3)
+  const gold =
+    matches.find(m => m.match_code === 'P-F') ||
+    matches.find(m => m.match_code === 'P24') ||
+    matches.find(m => m.placement_min === 1)
+
+  const bronze =
+    matches.find(m => m.match_code === 'P-B') ||
+    matches.find(m => m.match_code === 'P23') ||
+    matches.find(m => m.placement_min === 3)
 
   let champion = null
   let second = null
   let third = null
   let fourth = null
 
-  if (gold?.status === 'complete' && gold.winner_id) {
+  if (isResolvedMatch(gold)) {
     champion = gold.team_a?.id === gold.winner_id ? gold.team_a : gold.team_b
     second = gold.team_a?.id === gold.winner_id ? gold.team_b : gold.team_a
   }
 
-  if (bronze?.status === 'complete' && bronze.winner_id) {
+  if (isResolvedMatch(bronze)) {
     third = bronze.team_a?.id === bronze.winner_id ? bronze.team_a : bronze.team_b
     fourth = bronze.team_a?.id === bronze.winner_id ? bronze.team_b : bronze.team_a
   }
@@ -1637,12 +1711,12 @@ function layoutLegacyBracket(matches) {
   let third = null
   let fourth = null
 
-  if (goldMatch?.status === 'complete' && goldMatch.winner_id) {
+  if (isResolvedMatch(goldMatch)) {
     champion = goldMatch.team_a?.id === goldMatch.winner_id ? goldMatch.team_a : goldMatch.team_b
     second = goldMatch.team_a?.id === goldMatch.winner_id ? goldMatch.team_b : goldMatch.team_a
   }
 
-  if (bronzeMatch?.status === 'complete' && bronzeMatch.winner_id) {
+  if (isResolvedMatch(bronzeMatch)) {
     third = bronzeMatch.team_a?.id === bronzeMatch.winner_id ? bronzeMatch.team_a : bronzeMatch.team_b
     fourth = bronzeMatch.team_a?.id === bronzeMatch.winner_id ? bronzeMatch.team_b : bronzeMatch.team_a
   }
