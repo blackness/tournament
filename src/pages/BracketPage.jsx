@@ -245,6 +245,7 @@ export function BracketPage() {
                 >
                   Standings
                 </Link>
+                
               </div>
             )}
 

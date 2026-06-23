@@ -66,6 +66,9 @@ export async function generateTournamentWorkbookDraft(inputConfig) {
 
   buildSchedulesSheet(workbook, config, derived)
 
+  // NEW: optional playoff schedule template sheet
+  buildPlayoffScheduleTemplateSheet(workbook, config)
+
   if (templateType === WORKBOOK_TEMPLATE_TYPES.ADVANCED) {
     // future advanced-template hook
   }
@@ -279,4 +282,52 @@ function buildSchedules(config) {
     status: row.status || 'scheduled',
     notes: row.notes || '',
   }))
+}
+
+function buildPlayoffScheduleTemplateSheetRows(playoffScheduleTemplate = []) {
+  const rows = [
+    {
+      division: 'Open',
+      match_code: 'P-SF1',
+      venue: 'Field 1',
+      scheduled_date: '2026-07-23',
+      scheduled_time: '13:00',
+      notes: 'Example semifinal slot',
+      example_row: 'TRUE',
+    },
+  ]
+
+  for (const row of playoffScheduleTemplate || []) {
+    rows.push({
+      division: row?.division || '',
+      match_code: row?.match_code || '',
+      venue: row?.venue || '',
+      scheduled_date: row?.scheduled_date || '',
+      scheduled_time: row?.scheduled_time || '',
+      notes: row?.notes || '',
+      example_row: '',
+    })
+  }
+
+  return rows
+}
+
+function buildPlayoffScheduleTemplateSheet(workbook, config) {
+  const rows = buildPlayoffScheduleTemplateSheetRows(config.playoffScheduleTemplate || [])
+
+  const ws = workbook.addWorksheet('playoff_schedule_template')
+  ws.columns = [
+    { header: 'division', key: 'division', width: 22 },
+    { header: 'match_code', key: 'match_code', width: 14 },
+    { header: 'venue', key: 'venue', width: 20 },
+    { header: 'scheduled_date', key: 'scheduled_date', width: 14 },
+    { header: 'scheduled_time', key: 'scheduled_time', width: 12 },
+    { header: 'notes', key: 'notes', width: 34 },
+    { header: 'example_row', key: 'example_row', width: 12 },
+  ]
+
+  rows.forEach(r => ws.addRow(r))
+
+  ws.getRow(1).font = { bold: true }
+  ws.views = [{ state: 'frozen', ySplit: 1 }]
 }

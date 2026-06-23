@@ -376,14 +376,18 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
       return false
     }
 
-    for (const division of divisions) {
+for (const division of divisions) {
+      const divisionTeams = (teams || []).filter(t => t.divisionId === division.id)
+
+      // If no teams yet, allow skipping playoffs for this division
+      if (divisionTeams.length === 0) continue
+
       const config = playoffConfigs?.[division.id]
       if (!config?.presetKey) {
-        setFormError(`Choose a playoff preset for ${division.name}.`)
+        setFormError(`Choose a playoff preset for ${division.name}, or add it later once setup is complete.`)
         return false
       }
     }
-
     setFormError(null)
     return true
   }

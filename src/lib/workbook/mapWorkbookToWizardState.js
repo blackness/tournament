@@ -1,6 +1,7 @@
 import { useWizardStore } from '../../store/wizardStore'
 import { toSlug } from './workbookDraftConfig'
 import { validateSchedule } from '../scheduleGenerator'
+import { parsePlayoffScheduleTemplateRows } from './parsePlayoffScheduleTemplateRows'
 
 function makeId(prefix = 'id') {
   return `${prefix}_${crypto.randomUUID()}`
@@ -22,6 +23,10 @@ export function applyWorkbookToWizardState(validatedResult) {
   const tournamentDayRows = asArray(normalized.tournamentDays)
   const rosterRows = asArray(normalized.rosters)
   const scheduleRows = asArray(normalized.schedules)
+  const playoffSheetRows = asArray(
+    normalized.playoff_schedule_template ||
+    validatedResult?.validation?.normalized?.playoff_schedule_template
+  )
 
   const tournamentRow = tournamentRows[0] ?? null
 
@@ -56,21 +61,21 @@ export function applyWorkbookToWizardState(validatedResult) {
     })
   )
 
-
   // --------------------------------------------------
   // 1. Tournament basics
   // --------------------------------------------------
   if (tournamentRow) {
     store.setFields({
-      name: tournamentRow.tournament_name || '',
-      slug: tournamentRow.slug || toSlug(tournamentRow.tournament_name || ''),
-      startDate: tournamentRow.start_date || '',
-      endDate: tournamentRow.end_date || '',
+      name: tournamentRow.tournament_name || tournamentRow.name || '',
+      slug: tournamentRow.slug || toSlug(tournamentRow.tournament_name || tournamentRow.name || ''),
+      sport: tournamentRow.sport || '',
+      startDate: tournamentRow.start_date || tournamentRow.startDate || '',
+      endDate: tournamentRow.end_date || tournamentRow.endDate || '',
       timezone: tournamentRow.timezone || 'America/Toronto',
       allowTies: parseBooleanLike(tournamentRow.allow_ties) ?? false,
-      venueName: tournamentRow.host_school || '',
-      venueAddress: tournamentRow.location || '',
-      primaryColor: tournamentRow.primary_color || '#8b5cf6',
+      venueName: tournamentRow.host_school || tournamentRow.hostSchool || '',
+      venueAddress: tournamentRow.location || tournamentRow.venueAddress || '',
+      primaryColor: tournamentRow.primary_color || tournamentRow.primaryColor || '#8b5cf6',
     })
   }
 
@@ -78,20 +83,24 @@ export function applyWorkbookToWizardState(validatedResult) {
   // 2. Divisions
   // --------------------------------------------------
   const divisions = divisionRows.map((row, index) => {
+    const divisionName = row.division_name || row.name || ''
     const existingDivision =
-      existingDivisionByName[String(row.division_name ?? '').trim().toLowerCase()] || null
+      existingDivisionByName[String(divisionName ?? '').trim().toLowerCase()] || null
 
     return {
       id: existingDivision?.id || makeId('div'),
       dbId: existingDivision?.dbId || null,
-      name: row.division_name,
-      slug: row.division_slug || existingDivision?.slug || toSlug(row.division_name),
-      formatType: row.format_type,
-      gameDurationMinutes: toNumberOrDefault(row.game_duration_minutes, 90),
-      breakBetweenGamesMinutes: toNumberOrDefault(row.break_between_games_minutes, 30),
-      teamsAdvancePerPool: toNumberOrDefault(row.teams_advance_per_pool, 2),
-      thirdPlaceGame: parseBooleanLike(row.third_place_game) ?? false,
-      consolationBracket: parseBooleanLike(row.consolation_bracket) ?? false,
+      name: divisionName,
+      slug: row.division_slug || row.slug || existingDivision?.slug || toSlug(divisionName),
+      formatType: row.format_type || row.formatType,
+      gameDurationMinutes: toNumberOrDefault(row.game_duration_minutes || row.gameDurationMinutes, 90),
+      breakBetweenGamesMinutes: toNumberOrDefault(
+        row.break_between_games_minutes || row.breakBetweenGamesMinutes,
+        30
+      ),
+      teamsAdvancePerPool: toNumberOrDefault(row.teams_advance_per_pool || row.teamsAdvancePerPool, 2),
+      thirdPlaceGame: parseBooleanLike(row.third_place_game ?? row.thirdPlaceGame) ?? false,
+      consolationBracket: parseBooleanLike(row.consolation_bracket ?? row.consolationBracket) ?? false,
       sortOrder: index,
       _expanded: false,
     }
@@ -107,16 +116,17 @@ export function applyWorkbookToWizardState(validatedResult) {
   // 3. Venues / fields
   // --------------------------------------------------
   const venues = fieldRows.map((row, index) => {
+    const fieldName = row.field_name || row.fieldName || row.name || ''
     const existingVenue =
-      existingVenueByName[String(row.field_name ?? '').trim().toLowerCase()] || null
+      existingVenueByName[String(fieldName ?? '').trim().toLowerCase()] || null
 
     return {
       id: existingVenue?.id || makeId('venue'),
       dbId: existingVenue?.dbId || null,
-      name: row.field_name,
-      shortName: row.short_name || existingVenue?.shortName || '',
-      qrSlug: row.qr_slug || existingVenue?.qrSlug || toSlug(row.field_name),
-      sortOrder: toNumberOrDefault(row.sort_order, index + 1),
+      name: fieldName,
+      shortName: row.short_name || row.shortName || existingVenue?.shortName || '',
+      qrSlug: row.qr_slug || row.qrSlug || existingVenue?.qrSlug || toSlug(fieldName),
+      sortOrder: toNumberOrDefault(row.sort_order || row.sortOrder, index + 1),
     }
   })
 
@@ -131,22 +141,23 @@ export function applyWorkbookToWizardState(validatedResult) {
   // --------------------------------------------------
   const pools = poolRows
     .map((row, index) => {
-      const divisionName = String(row.division_name ?? '').trim().toLowerCase()
+      const divisionName = String(row.division_name ?? row.divisionName ?? '').trim().toLowerCase()
       const divisionId = divisionIdByName[divisionName]
       if (!divisionId) return null
 
+      const poolName = row.pool_name || row.poolName || ''
       const existingPool =
         existingPoolByDivisionAndName[
-          `${divisionName}::${String(row.pool_name ?? '').trim().toLowerCase()}`
+          `${divisionName}::${String(poolName ?? '').trim().toLowerCase()}`
         ] || null
 
       return {
         id: existingPool?.id || makeId('pool'),
         dbId: existingPool?.dbId || null,
         divisionId,
-        name: row.pool_name,
-        shortName: row.pool_short_name || existingPool?.shortName || '',
-        sortOrder: toNumberOrDefault(row.sort_order, index),
+        name: poolName,
+        shortName: row.pool_short_name || row.poolShortName || existingPool?.shortName || '',
+        sortOrder: toNumberOrDefault(row.sort_order || row.sortOrder, index),
       }
     })
     .filter(Boolean)
@@ -162,11 +173,11 @@ export function applyWorkbookToWizardState(validatedResult) {
   // --------------------------------------------------
   const teams = teamRows
     .map(row => {
-      const divisionName = String(row.division_name ?? '').trim().toLowerCase()
+      const divisionName = String(row.division_name ?? row.divisionName ?? '').trim().toLowerCase()
       const divisionId = divisionIdByName[divisionName]
       if (!divisionId) return null
 
-      const teamName = String(row.team_name ?? '').trim()
+      const teamName = String(row.team_name ?? row.teamName ?? '').trim()
       const lookupKey = `${divisionName}::${teamName.toLowerCase()}`
       const existingTeam =
         existingTeamByDivisionAndName[lookupKey] || null
@@ -176,11 +187,11 @@ export function applyWorkbookToWizardState(validatedResult) {
         dbId: existingTeam?.dbId || null,
         divisionId,
         name: teamName,
-        shortName: row.short_name || existingTeam?.shortName || '',
-        schoolName: row.school_name || existingTeam?.schoolName || existingTeam?.clubName || '',
-        clubName: row.school_name || existingTeam?.clubName || existingTeam?.schoolName || '',
+        shortName: row.short_name || row.shortName || existingTeam?.shortName || '',
+        schoolName: row.school_name || row.schoolName || existingTeam?.schoolName || existingTeam?.clubName || '',
+        clubName: row.school_name || row.schoolName || existingTeam?.clubName || existingTeam?.schoolName || '',
         seed: row.seed != null && row.seed !== '' ? Number(row.seed) : existingTeam?.seed ?? null,
-        primaryColor: row.primary_color || existingTeam?.primaryColor || '',
+        primaryColor: row.primary_color || row.primaryColor || existingTeam?.primaryColor || '',
         headCoachName: existingTeam?.headCoachName || '',
         headCoachEmail: existingTeam?.headCoachEmail || '',
         constraints: existingTeam?.constraints || {},
@@ -200,19 +211,20 @@ export function applyWorkbookToWizardState(validatedResult) {
   const poolAssignments = {}
 
   teamRows.forEach(row => {
-    const divisionId = divisionIdByName[String(row.division_name ?? '').toLowerCase()]
+    const divisionId = divisionIdByName[String(row.division_name ?? row.divisionName ?? '').toLowerCase()]
     if (!divisionId) return
 
     const teamId =
       teamIdByDivisionAndName[
-        `${divisionId}::${String(row.team_name ?? '').toLowerCase()}`
+        `${divisionId}::${String(row.team_name ?? row.teamName ?? '').toLowerCase()}`
       ]
     if (!teamId) return
 
-    if (row.pool_name) {
+    const poolName = row.pool_name || row.poolName || ''
+    if (poolName) {
       const poolId =
         poolIdByDivisionAndName[
-          `${divisionId}::${String(row.pool_name).toLowerCase()}`
+          `${divisionId}::${String(poolName).toLowerCase()}`
         ]
       if (poolId) {
         poolAssignments[teamId] = poolId
@@ -227,10 +239,10 @@ export function applyWorkbookToWizardState(validatedResult) {
   // --------------------------------------------------
   const tournamentDays = tournamentDayRows.map(row => ({
     id: makeId('day'),
-    dayIndex: toNumberOrDefault(row.day_index, 1),
-    eventDate: row.event_date || '',
-    startTime: row.start_time || '09:00',
-    endTime: row.end_time || '',
+    dayIndex: toNumberOrDefault(row.day_index || row.dayIndex, 1),
+    eventDate: row.event_date || row.eventDate || '',
+    startTime: row.start_time || row.startTime || '09:00',
+    endTime: row.end_time || row.endTime || '',
     label: row.label || '',
   }))
 
@@ -241,12 +253,12 @@ export function applyWorkbookToWizardState(validatedResult) {
   // --------------------------------------------------
   const rosters = rosterRows
     .map(row => {
-      const divisionId = divisionIdByName[String(row.division_name ?? '').toLowerCase()]
+      const divisionId = divisionIdByName[String(row.division_name ?? row.divisionName ?? '').toLowerCase()]
       if (!divisionId) return null
 
       const teamId =
         teamIdByDivisionAndName[
-          `${divisionId}::${String(row.team_name ?? '').toLowerCase()}`
+          `${divisionId}::${String(row.team_name ?? row.teamName ?? '').toLowerCase()}`
         ]
 
       if (!teamId) return null
@@ -255,18 +267,38 @@ export function applyWorkbookToWizardState(validatedResult) {
         id: makeId('roster'),
         teamId,
         divisionId,
-        firstName: row.player_first_name || '',
-        lastName: row.player_last_name || '',
-        jerseyNumber: row.jersey_number || '',
+        firstName: row.player_first_name || row.playerFirstName || '',
+        lastName: row.player_last_name || row.playerLastName || '',
+        jerseyNumber: row.jersey_number || row.jerseyNumber || '',
         role: row.role || '',
         captain: parseBooleanLike(row.captain) ?? false,
         grade: row.grade || '',
-        eligibilityNotes: row.eligibility_notes || '',
+        eligibilityNotes: row.eligibility_notes || row.eligibilityNotes || '',
       }
     })
     .filter(Boolean)
 
   store.setRosters(rosters)
+
+  // --------------------------------------------------
+  // 8.5 Playoff schedule template rows
+  // --------------------------------------------------
+  const currentPlayoffConfigs = store.playoffConfigs || {}
+
+  const playoffTemplateParse = parsePlayoffScheduleTemplateRows({
+    rows: playoffSheetRows,
+    divisions,
+    venues,
+    playoffConfigs: currentPlayoffConfigs,
+  })
+
+  if (typeof store.setPlayoffConfigs === 'function') {
+    store.setPlayoffConfigs(playoffTemplateParse.playoffConfigs)
+  } else if (typeof store.setPlayoffConfig === 'function') {
+    Object.entries(playoffTemplateParse.playoffConfigs || {}).forEach(([divisionId, cfg]) => {
+      store.setPlayoffConfig(divisionId, cfg)
+    })
+  }
 
   // --------------------------------------------------
   // 9. Schedule rows -> generated schedule state
@@ -315,6 +347,9 @@ export function applyWorkbookToWizardState(validatedResult) {
       scheduleRowCount: scheduleRows.length,
       scheduleApplied: scheduleApplyResult.applied,
       scheduleAppliedCount: scheduleApplyResult.appliedCount,
+      playoffTemplateRowCount: playoffSheetRows.length,
+      playoffTemplateAppliedCount: playoffTemplateParse?.appliedCount || 0,
+      playoffTemplateWarnings: playoffTemplateParse?.warnings?.length || 0,
     },
   }
 }

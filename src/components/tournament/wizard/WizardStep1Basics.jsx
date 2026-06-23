@@ -16,6 +16,7 @@ export function WizardStep1Basics({ onNext }) {
     tournamentId,
     name,
     slug,
+    sport,
     setFields,
     setTournamentId,
     venueName,
@@ -30,6 +31,7 @@ export function WizardStep1Basics({ onNext }) {
     venues,
     pools,
     poolAssignments,
+    playoffConfigs,
     tournamentDays,
     scheduleConfig,
     generatedMatches,
@@ -149,10 +151,17 @@ export function WizardStep1Basics({ onNext }) {
         venues,
       })
 
+      const playoffScheduleTemplate = buildPlayoffScheduleTemplateRows({
+        playoffConfigs,
+        divisions,
+        venues,
+      })
+
       const result = await generateTournamentWorkbookDraft({
         tournament: {
           name: name || '',
           slug: slug || '',
+          sport: sport || '',
           timezone: timezone || 'America/Toronto',
           startDate: startDate || '',
           endDate: endDate || '',
@@ -230,7 +239,19 @@ export function WizardStep1Basics({ onNext }) {
           }
         }),
         schedules: workbookSchedules,
-      })
+
+        // NEW: exact object shape for playoff workbook export
+        playoffScheduleTemplate: [
+          {
+            division: 'Open',
+            match_code: 'P-SF1',
+            venue: 'Field 1',
+            scheduled_date: '2026-07-23',
+            scheduled_time: '13:00',
+            notes: 'Semi 1'
+          }
+        ]
+              })
 
       const blob = new Blob([result.buffer], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -271,6 +292,18 @@ export function WizardStep1Basics({ onNext }) {
       return
     }
 
+    if (!startDate) {
+      setFormError('Tournament start date is required.')
+      return
+    }
+
+    const normalizedEndDate = endDate || startDate
+
+    if (normalizedEndDate < startDate) {
+      setFormError('End date cannot be earlier than start date.')
+      return
+    }
+
     setSaving(true)
 
     try {
@@ -280,8 +313,9 @@ export function WizardStep1Basics({ onNext }) {
       const payload = {
         name: name.trim(),
         slug: slug.trim().toLowerCase(),
-        start_date: startDate || null,
-        end_date: endDate || null,
+        sport: sport || null,
+        start_date: startDate,
+        end_date: normalizedEndDate,
         timezone: timezone || 'America/Toronto',
         venue_name: venueName?.trim() || null,
         venue_address: venueAddress?.trim() || null,
@@ -322,7 +356,7 @@ export function WizardStep1Basics({ onNext }) {
       <div>
         <h2 className="section-title">Tournament Basics</h2>
         <p className="section-subtitle">
-          Set up the tournament identity and location here. Sport details live in Step 2, and all schedule dates/times live in Step 6.
+          Set up tournament identity here. Tournament start/end dates are required here; detailed daily schedule windows are configured in Step 6.
         </p>
       </div>
 
@@ -366,6 +400,17 @@ export function WizardStep1Basics({ onNext }) {
         </div>
 
         <div className="field-group md:col-span-2">
+          <label className="field-label">Sport</label>
+          <input
+            type="text"
+            className="field-input"
+            value={sport || ''}
+            onChange={e => handleChange('sport', e.target.value)}
+            placeholder="e.g. Ultimate Frisbee"
+          />
+        </div>
+
+        <div className="field-group md:col-span-2">
           <label className="field-label">Visibility</label>
           <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
             <input
@@ -377,6 +422,33 @@ export function WizardStep1Basics({ onNext }) {
           </label>
           <p className="text-xs text-[var(--text-muted)] mt-1">
             You can toggle this on or off at any time during setup. When off, the tournament remains active in AthleteOS but should not be publicly visible.
+          </p>
+        </div>
+
+        <div className="field-group">
+          <label className="field-label">Tournament start date *</label>
+          <input
+            type="date"
+            className="field-input"
+            value={startDate || ''}
+            onChange={e => handleChange('startDate', e.target.value)}
+          />
+        </div>
+
+        <div className="field-group">
+          <label className="field-label">Tournament end date</label>
+          <input
+            type="date"
+            className="field-input"
+            value={endDate || ''}
+            min={startDate || undefined}
+            onChange={e => handleChange('endDate', e.target.value)}
+          />
+        </div>
+
+        <div className="field-group md:col-span-2">
+          <p className="text-xs text-[var(--text-muted)]">
+            If end date is blank, it defaults to the start date.
           </p>
         </div>
 
@@ -516,7 +588,7 @@ export function WizardStep1Basics({ onNext }) {
 
         {hasSetupData && (
           <p className="text-xs text-[var(--text-muted)]">
-            Workbook export includes your current wizard setup data where available, including divisions, teams, pools, venues, tournament days, and schedule settings.
+            Workbook export includes your current wizard setup data where available, including divisions, teams, pools, venues, tournament days, schedule settings, and optional playoff schedule template rows.
           </p>
         )}
       </div>
@@ -526,7 +598,7 @@ export function WizardStep1Basics({ onNext }) {
           Wizard structure
         </p>
         <p className="text-sm text-[var(--text-muted)]">
-          Step 1 is for tournament identity and workbook setup. Step 2 handles sport-specific details and tracked stats. Step 6 handles all schedule dates, day windows, and generation settings.
+          Step 1 is for tournament identity and workbook setup. Step 2 handles sport-specific details and tracked stats. Step 6 handles detailed schedule windows and generation settings.
         </p>
       </div>
 
@@ -576,6 +648,19 @@ export function WizardStep1Basics({ onNext }) {
                 {workbookSummary.scheduleAppliedCount !== 1 ? 's' : ''} applied to the generated schedule
               </li>
             )}
+            {workbookSummary.playoffTemplateRowCount > 0 && (
+              <li>
+                {workbookSummary.playoffTemplateRowCount} playoff template row
+                {workbookSummary.playoffTemplateRowCount !== 1 ? 's' : ''} found
+              </li>
+            )}
+
+            {workbookSummary.playoffTemplateAppliedCount > 0 && (
+              <li>
+                {workbookSummary.playoffTemplateAppliedCount} playoff template row
+                {workbookSummary.playoffTemplateAppliedCount !== 1 ? 's' : ''} applied
+              </li>
+            )}
           </ul>
 
           {workbookSummary.scheduleRowCount > 0 && !workbookSummary.scheduleApplied && (
@@ -587,6 +672,18 @@ export function WizardStep1Basics({ onNext }) {
           <p className="text-xs text-green-700 mt-2">
             Review the imported data in each wizard step, then click Continue to save tournament basics and proceed.
           </p>
+          {workbookSummary.playoffTemplateWarnings > 0 && (
+            <p className="text-xs text-amber-700 mt-2">
+              {workbookSummary.playoffTemplateWarnings} playoff template row
+              {workbookSummary.playoffTemplateWarnings !== 1 ? 's' : ''} had warnings and were skipped. 
+              Check division names, match codes, venue names, and date/time formats.
+            </p>
+          )}
+          {workbookSummary.playoffTemplateAppliedCount > 0 && (
+            <p className="text-xs text-green-700 mt-2">
+              Imported playoff schedule template rows will pre-populate playoff match venue/time in Step 7 when matching playoff match codes are generated.
+            </p>
+          )}
         </div>
       )}
 
@@ -694,6 +791,37 @@ function buildWorkbookSchedules({
       notes: '',
     }
   })
+}
+
+function buildPlayoffScheduleTemplateRows({
+  playoffConfigs = {},
+  divisions = [],
+  venues = [],
+}) {
+  const divisionMap = Object.fromEntries((divisions || []).map(d => [d.id, d]))
+  const venueMap = Object.fromEntries((venues || []).map(v => [v.id, v]))
+
+  const rows = []
+
+  for (const [divisionId, config] of Object.entries(playoffConfigs || {})) {
+    const division = divisionMap[divisionId]
+    const template = config?.matchScheduleTemplate || {}
+
+    for (const [matchCode, entry] of Object.entries(template)) {
+      const venue = entry?.venueId ? venueMap[entry.venueId] : null
+
+      rows.push({
+        division: division?.name || '',
+        match_code: matchCode,
+        venue: venue?.name || '',
+        scheduled_date: entry?.scheduledDate || '',
+        scheduled_time: entry?.scheduledTime || '',
+        notes: entry?.notes || '',
+      })
+    }
+  }
+
+  return rows
 }
 
 function buildFallbackMatchCode(match, index) {
