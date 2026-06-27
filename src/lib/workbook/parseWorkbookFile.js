@@ -1,141 +1,90 @@
 import ExcelJS from 'exceljs'
 
-const SHEET_NAME_MAP = {
-  instructions: 'Instructions',
-  tournament: 'Tournament',
-  divisions: 'Divisions',
-  teams: 'Teams',
-  pools: 'Pools',
-  rosters: 'Rosters',
-  fields: 'Fields',
-  tournamentdays: 'TournamentDays',
-  formats: 'Formats',
-  bracketmatches: 'BracketMatches',
-  schedules: 'Schedules',
-  lookuplists: 'LookupLists',
-}
-
 export async function parseWorkbookFile(file) {
-  const workbook = new ExcelJS.Workbook()
   const buffer = await file.arrayBuffer()
+  const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.load(buffer)
 
-  const workbookData = {}
-  const sheetCollisions = []
+  const out = {}
 
-  workbook.eachSheet(worksheet => {
-    const originalName = worksheet.name
-    const canonicalName = canonicalizeSheetName(originalName)
-    const rows = worksheetToObjects(worksheet)
+  workbook.worksheets.forEach(ws => {
+    const rows = worksheetToJson(ws)
 
-    if (workbookData[canonicalName]) {
-      sheetCollisions.push({
-        canonicalName,
-        originalName,
-      })
-      return
-    }
+    const sheetName = ws.name
+    out[sheetName] = rows
 
-    workbookData[canonicalName] = rows
+    const snake = toSnakeCase(sheetName)
+    const camel = toCamelCase(sheetName)
+    const pascal = toPascalCase(sheetName)
+
+    out[snake] = out[snake] || rows
+    out[camel] = out[camel] || rows
+    out[pascal] = out[pascal] || rows
   })
 
-  if (sheetCollisions.length > 0) {
-    workbookData.__meta = {
-      ...(workbookData.__meta ?? {}),
-      sheetCollisions,
-    }
-  }
-
-  return workbookData
+  return out
 }
 
-function canonicalizeSheetName(name) {
-  const normalized = String(name ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_-]+/g, '')
-
-  return SHEET_NAME_MAP[normalized] ?? String(name ?? '').trim()
-}
-
-function worksheetToObjects(worksheet) {
-  const rawRows = []
-
-  worksheet.eachRow({ includeEmpty: false }, row => {
-    rawRows.push(row.values)
-  })
-
-  if (rawRows.length === 0) return []
-
-  const headerRow = rawRows[0]
-  const headers = normalizeHeaders(headerRow)
-  const objects = []
-
-  for (let i = 1; i < rawRows.length; i++) {
-    const row = rawRows[i]
-    const obj = {}
-
-    let hasAnyValue = false
-
-    for (let colIndex = 1; colIndex < headers.length; colIndex++) {
-      const header = headers[colIndex]
-      if (!header) continue
-
-      const value = normalizeCellValue(row?.[colIndex])
-
-      if (value !== '' && value != null) {
-        hasAnyValue = true
-      }
-
-      obj[header] = value
-    }
-
-    if (hasAnyValue) {
-      obj.__rowNum = i + 1
-      objects.push(obj)
-    }
-  }
-
-  return objects
-}
-
-function normalizeHeaders(headerRow) {
+function worksheetToJson(ws) {
+  const headerRow = ws.getRow(1)
   const headers = []
 
-  for (let i = 0; i < headerRow.length; i++) {
-    headers[i] = normalizeHeaderName(headerRow[i])
-  }
+  headerRow.eachCell((cell, colNumber) => {
+    headers[colNumber] = String(cell.value ?? '').trim()
+  })
 
-  return headers
-}
+  const rows = []
+  ws.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return
 
-function normalizeHeaderName(value) {
-  if (value == null) return ''
+    const obj = {}
+    let hasAnyValue = false
 
-  return String(value)
-    .trim()
-    .replace(/\s+/g, '_')
-    .replace(/[^\w]/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '')
+    headers.forEach((header, colNumber) => {
+      if (!header) return
+      const cell = row.getCell(colNumber)
+      const value = normalizeCellValue(cell?.value)
+      obj[header] = value
+      if (value !== '') hasAnyValue = true
+    })
+
+    if (hasAnyValue) rows.push(obj)
+  })
+
+  return rows
 }
 
 function normalizeCellValue(value) {
   if (value == null) return ''
 
-  if (value instanceof Date) {
-    return value.toISOString().slice(0, 10)
-  }
-
   if (typeof value === 'object') {
     if (value.text != null) return String(value.text).trim()
-    if (value.hyperlink != null) return String(value.text || value.hyperlink).trim()
-    if (value.result != null) return normalizeCellValue(value.result)
-    if (value.formula != null && value.result != null) return normalizeCellValue(value.result)
-    if (value instanceof Date) return value.toISOString().slice(0, 10)
+    if (value.result != null) return String(value.result).trim()
+    if (value.richText) {
+      return value.richText.map(rt => rt.text || '').join('').trim()
+    }
+    if (value.hyperlink != null && value.text != null) {
+      return String(value.text).trim()
+    }
   }
 
-  if (typeof value === 'string') return value.trim()
+  return String(value).trim()
+}
 
-  return value
+function toSnakeCase(str) {
+  return String(str)
+    .trim()
+    .replace(/([a-z])([A-Z])/g, '$1_$2')
+    .replace(/[\s-]+/g, '_')
+    .toLowerCase()
+}
+
+function toCamelCase(str) {
+  const s = toSnakeCase(str)
+  return s.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
+}
+
+function toPascalCase(str) {
+  const c = toCamelCase(str)
+  return c.charAt(0).toUpperCase() + c.slice(1)
 }

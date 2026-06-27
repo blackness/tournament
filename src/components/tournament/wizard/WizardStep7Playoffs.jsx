@@ -36,8 +36,7 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
     setPlayoffConfig,
     setGeneratedPlayoffMatches,
   } = useWizardStore()
-
-  const [activeDivisionId, setActiveDivisionId] = useState(divisions[0]?.id ?? null)
+const [activeDivisionId, setActiveDivisionId] = useState(divisions[0]?.id ?? null)
   const [standingsRows, setStandingsRows] = useState([])
   const [loadingStandings, setLoadingStandings] = useState(false)
   const [formError, setFormError] = useState(null)
@@ -56,43 +55,68 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
     activePlayoffConfig?.playoffStartTime || ''
   )
 
+  function sameValue(a, b) {
+    return String(a ?? '') === String(b ?? '')
+  }
+
   useEffect(() => {
     if (!activeDivisionId && divisions.length > 0) {
       setActiveDivisionId(divisions[0].id)
     }
   }, [activeDivisionId, divisions])
 
+  // Hydrate local UI state from stored config when division/config changes.
   useEffect(() => {
     if (!activeDivision) return
 
-    const nextDayId = playoffConfigs?.[activeDivision.id]?.scheduleDayId || ''
-    const nextStartTime = playoffConfigs?.[activeDivision.id]?.playoffStartTime || ''
+    const cfg = playoffConfigs?.[activeDivision.id] || {}
+    const nextDayId = cfg.scheduleDayId || ''
+    const nextStartTime = cfg.playoffStartTime || ''
 
-    setSelectedPlayoffDayId(nextDayId)
-    setPlayoffStartTime(nextStartTime)
-  }, [activeDivision?.id, playoffConfigs])
+    if (!sameValue(selectedPlayoffDayId, nextDayId)) {
+      setSelectedPlayoffDayId(nextDayId)
+    }
+    if (!sameValue(playoffStartTime, nextStartTime)) {
+      setPlayoffStartTime(nextStartTime)
+    }
+  }, [
+    activeDivision?.id,
+    playoffConfigs?.[activeDivision?.id]?.scheduleDayId,
+    playoffConfigs?.[activeDivision?.id]?.playoffStartTime,
+  ])
 
   useEffect(() => {
     if (!activeDivision) return
     if (selectedPlayoffDayId) return
     if ((tournamentDays?.length || 0) === 0) return
 
-    const defaultDay =
-      tournamentDays[1] ||
-      tournamentDays[0] ||
-      null
-
+    const defaultDay = tournamentDays[1] || tournamentDays[0] || null
     if (!defaultDay?.id) return
 
     setSelectedPlayoffDayId(defaultDay.id)
 
-    setPlayoffConfig(activeDivision.id, {
-      ...playoffConfigs?.[activeDivision.id],
+    const currentCfg = playoffConfigs?.[activeDivision.id] || {}
+    const nextCfg = {
+      ...currentCfg,
       scheduleDayId: defaultDay.id,
-      playoffStartTime:
-        playoffConfigs?.[activeDivision.id]?.playoffStartTime || '',
-    })
-  }, [activeDivision, selectedPlayoffDayId, tournamentDays, playoffConfigs, setPlayoffConfig])
+      playoffStartTime: currentCfg.playoffStartTime || '',
+    }
+
+    // only write if changed
+    if (
+      !sameValue(currentCfg.scheduleDayId, nextCfg.scheduleDayId) ||
+      !sameValue(currentCfg.playoffStartTime, nextCfg.playoffStartTime)
+    ) {
+      setPlayoffConfig(activeDivision.id, nextCfg)
+    }
+  }, [
+    activeDivision?.id,
+    selectedPlayoffDayId,
+    tournamentDays,
+    playoffConfigs?.[activeDivision?.id]?.scheduleDayId,
+    playoffConfigs?.[activeDivision?.id]?.playoffStartTime,
+    setPlayoffConfig,
+  ])
 
   const selectedPlayoffDay =
     (tournamentDays || []).find(day => day.id === selectedPlayoffDayId) || null
@@ -110,17 +134,27 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
 
     setPlayoffStartTime(normalized)
 
-    setPlayoffConfig(activeDivision.id, {
-      ...playoffConfigs?.[activeDivision.id],
+    const currentCfg = playoffConfigs?.[activeDivision.id] || {}
+    const nextCfg = {
+      ...currentCfg,
       scheduleDayId: selectedPlayoffDay.id,
       playoffStartTime: normalized,
-    })
+    }
+
+    // only write if changed
+    if (
+      !sameValue(currentCfg.scheduleDayId, nextCfg.scheduleDayId) ||
+      !sameValue(currentCfg.playoffStartTime, nextCfg.playoffStartTime)
+    ) {
+      setPlayoffConfig(activeDivision.id, nextCfg)
+    }
   }, [
-    activeDivision,
-    selectedPlayoffDay,
+    activeDivision?.id,
+    selectedPlayoffDay?.id,
     playoffStartTime,
     scheduleConfig?.startTime,
-    playoffConfigs,
+    playoffConfigs?.[activeDivision?.id]?.scheduleDayId,
+    playoffConfigs?.[activeDivision?.id]?.playoffStartTime,
     setPlayoffConfig,
   ])
 
@@ -168,7 +202,7 @@ export function WizardStep7Playoffs({ onNext, onBack }) {
 
     loadStandings()
   }, [activeDivision?.dbId])
-
+  
   const structure = useMemo(() => {
     if (!activeDivision) return null
 

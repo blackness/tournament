@@ -7,77 +7,112 @@ import { validateFieldsSheet } from './validateFieldsSheet'
 import { validateTournamentDaysSheet } from './validateTournamentDaysSheet'
 import { validateRostersSheet } from './validateRostersSheet'
 import { validateSchedulesSheet } from './validateSchedulesSheet'
+import { validatePlayoffScheduleTemplateSheet } from './validatePlayoffScheduleTemplateSheet'
 
 export function validateWorkbook(workbookData) {
   const result = createValidationResult()
 
-  if (workbookData.Tournament) {
-    const tournament = validateTournamentSheet(
-      workbookData.Tournament,
+  // Always initialize normalized arrays to avoid undefined chains
+result.normalized = result.normalized || {}
+result.errors = Array.isArray(result.errors) ? result.errors : []
+result.warnings = Array.isArray(result.warnings) ? result.warnings : []
+
+result.normalized.tournament = result.normalized.tournament || []
+result.normalized.divisions = result.normalized.divisions || []
+result.normalized.fields = result.normalized.fields || []
+result.normalized.tournamentDays = result.normalized.tournamentDays || []
+result.normalized.pools = result.normalized.pools || []
+result.normalized.teams = result.normalized.teams || []
+result.normalized.rosters = result.normalized.rosters || []
+result.normalized.schedules = result.normalized.schedules || []
+result.normalized.playoff_schedule_template = result.normalized.playoff_schedule_template || []
+
+  const Tournament = workbookData.Tournament || workbookData.tournament
+  const Divisions = workbookData.Divisions || workbookData.divisions
+  const Fields = workbookData.Fields || workbookData.fields
+  const TournamentDays = workbookData.TournamentDays || workbookData.tournament_days || workbookData.tournamentDays
+  const Pools = workbookData.Pools || workbookData.pools
+  const Teams = workbookData.Teams || workbookData.teams
+  const Rosters = workbookData.Rosters || workbookData.rosters
+  const Schedules = workbookData.Schedules || workbookData.schedules
+  const PlayoffTemplate =
+    workbookData.PlayoffScheduleTemplate ||
+    workbookData.playoff_schedule_template ||
+    workbookData.Playoff_Schedule_Template
+
+  if (PlayoffTemplate) {
+    const playoffTemplate = validatePlayoffScheduleTemplateSheet(
+      PlayoffTemplate,
+      result.normalized.divisions,
+      result.normalized.fields,
       result
     )
-    result.normalized.tournament = tournament.rows
+    result.normalized.playoff_schedule_template = playoffTemplate?.rows || []
   }
 
-  if (workbookData.Divisions) {
-    const divisions = validateDivisionsSheet(
-      workbookData.Divisions,
-      result
-    )
-    result.normalized.divisions = divisions.rows
+  if (Tournament) {
+    const tournament = validateTournamentSheet(Tournament, result)
+    result.normalized.tournament = tournament?.rows || []
   }
 
-  if (workbookData.Fields) {
-    const fields = validateFieldsSheet(workbookData.Fields, result)
-    result.normalized.fields = fields.rows
+  if (Divisions) {
+    const divisions = validateDivisionsSheet(Divisions, result)
+    result.normalized.divisions = divisions?.rows || []
   }
 
-  if (workbookData.TournamentDays) {
-    const tournamentDays = validateTournamentDaysSheet(
-      workbookData.TournamentDays,
-      result
-    )
-    result.normalized.tournamentDays = tournamentDays.rows
+  if (Fields) {
+    const fields = validateFieldsSheet(Fields, result)
+    result.normalized.fields = fields?.rows || []
   }
 
-  if (workbookData.Pools) {
+  if (TournamentDays) {
+    const tournamentDays = validateTournamentDaysSheet(TournamentDays, result)
+    result.normalized.tournamentDays = tournamentDays?.rows || []
+  }
+
+  if (Pools) {
     const pools = validatePoolsSheet(
-      workbookData.Pools,
+      Pools,
       result.normalized.divisions,
       result
     )
-    result.normalized.pools = pools.rows
+    result.normalized.pools = pools?.rows || []
   }
 
-  if (workbookData.Teams) {
+  if (Teams) {
     const teams = validateTeamsSheet(
-      workbookData.Teams,
+      Teams,
       result.normalized.divisions,
       result.normalized.pools,
       result
     )
-    result.normalized.teams = teams.rows
+    result.normalized.teams = teams?.rows || []
   }
 
-  if (workbookData.Rosters) {
+  if (Rosters) {
     const rosters = validateRostersSheet(
-      workbookData.Rosters,
+      Rosters,
       result.normalized.teams,
       result
     )
-    result.normalized.rosters = rosters.rows
+    result.normalized.rosters = rosters?.rows || []
   }
 
-  if (workbookData.Schedules) {
+  if (Schedules) {
     const schedules = validateSchedulesSheet(
-      workbookData.Schedules,
+      Schedules,
       result.normalized.fields,
       result
     )
-    result.normalized.schedules = schedules.rows
+    result.normalized.schedules = schedules?.rows || []
   }
 
-  result.valid = result.errors.length === 0
+  // Optional sheet: pass through rows now, parse later in mapper
+  if (Array.isArray(PlayoffTemplate)) {
+    result.normalized.playoff_schedule_template = PlayoffTemplate
+  }
+
+  result.valid = (result.errors || []).length === 0
 
   return result
 }

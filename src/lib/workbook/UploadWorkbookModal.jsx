@@ -3,6 +3,8 @@ import { X, Upload, FileSpreadsheet, AlertTriangle, CheckCircle2 } from 'lucide-
 import { processWorkbookUpload } from './processWorkbookUpload'
 
 export function UploadWorkbookModal({ isOpen, onClose, onValidated }) {
+
+  
   const [fileName, setFileName] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
@@ -34,9 +36,10 @@ export function UploadWorkbookModal({ isOpen, onClose, onValidated }) {
     onClose?.()
   }
 
-  const validation = result?.validation
-  const errors = validation?.errors ?? []
-  const warnings = validation?.warnings ?? []
+
+  const validation = result?.validation || { valid: false, errors: [], warnings: [] }
+  const errors = Array.isArray(validation.errors) ? validation.errors : []
+  const warnings = Array.isArray(validation.warnings) ? validation.warnings : []
 
   return (
     <div

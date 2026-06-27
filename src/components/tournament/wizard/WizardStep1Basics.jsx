@@ -700,11 +700,16 @@ export function WizardStep1Basics({ onNext }) {
         onClose={() => setShowWorkbookUpload(false)}
         onValidated={result => {
           try {
+            if (!result || !result.validation) {
+              throw new Error('Workbook validation did not return expected data.')
+            }
+
             const applied = applyWorkbookToWizardState(result)
             setFormError(null)
             setWorkbookSummary(applied.summary || null)
             setShowWorkbookUpload(false)
           } catch (err) {
+            console.error('[Workbook apply error]', err, result)
             setFormError(err.message || 'Failed to apply workbook data.')
           }
         }}
