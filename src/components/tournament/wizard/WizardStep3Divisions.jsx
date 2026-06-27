@@ -389,3 +389,23 @@ function DivisionCard({ div, idx, errors, onUpdate, onRemove }) {
     </div>
   )
 }
+const s = window.__zustand?.getState?.() || {}
+const divisions = s.divisions || []
+const teams = s.teams || []
+const pools = s.pools || []
+
+console.table(divisions.map(d => ({
+  id: d.id,
+  dbId: d.dbId,
+  name: d.name,
+  slug: d.slug,
+  formatType: d.formatType
+})))
+
+console.table(divisions.map(d => ({
+  division: d.name,
+  id: d.id,
+  dbId: d.dbId,
+  teamCount: teams.filter(t => t.divisionId === d.id).length,
+  poolCount: pools.filter(p => p.divisionId === d.id).length
+})))

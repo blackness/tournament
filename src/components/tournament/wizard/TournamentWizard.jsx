@@ -14,6 +14,7 @@ import { WizardStep7Playoffs } from './WizardStep7Playoffs'
 import { WizardStep7Constraints } from './WizardStep7Constraints'
 import { WizardStep8Preview } from './WizardStep8Preview'
 import { PageLoader } from '../../ui/LoadingSpinner'
+import { assertWizardIntegrity } from '../../../lib/wizard/assertWizardIntegrity'
 
 const STEP_COMPONENTS = [
   WizardStep1Basics,
@@ -43,6 +44,16 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
     tournamentId,
     reset,
     setFields,
+    setTournamentId,
+    setDivisions,
+    setVenues,
+    setPools,
+    setTeams,
+    setPoolAssignments,
+    setTournamentDays,
+    setScheduleConfig,
+    setGeneratedSchedule,
+    markSaved,
   } = useWizardStore()
 
   const requestedStep = parseRequestedStep(searchParams.get('step'))
@@ -54,11 +65,18 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
 
   useEffect(() => {
     if (mode === 'edit' && existingId) {
+      const current = useWizardStore.getState().tournamentId
+      if (current && String(current) !== String(existingId)) {
+        reset()
+        setHasAppliedRequestedStep(false)
+      }
       loadExistingTournament(existingId)
+      return
     }
 
-    if (mode === 'create' && !tournamentId) {
-      // Fresh create -- already handled by WizardPage reset
+    if (mode === 'create') {
+      // WizardPage handles fresh create reset
+      setLoadingEdit(false)
     }
   }, [mode, existingId])
 
@@ -73,13 +91,7 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
     }
 
     setHasAppliedRequestedStep(true)
-  }, [
-    requestedStep,
-    loadingEdit,
-    currentStep,
-    goToStep,
-    hasAppliedRequestedStep,
-  ])
+  }, [requestedStep, loadingEdit, currentStep, goToStep, hasAppliedRequestedStep])
 
   async function loadExistingTournament(id) {
     setLoadingEdit(true)
@@ -217,8 +229,9 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
         sportTemplate?.config?.stats?.map(s => s.id) ??
         []
 
+      setTournamentId(t.id)
+
       setFields({
-        tournamentId: t.id,
         name: t.name,
         description: t.description ?? '',
         slug: t.slug,
@@ -237,16 +250,31 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
         sportSlug: sportTemplate?.slug ?? null,
         sportConfig: sportTemplate?.config ?? null,
         enabledStatIds,
-        divisions,
-        venues,
-        pools,
-        teams,
-        poolAssignments,
-        tournamentDays,
-        scheduleConfig,
-        generatedSlots: [],
-        generatedMatches: [],
-        scheduleConflicts: [],
+      })
+
+      setDivisions(divisions)
+      setVenues(venues)
+      setPools(pools)
+      setTeams(teams)
+      setPoolAssignments(poolAssignments)
+      setTournamentDays(tournamentDays)
+
+      if (typeof setScheduleConfig === 'function') {
+        setScheduleConfig(scheduleConfig)
+      }
+
+      if (typeof setGeneratedSchedule === 'function') {
+        setGeneratedSchedule({
+          slots: [],
+          matches: [],
+          conflicts: [],
+        })
+      }
+
+      markSaved()
+
+      assertWizardIntegrity(useWizardStore.getState(), {
+        label: 'hydrate-existing-tournament',
       })
     } finally {
       setLoadingEdit(false)

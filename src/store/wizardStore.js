@@ -324,6 +324,13 @@ export const useWizardStore = create(
           isDirty: true,
         })),
 
+      // NEW: bulk setter used by workbook import mapper
+      setPlayoffConfigs: configs =>
+        set({
+          playoffConfigs: { ...(configs || {}) },
+          isDirty: true,
+        }),
+
       setGeneratedPlayoffMatches: matches =>
         set({
           generatedPlayoffMatches: matches || [],
@@ -391,6 +398,20 @@ export const useWizardStore = create(
     }),
     {
       name: 'athleteos-wizard',
+      version: 2,
+      migrate: (persistedState, version) => {
+        const p = persistedState || {}
+
+        // migrate old snake_case rules_text -> rulesText
+        if (version < 2) {
+          return {
+            ...p,
+            rulesText: p.rulesText ?? p.rules_text ?? '',
+          }
+        }
+
+        return p
+      },
       partialize: s => ({
         currentStep: s.currentStep,
         tournamentId: s.tournamentId,
@@ -399,7 +420,7 @@ export const useWizardStore = create(
         // Step 1
         name: s.name,
         description: s.description,
-        rules_text: s.rulesText || null,
+        rulesText: s.rulesText || null, // FIXED key
         slug: s.slug,
         startDate: s.startDate,
         endDate: s.endDate,
