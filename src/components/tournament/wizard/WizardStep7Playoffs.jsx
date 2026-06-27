@@ -66,24 +66,27 @@ const [activeDivisionId, setActiveDivisionId] = useState(divisions[0]?.id ?? nul
   }, [activeDivisionId, divisions])
 
   // Hydrate local UI state from stored config when division/config changes.
-  useEffect(() => {
-    if (!activeDivision) return
+useEffect(() => {
+  if (!activeDivision) return
 
-    const cfg = playoffConfigs?.[activeDivision.id] || {}
-    const nextDayId = cfg.scheduleDayId || ''
-    const nextStartTime = cfg.playoffStartTime || ''
+  const cfg = playoffConfigs?.[activeDivision.id] || {}
+  const nextDayId = cfg.scheduleDayId || ''
+  const nextStartTime = cfg.playoffStartTime || ''
 
-    if (!sameValue(selectedPlayoffDayId, nextDayId)) {
-      setSelectedPlayoffDayId(nextDayId)
-    }
-    if (!sameValue(playoffStartTime, nextStartTime)) {
-      setPlayoffStartTime(nextStartTime)
-    }
-  }, [
-    activeDivision?.id,
-    playoffConfigs?.[activeDivision?.id]?.scheduleDayId,
-    playoffConfigs?.[activeDivision?.id]?.playoffStartTime,
-  ])
+  if (selectedPlayoffDayId !== nextDayId) {
+    setSelectedPlayoffDayId(nextDayId)
+  }
+
+  if (playoffStartTime !== nextStartTime) {
+    setPlayoffStartTime(nextStartTime)
+  }
+}, [
+  activeDivision?.id,
+  playoffConfigs?.[activeDivision?.id]?.scheduleDayId,
+  playoffConfigs?.[activeDivision?.id]?.playoffStartTime,
+  selectedPlayoffDayId,
+  playoffStartTime,
+])
 
   useEffect(() => {
     if (!activeDivision) return
@@ -452,7 +455,9 @@ for (const division of divisions) {
           {divisions.map(div => {
             const isActive = activeDivisionId === div.id
             const configured = !!playoffConfigs?.[div.id]?.presetKey
-
+            const divisionPools = (pools || []).filter(p => p.divisionId === div.id)
+            const hasPools = divisionPools.length > 0
+            const hasStandingsForDivision = standingsRows.length > 0 && activeDivisionId === div.id
             return (
               <button
                 key={div.id}
@@ -464,7 +469,32 @@ for (const division of divisions) {
                     : 'border-transparent text-gray-500 hover:text-gray-700')
                 }
               >
-                {div.name || 'Division'}
+                <span>{div.name || 'Division'}</span>
+
+                <span
+                  className={
+                    'text-[10px] px-1.5 py-0.5 rounded-full border ' +
+                    (hasPools
+                      ? 'border-green-200 bg-green-50 text-green-700'
+                      : 'border-amber-200 bg-amber-50 text-amber-700')
+                  }
+                  title={hasPools ? 'Pools configured' : 'No pools configured'}
+                >
+                  P
+                </span>
+
+                <span
+                  className={
+                    'text-[10px] px-1.5 py-0.5 rounded-full border ' +
+                    (hasStandingsForDivision
+                      ? 'border-green-200 bg-green-50 text-green-700'
+                      : 'border-slate-200 bg-slate-50 text-slate-600')
+                  }
+                  title={hasStandingsForDivision ? 'Standings available' : 'No standings loaded'}
+                >
+                  S
+                </span>
+
                 {configured && <CheckCircle2 size={14} />}
               </button>
             )
@@ -497,24 +527,30 @@ for (const division of divisions) {
 
             <div className="field-group">
               <label className="field-label text-xs">Tournament day</label>
-              <select
-                className="field-input text-sm"
-                value={selectedPlayoffDayId}
-                onChange={e => {
-                  const nextDayId = e.target.value
+              <select className="field-input text-sm"
+                  value={selectedPlayoffDayId}
+                  onChange={e => {
+                    const nextDayId = e.target.value
+                    setSelectedPlayoffDayId(nextDayId)
+                    setPlayoffStartTime('')
 
-                  setSelectedPlayoffDayId(nextDayId)
-                  setPlayoffStartTime('')
+                    if (activeDivision) {
+                      const currentCfg = playoffConfigs?.[activeDivision.id] || {}
+                      const nextCfg = {
+                        ...currentCfg,
+                        scheduleDayId: nextDayId,
+                        playoffStartTime: '',
+                      }
 
-                  if (activeDivision) {
-                    setPlayoffConfig(activeDivision.id, {
-                      ...playoffConfigs?.[activeDivision.id],
-                      scheduleDayId: nextDayId,
-                      playoffStartTime: '',
-                    })
-                  }
-                }}
-              >
+                      if (
+                        (currentCfg.scheduleDayId || '') !== (nextCfg.scheduleDayId || '') ||
+                        (currentCfg.playoffStartTime || '') !== (nextCfg.playoffStartTime || '')
+                      ) {
+                        setPlayoffConfig(activeDivision.id, nextCfg)
+                      }
+                    }
+                  }}
+                >
                 {(tournamentDays || []).map(day => (
                   <option key={day.id} value={day.id}>
                     Day {day.dayIndex ?? '—'} — {day.eventDate || 'No date'}
@@ -526,8 +562,7 @@ for (const division of divisions) {
 
             <div className="field-group">
               <label className="field-label text-xs">Playoff start time</label>
-              <input
-                type="time"
+              <input type="time"
                 className="field-input text-sm"
                 value={playoffStartTime}
                 onChange={e => {
@@ -535,11 +570,19 @@ for (const division of divisions) {
                   setPlayoffStartTime(nextTime)
 
                   if (activeDivision) {
-                    setPlayoffConfig(activeDivision.id, {
-                      ...playoffConfigs?.[activeDivision.id],
+                    const currentCfg = playoffConfigs?.[activeDivision.id] || {}
+                    const nextCfg = {
+                      ...currentCfg,
                       scheduleDayId: selectedPlayoffDayId,
                       playoffStartTime: nextTime,
-                    })
+                    }
+
+                    if (
+                      (currentCfg.scheduleDayId || '') !== (nextCfg.scheduleDayId || '') ||
+                      (currentCfg.playoffStartTime || '') !== (nextCfg.playoffStartTime || '')
+                    ) {
+                      setPlayoffConfig(activeDivision.id, nextCfg)
+                    }
                   }
                 }}
               />
@@ -768,11 +811,24 @@ function DetectedStructureCard({ division, structure, loadingStandings, standing
       </div>
 
       <div className="text-xs text-[var(--text-muted)]">
-        {loadingStandings
-          ? 'Loading standings for preview...'
-          : standingsRows.length > 0
-            ? 'Standings loaded. Presets can preview real qualifiers and seeds.'
-            : 'No standings rows found yet. Presets can still be configured, but previews may be incomplete.'}
+        {(() => {
+          const hasPools = (structure?.poolCount || 0) > 0
+          const hasStandings = (standingsRows?.length || 0) > 0
+
+          if (loadingStandings) {
+            return 'Loading standings for preview...'
+          }
+
+          if (!hasPools) {
+            return 'No pools configured for this division yet. Add pools and team assignments before pool-based playoff previews.'
+          }
+
+          if (!hasStandings) {
+            return 'Pools are configured, but no completed pool games are available yet.'
+          }
+
+          return 'Standings loaded. Presets can preview real qualifiers and seeds.'
+        })()}
       </div>
     </div>
   )

@@ -4,7 +4,6 @@ import { supabase, db } from '../../lib/supabase'
 import { validateSchedule, generateSchedule } from '../../lib/scheduleGenerator'
 import { clearSavedMatchesForTournament } from '../../lib/schedulePersistence'
 import { PageLoader } from '../../components/ui/LoadingSpinner'
-import { getDivisionReadiness } from '../../../lib/divisions/getDivisionReadiness'
 import {
   ChevronLeft,
   Clock,
@@ -220,26 +219,7 @@ export function ScheduleEditor({ embedded = false, footer = null }) {
       tournamentDays.length > 0
     )
   }, [divisions.length, teams.length, venues.length, tournamentDays.length])
-const preflight = runSchedulePreflight({
-      divisions,
-      teams,
-      pools,
-      poolAssignments,
-      venues,
-      tournamentDays,
-    })
 
-    if (!preflight.ok) {
-      showMessage(
-        `Schedule cannot be generated yet: ${preflight.errors.join(' • ')}`,
-        'error'
-      )
-      return
-    }
-
-    if (preflight.warnings.length > 0) {
-      console.warn('[handleGenerateSchedule] preflight warnings', preflight.warnings)
-    }
   function showMessage(text, type = 'success') {
     setMessage({ text, type })
     setTimeout(() => setMessage(null), 3000)
@@ -402,75 +382,6 @@ const preflight = runSchedulePreflight({
     }
   }
 
-  function runSchedulePreflight() {
-  const errors = []
-  const warnings = []
-
-  if (!divisions?.length) {
-    errors.push('Add at least one division.')
-  }
-
-  if (!teams?.length) {
-    errors.push('Add at least one team.')
-  }
-
-  if (!venues?.length) {
-    errors.push('Add at least one field/venue.')
-  }
-
-  if (!tournamentDays?.length) {
-    errors.push('Add at least one tournament day.')
-  }
-
-  const readinessByDivision = (divisions || []).map(div =>
-    ({
-      division: div,
-      readiness: getDivisionReadiness(div, { teams, pools, poolAssignments }),
-    })
-  )
-
-  readinessByDivision.forEach(({ division, readiness }) => {
-    if (!readiness.ready) {
-      readiness.errors.forEach(msg => {
-        errors.push(`${division.name || 'Division'}: ${msg}`)
-      })
-    }
-
-    readiness.warnings.forEach(msg => {
-      warnings.push(`${division.name || 'Division'}: ${msg}`)
-    })
-  })
-
-  return { ok: errors.length === 0, errors, warnings }
-}
-function runSchedulePreflight({
-  divisions = [],
-  teams = [],
-  pools = [],
-  poolAssignments = {},
-  venues = [],
-  tournamentDays = [],
-}) {
-  const errors = []
-  const warnings = []
-
-  if (!divisions.length) errors.push('Add at least one division.')
-  if (!teams.length) errors.push('Add at least one team.')
-  if (!venues.length) errors.push('Add at least one field/venue.')
-  if (!tournamentDays.length) errors.push('Add at least one tournament day.')
-
-  for (const division of divisions) {
-    const readiness = getDivisionReadiness(division, { teams, pools, poolAssignments })
-
-    if (!readiness.ready) {
-      readiness.errors.forEach(msg => errors.push(`${division.name}: ${msg}`))
-    }
-
-    readiness.warnings.forEach(msg => warnings.push(`${division.name}: ${msg}`))
-  }
-
-  return { ok: errors.length === 0, errors, warnings }
-}
   async function handleGenerateSchedule() {
     if (!canGenerateSchedule) {
       showMessage('Add divisions, teams, venues, and tournament days before generating.', 'error')
@@ -521,23 +432,14 @@ function runSchedulePreflight({
         return
       }
 
-if (normalizedMatches.length === 0 && normalizedSlots.length === 0) {
-        const divisionHints = (divisions || [])
-          .map(div => {
-            const r = getDivisionReadiness(div, { teams, pools, poolAssignments })
-            return r.ready ? null : `${div.name}: ${r.errors.join(', ')}`
-          })
-          .filter(Boolean)
-
+      if (normalizedMatches.length === 0 && normalizedSlots.length === 0) {
         showMessage(
-          divisionHints.length
-            ? `No schedule was generated. Check: ${divisionHints.join(' • ')}`
-            : 'Schedule generation completed but produced no games or time slots.',
+          'Schedule generation completed but produced no games or time slots.',
           'error'
         )
         return
       }
-      
+
       const { error: deleteMatchesError } = await supabase
         .from('matches')
         .delete()
