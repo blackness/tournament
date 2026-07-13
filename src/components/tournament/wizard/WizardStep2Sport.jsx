@@ -117,7 +117,6 @@ export function WizardStep2Sport({ onNext, onBack, isFirst }) {
               key={t.id}
               onClick={() => {
                 setSport(t)
-                setError(null)
               }}
               className={[
                 'flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all text-center',

@@ -9,7 +9,7 @@ const STEPS = [
   { n: 6, label: 'Schedule' },
   { n: 7, label: 'Playoffs' },
   { n: 8, label: 'Constraints' },
-  { n: 9, label: 'Publish' },
+  { n: 9, label: 'Preview and Publish' },
 ]
 
 export function WizardProgress({ currentStep, onGoToStep }) {

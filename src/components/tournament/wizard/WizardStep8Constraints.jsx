@@ -18,7 +18,7 @@ const CONFLICT_ICONS = {
   default: <AlertTriangle size={13} />,
 }
 
-export function WizardStep7Constraints({ onNext, onBack }) {
+export function WizardStep8Constraints({ onNext, onBack }) {
   const {
     teams,
     venues,

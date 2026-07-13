@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { supabase, db } from '../../lib/supabase'
 import { validateSchedule, generateSchedule } from '../../lib/scheduleGenerator'
 import { clearSavedMatchesForTournament } from '../../lib/schedulePersistence'
+import { syncTournamentDaysFromDateRange } from '../../lib/schedule/syncTournamentDaysFromDateRange'
 import { PageLoader } from '../../components/ui/LoadingSpinner'
 import {
   ChevronLeft,
@@ -23,8 +24,9 @@ import {
 
 const crypto = globalThis.crypto
 
-export function ScheduleEditor({ embedded = false, footer = null }) {
-  const { tournamentId } = useParams()
+export function ScheduleEditor({ embedded = false, footer = null, tournamentId: propTournamentId, onSchedulePersisted }) {
+  const { tournamentId: routeTournamentId } = useParams()
+  const tournamentId = propTournamentId || routeTournamentId
   const [tournament, setTournament] = useState(null)
   const [matches, setMatches] = useState([])
   const [slots, setSlots] = useState([])
@@ -71,6 +73,19 @@ export function ScheduleEditor({ embedded = false, footer = null }) {
     end_time: '',
     round: 1,
   })
+
+  const syncedDays = syncTournamentDaysFromDateRange(
+    tournament?.start_date || startDate,
+    tournament?.end_date || endDate,
+    tournamentDays,
+    {
+      defaultStartTime: scheduleSettings.startTime || '09:00',
+      defaultEndTime: scheduleSettings.endTime || '17:00',
+    }
+  )
+
+  // set once (or when dates changed intentionally)
+  setTournamentDays(syncedDays)
 
   useEffect(() => {
     async function load() {
@@ -170,7 +185,47 @@ export function ScheduleEditor({ embedded = false, footer = null }) {
 
     load()
   }, [tournamentId])
+useEffect(() => {
+  // Need tournament dates from Basics
+  const startDate = tournament?.start_date
+  const endDate = tournament?.end_date
 
+  if (!startDate) return
+
+  const synced = syncTournamentDaysFromDateRange(
+    startDate,
+    endDate,
+    tournamentDays,
+    {
+      defaultStartTime: scheduleSettings?.startTime || '09:00',
+      defaultEndTime: scheduleSettings?.endTime || '17:00',
+    }
+  )
+
+  // avoid unnecessary state churn
+  const same =
+    JSON.stringify((tournamentDays || []).map(d => ({
+      eventDate: d.eventDate || d.event_date,
+      startTime: d.startTime || d.start_time,
+      endTime: d.endTime || d.end_time,
+      label: d.label,
+    }))) ===
+    JSON.stringify((synced || []).map(d => ({
+      eventDate: d.eventDate || d.event_date,
+      startTime: d.startTime || d.start_time,
+      endTime: d.endTime || d.end_time,
+      label: d.label,
+    })))
+
+  if (!same) {
+    setTournamentDays(synced)
+  }
+}, [
+  tournament?.start_date,
+  tournament?.end_date,
+  scheduleSettings?.startTime,
+  scheduleSettings?.endTime,
+])
   const recalculateConflicts = useCallback((nextMatches = matches, nextSlots = slots) => {
     const normalizedMatches = nextMatches.map(m => ({
       id: m.id,
@@ -211,14 +266,54 @@ export function ScheduleEditor({ embedded = false, footer = null }) {
     }
   }, [matches, slots, recalculateConflicts])
 
-  const canGenerateSchedule = useMemo(() => {
-    return (
-      divisions.length > 0 &&
-      teams.length > 0 &&
-      venues.length > 0 &&
-      tournamentDays.length > 0
-    )
-  }, [divisions.length, teams.length, venues.length, tournamentDays.length])
+  const effectiveTournamentDays = useMemo(() => {
+  if ((tournamentDays?.length || 0) > 0) return tournamentDays
+
+  const startDate = tournament?.start_date
+  const endDate = tournament?.end_date || tournament?.start_date
+  if (!startDate) return []
+
+  const start = new Date(`${startDate}T12:00:00`)
+  const end = new Date(`${endDate}T12:00:00`)
+  const days = []
+  const cursor = new Date(start)
+  let idx = 1
+
+  while (cursor <= end) {
+    days.push({
+      id: `auto-day-${idx}`,
+      day_index: idx,
+      dayIndex: idx,
+      event_date: cursor.toISOString().slice(0, 10),
+      eventDate: cursor.toISOString().slice(0, 10),
+      start_time: scheduleSettings?.startTime || '09:00',
+      startTime: scheduleSettings?.startTime || '09:00',
+      end_time: scheduleSettings?.endTime || '17:00',
+      endTime: scheduleSettings?.endTime || '17:00',
+      label: `Day ${idx}`,
+      _auto: true,
+    })
+    cursor.setDate(cursor.getDate() + 1)
+    idx += 1
+  }
+
+  return days
+}, [
+  tournamentDays,
+  tournament?.start_date,
+  tournament?.end_date,
+  scheduleSettings?.startTime,
+  scheduleSettings?.endTime,
+])
+
+const canGenerateSchedule = useMemo(() => {
+  return (
+    divisions.length > 0 &&
+    teams.length > 0 &&
+    venues.length > 0 &&
+    effectiveTournamentDays.length > 0
+  )
+}, [divisions.length, teams.length, venues.length, effectiveTournamentDays.length])
 
   function showMessage(text, type = 'success') {
     setMessage({ text, type })
@@ -383,6 +478,41 @@ export function ScheduleEditor({ embedded = false, footer = null }) {
   }
 
   async function handleGenerateSchedule() {
+    
+  async function saveTournamentDaysIfMissing(tournamentId, effectiveTournamentDays = []) {
+  if (!tournamentId) throw new Error('Missing tournamentId')
+    
+  if (!effectiveTournamentDays.length) return
+
+  // Check existing day rows
+  const { data: existing, error: existingErr } = await supabase
+    .from('tournament_days')
+    .select('id, day_index, event_date, start_time, end_time, label')
+    .eq('tournament_id', tournamentId)
+    .order('day_index')
+
+  if (existingErr) throw existingErr
+
+  const existingRows = existing ?? []
+  if (existingRows.length > 0) return // already persisted, nothing to do
+
+  // Insert from effective days
+  const rows = effectiveTournamentDays.map((day, idx) => ({
+    tournament_id: tournamentId,
+    day_index: day.dayIndex ?? day.day_index ?? idx + 1,
+    event_date: day.eventDate ?? day.event_date,
+    start_time: (day.startTime ?? day.start_time ?? '09:00').slice(0, 5),
+    end_time: (day.endTime ?? day.end_time ?? '17:00').slice(0, 5),
+    label: day.label ?? null,
+  }))
+
+  const { error: insertErr } = await supabase
+    .from('tournament_days')
+    .insert(rows)
+
+  if (insertErr) throw insertErr
+}
+
   if (!canGenerateSchedule) {
     showMessage('Add divisions, teams, venues, and tournament days before generating.', 'error')
     return
@@ -396,13 +526,15 @@ export function ScheduleEditor({ embedded = false, footer = null }) {
       return
     }
 
+    await saveTournamentDaysIfMissing(tournamentId, effectiveTournamentDays)
+
     const result = generateSchedule({
       divisions,
       teams,
       pools,
       poolAssignments,
       venues,
-      tournamentDays,
+      tournamentDays: effectiveTournamentDays,
       scheduleConfig: {
         generationMode: scheduleSettings?.generationMode || 'round',
         startTime: scheduleSettings?.startTime || '09:00',
@@ -498,9 +630,6 @@ export function ScheduleEditor({ embedded = false, footer = null }) {
       return !existingSignatures.has(sig)
     })
 
-    console.log('[schedule] tournamentId', tournamentId)
-    console.log('[schedule] appendMode', appendMode)
-    console.log('[schedule] normalizedSlots', normalizedSlots.length)
     console.log('[schedule] normalizedMatches', normalizedMatches.length)
     console.log('[schedule] missingNormalizedMatches', missingNormalizedMatches.length)
 
@@ -1329,6 +1458,7 @@ export function ScheduleEditor({ embedded = false, footer = null }) {
   const visibleMatchIds = useMemo(() => filtered.map(m => m.id), [filtered])
   const selectedVisibleCount = visibleMatchIds.filter(id => selectedMatchIds.includes(id)).length
   const allVisibleSelected = visibleMatchIds.length > 0 && selectedVisibleCount === visibleMatchIds.length
+
 
   function toggleSelectAllVisible() {
     if (allVisibleSelected) {

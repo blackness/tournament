@@ -19,7 +19,7 @@ import { FORMAT_LABELS, TOURNAMENT_STATUS } from '../../../lib/constants'
 
 const PROTECTED_MATCH_STATUSES = ['complete', 'forfeit', 'in_progress']
 
-export function WizardStep8Preview({ onBack, isLast }) {
+export function WizardStep9Preview({ onBack, isLast }) {
   const navigate = useNavigate()
 
   const {

@@ -16,7 +16,6 @@ export function WizardStep1Basics({ onNext }) {
     tournamentId,
     name,
     slug,
-    sport,
     setFields,
     setTournamentId,
     venueName,
@@ -161,7 +160,6 @@ export function WizardStep1Basics({ onNext }) {
         tournament: {
           name: name || '',
           slug: slug || '',
-          sport: sport || '',
           timezone: timezone || 'America/Toronto',
           startDate: startDate || '',
           endDate: endDate || '',
@@ -313,7 +311,6 @@ export function WizardStep1Basics({ onNext }) {
       const payload = {
         name: name.trim(),
         slug: slug.trim().toLowerCase(),
-        sport: sport || null,
         start_date: startDate,
         end_date: normalizedEndDate,
         timezone: timezone || 'America/Toronto',
@@ -397,17 +394,6 @@ export function WizardStep1Basics({ onNext }) {
           <p className="text-xs text-[var(--text-muted)] mt-1">
             Public page URL: /t/{slug || 'your-tournament-slug'}
           </p>
-        </div>
-
-        <div className="field-group md:col-span-2">
-          <label className="field-label">Sport</label>
-          <input
-            type="text"
-            className="field-input"
-            value={sport || ''}
-            onChange={e => handleChange('sport', e.target.value)}
-            placeholder="e.g. Ultimate Frisbee"
-          />
         </div>
 
         <div className="field-group md:col-span-2">

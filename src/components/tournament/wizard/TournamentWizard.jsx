@@ -11,8 +11,8 @@ import { WizardStep4Venues } from './WizardStep4Venues'
 import { WizardStep5Teams } from './WizardStep5Teams'
 import { WizardStep6Schedule } from './WizardStep6Schedule'
 import { WizardStep7Playoffs } from './WizardStep7Playoffs'
-import { WizardStep7Constraints } from './WizardStep7Constraints'
-import { WizardStep8Preview } from './WizardStep8Preview'
+import { WizardStep8Constraints } from './WizardStep8Constraints'
+import { WizardStep9Preview } from './WizardStep9Preview'
 import { PageLoader } from '../../ui/LoadingSpinner'
 import { assertWizardIntegrity } from '../../../lib/wizard/assertWizardIntegrity'
 
@@ -24,8 +24,8 @@ const STEP_COMPONENTS = [
   WizardStep5Teams,
   WizardStep6Schedule,
   WizardStep7Playoffs,
-  WizardStep7Constraints,
-  WizardStep8Preview,
+  WizardStep8Constraints,
+  WizardStep9Preview,
 ]
 
 export function TournamentWizard({ mode = 'create', tournamentId: existingId }) {
