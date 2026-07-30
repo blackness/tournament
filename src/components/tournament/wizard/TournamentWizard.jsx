@@ -9,23 +9,23 @@ import { WizardStep2Sport } from './WizardStep2Sport'
 import { WizardStep3Divisions } from './WizardStep3Divisions'
 import { WizardStep4Venues } from './WizardStep4Venues'
 import { WizardStep5Teams } from './WizardStep5Teams'
-import { WizardStep6Schedule } from './WizardStep6Schedule'
-import { WizardStep7Playoffs } from './WizardStep7Playoffs'
-import { WizardStep8Constraints } from './WizardStep8Constraints'
-import { WizardStep9Preview } from './WizardStep9Preview'
-import { PageLoader } from '../../ui/LoadingSpinner'
-import { assertWizardIntegrity } from '../../../lib/wizard/assertWizardIntegrity'
+import { WizardStep6Constraints } from './WizardStep6Constraints'  // ← new
+import { WizardStep6Schedule } from './WizardStep6Schedule'         // ← now step 7
+import { WizardStep7Playoffs } from './WizardStep7Playoffs'         // ← now step 8
+import { WizardStep9Preview } from './WizardStep9Preview'           // ← now step 9
+
+// WizardStep8Constraints import removed — replaced by WizardStep6Constraints
 
 const STEP_COMPONENTS = [
-  WizardStep1Basics,
-  WizardStep2Sport,
-  WizardStep3Divisions,
-  WizardStep4Venues,
-  WizardStep5Teams,
-  WizardStep6Schedule,
-  WizardStep7Playoffs,
-  WizardStep8Constraints,
-  WizardStep9Preview,
+  WizardStep1Basics,       // 1
+  WizardStep2Sport,        // 2
+  WizardStep3Divisions,    // 3
+  WizardStep4Venues,       // 4
+  WizardStep5Teams,        // 5
+  WizardStep6Constraints,  // 6 ← constraints now here, after teams
+  WizardStep6Schedule,     // 7 ← schedule (filename doesn't match, but works)
+  WizardStep7Playoffs,     // 8 ← playoffs
+  WizardStep9Preview,      // 9 ← preview/publish
 ]
 
 export function TournamentWizard({ mode = 'create', tournamentId: existingId }) {
