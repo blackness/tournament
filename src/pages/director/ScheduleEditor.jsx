@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { supabase, db } from '../../lib/supabase'
 import { validateSchedule, generateSchedule } from '../../lib/scheduleGenerator'
@@ -23,6 +23,21 @@ import {
 } from 'lucide-react'
 
 const crypto = globalThis.crypto
+
+// Consistent match select for all queries — includes playoff fields
+const MATCH_SELECT = `
+  id, status, round, match_number, round_label, phase,
+  score_a, score_b, division_id, pool_id, venue_id, time_slot_id,
+  match_origin, pairing_locked, schedule_locked, is_manually_edited, manual_edit_fields,
+  match_code, bracket_type, display_label,
+  source_a_type, source_a_ref, source_b_type, source_b_ref,
+  team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
+  team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
+  venue:venues(id, name, short_name),
+  time_slot:time_slots(id, venue_id, scheduled_start, scheduled_end, offset_minutes),
+  division:divisions(id, name),
+  pool:pools(id, name)
+`
 
 export function ScheduleEditor({ embedded = false, footer = null, tournamentId: propTournamentId, onSchedulePersisted }) {
   const { tournamentId: routeTournamentId } = useParams()
@@ -74,18 +89,7 @@ export function ScheduleEditor({ embedded = false, footer = null, tournamentId: 
     round: 1,
   })
 
-  const syncedDays = syncTournamentDaysFromDateRange(
-    tournament?.start_date || startDate,
-    tournament?.end_date || endDate,
-    tournamentDays,
-    {
-      defaultStartTime: scheduleSettings.startTime || '09:00',
-      defaultEndTime: scheduleSettings.endTime || '17:00',
-    }
-  )
-
-  // set once (or when dates changed intentionally)
-  setTournamentDays(syncedDays)
+  // FIX: removed render-level syncedDays / setTournamentDays call (was a render-loop bug)
 
   useEffect(() => {
     async function load() {
@@ -158,21 +162,12 @@ export function ScheduleEditor({ embedded = false, footer = null, tournamentId: 
 
       const { data: m } = await supabase
         .from('matches')
-        .select(`
-          id, status, round, match_number, round_label, phase,
-          score_a, score_b, division_id, pool_id, venue_id, time_slot_id,
-          match_origin, pairing_locked, schedule_locked, is_manually_edited, manual_edit_fields,
-          team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
-          team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
-          venue:venues(id, name, short_name),
-          time_slot:time_slots(id, venue_id, scheduled_start, scheduled_end, offset_minutes),
-          division:divisions(id, name),
-          pool:pools(id, name)
-        `)
+        .select(MATCH_SELECT)
         .eq('tournament_id', tournamentId)
         .neq('status', 'cancelled')
 
-      const sortedMatches = [...(m ?? [])].sort((a, b) => {
+      // FIX: normalize relation shape (Supabase may return arrays for joins)
+      const sortedMatches = [...(m ?? [])].map(normalizeMatchRelations).sort((a, b) => {
         const aStart = a.time_slot?.scheduled_start ?? '9999'
         const bStart = b.time_slot?.scheduled_start ?? '9999'
         if (aStart !== bStart) return aStart.localeCompare(bStart)
@@ -185,57 +180,57 @@ export function ScheduleEditor({ embedded = false, footer = null, tournamentId: 
 
     load()
   }, [tournamentId])
-useEffect(() => {
-  // Need tournament dates from Basics
-  const startDate = tournament?.start_date
-  const endDate = tournament?.end_date
 
-  if (!startDate) return
+  useEffect(() => {
+    const startDate = tournament?.start_date
+    const endDate = tournament?.end_date
 
-  const synced = syncTournamentDaysFromDateRange(
-    startDate,
-    endDate,
-    tournamentDays,
-    {
-      defaultStartTime: scheduleSettings?.startTime || '09:00',
-      defaultEndTime: scheduleSettings?.endTime || '17:00',
+    if (!startDate) return
+
+    const synced = syncTournamentDaysFromDateRange(
+      startDate,
+      endDate,
+      tournamentDays,
+      {
+        defaultStartTime: scheduleSettings?.startTime || '09:00',
+        defaultEndTime: scheduleSettings?.endTime || '17:00',
+      }
+    )
+
+    const same =
+      JSON.stringify((tournamentDays || []).map(d => ({
+        eventDate: d.eventDate || d.event_date,
+        startTime: d.startTime || d.start_time,
+        endTime: d.endTime || d.end_time,
+        label: d.label,
+      }))) ===
+      JSON.stringify((synced || []).map(d => ({
+        eventDate: d.eventDate || d.event_date,
+        startTime: d.startTime || d.start_time,
+        endTime: d.endTime || d.end_time,
+        label: d.label,
+      })))
+
+    if (!same) {
+      setTournamentDays(synced)
     }
-  )
+  }, [
+    tournament?.start_date,
+    tournament?.end_date,
+    scheduleSettings?.startTime,
+    scheduleSettings?.endTime,
+  ])
 
-  // avoid unnecessary state churn
-  const same =
-    JSON.stringify((tournamentDays || []).map(d => ({
-      eventDate: d.eventDate || d.event_date,
-      startTime: d.startTime || d.start_time,
-      endTime: d.endTime || d.end_time,
-      label: d.label,
-    }))) ===
-    JSON.stringify((synced || []).map(d => ({
-      eventDate: d.eventDate || d.event_date,
-      startTime: d.startTime || d.start_time,
-      endTime: d.endTime || d.end_time,
-      label: d.label,
-    })))
-
-  if (!same) {
-    setTournamentDays(synced)
-  }
-}, [
-  tournament?.start_date,
-  tournament?.end_date,
-  scheduleSettings?.startTime,
-  scheduleSettings?.endTime,
-])
   const recalculateConflicts = useCallback((nextMatches = matches, nextSlots = slots) => {
-    const normalizedMatches = nextMatches.map(m => ({
+    const normalizedMatchesForConflict = nextMatches.map(m => ({
       id: m.id,
-      team_a_id: m.team_a?.id ?? null,
-      team_b_id: m.team_b?.id ?? null,
+      team_a_id: getTeamId(m.team_a) ?? null,
+      team_b_id: getTeamId(m.team_b) ?? null,
       slot_id: m.time_slot?.id ?? m.time_slot_id ?? null,
       venue_id: m.venue?.id ?? m.venue_id ?? null,
     }))
 
-    const normalizedSlots = nextSlots.map(s => ({
+    const normalizedSlotsForConflict = nextSlots.map(s => ({
       id: s.id,
       venue_id: s.venue_id ?? s.venue?.id ?? null,
       scheduled_start: s.scheduled_start,
@@ -249,8 +244,8 @@ useEffect(() => {
     )
 
     const nextConflicts = validateSchedule(
-      normalizedMatches,
-      normalizedSlots,
+      normalizedMatchesForConflict,
+      normalizedSlotsForConflict,
       minRestMinutes
     )
 
@@ -267,53 +262,53 @@ useEffect(() => {
   }, [matches, slots, recalculateConflicts])
 
   const effectiveTournamentDays = useMemo(() => {
-  if ((tournamentDays?.length || 0) > 0) return tournamentDays
+    if ((tournamentDays?.length || 0) > 0) return tournamentDays
 
-  const startDate = tournament?.start_date
-  const endDate = tournament?.end_date || tournament?.start_date
-  if (!startDate) return []
+    const startDate = tournament?.start_date
+    const endDate = tournament?.end_date || tournament?.start_date
+    if (!startDate) return []
 
-  const start = new Date(`${startDate}T12:00:00`)
-  const end = new Date(`${endDate}T12:00:00`)
-  const days = []
-  const cursor = new Date(start)
-  let idx = 1
+    const start = new Date(`${startDate}T12:00:00`)
+    const end = new Date(`${endDate}T12:00:00`)
+    const days = []
+    const cursor = new Date(start)
+    let idx = 1
 
-  while (cursor <= end) {
-    days.push({
-      id: `auto-day-${idx}`,
-      day_index: idx,
-      dayIndex: idx,
-      event_date: cursor.toISOString().slice(0, 10),
-      eventDate: cursor.toISOString().slice(0, 10),
-      start_time: scheduleSettings?.startTime || '09:00',
-      startTime: scheduleSettings?.startTime || '09:00',
-      end_time: scheduleSettings?.endTime || '17:00',
-      endTime: scheduleSettings?.endTime || '17:00',
-      label: `Day ${idx}`,
-      _auto: true,
-    })
-    cursor.setDate(cursor.getDate() + 1)
-    idx += 1
-  }
+    while (cursor <= end) {
+      days.push({
+        id: `auto-day-${idx}`,
+        day_index: idx,
+        dayIndex: idx,
+        event_date: cursor.toISOString().slice(0, 10),
+        eventDate: cursor.toISOString().slice(0, 10),
+        start_time: scheduleSettings?.startTime || '09:00',
+        startTime: scheduleSettings?.startTime || '09:00',
+        end_time: scheduleSettings?.endTime || '17:00',
+        endTime: scheduleSettings?.endTime || '17:00',
+        label: `Day ${idx}`,
+        _auto: true,
+      })
+      cursor.setDate(cursor.getDate() + 1)
+      idx += 1
+    }
 
-  return days
-}, [
-  tournamentDays,
-  tournament?.start_date,
-  tournament?.end_date,
-  scheduleSettings?.startTime,
-  scheduleSettings?.endTime,
-])
+    return days
+  }, [
+    tournamentDays,
+    tournament?.start_date,
+    tournament?.end_date,
+    scheduleSettings?.startTime,
+    scheduleSettings?.endTime,
+  ])
 
-const canGenerateSchedule = useMemo(() => {
-  return (
-    divisions.length > 0 &&
-    teams.length > 0 &&
-    venues.length > 0 &&
-    effectiveTournamentDays.length > 0
-  )
-}, [divisions.length, teams.length, venues.length, effectiveTournamentDays.length])
+  const canGenerateSchedule = useMemo(() => {
+    return (
+      divisions.length > 0 &&
+      teams.length > 0 &&
+      venues.length > 0 &&
+      effectiveTournamentDays.length > 0
+    )
+  }, [divisions.length, teams.length, venues.length, effectiveTournamentDays.length])
 
   function showMessage(text, type = 'success') {
     setMessage({ text, type })
@@ -478,374 +473,341 @@ const canGenerateSchedule = useMemo(() => {
   }
 
   async function handleGenerateSchedule() {
-    
-  async function saveTournamentDaysIfMissing(tournamentId, effectiveTournamentDays = []) {
-  if (!tournamentId) throw new Error('Missing tournamentId')
-    
-  if (!effectiveTournamentDays.length) return
 
-  // Check existing day rows
-  const { data: existing, error: existingErr } = await supabase
-    .from('tournament_days')
-    .select('id, day_index, event_date, start_time, end_time, label')
-    .eq('tournament_id', tournamentId)
-    .order('day_index')
+    async function saveTournamentDaysIfMissing(tournamentId, effectiveTournamentDays = []) {
+      if (!tournamentId) throw new Error('Missing tournamentId')
 
-  if (existingErr) throw existingErr
+      if (!effectiveTournamentDays.length) return
 
-  const existingRows = existing ?? []
-  if (existingRows.length > 0) return // already persisted, nothing to do
-
-  // Insert from effective days
-  const rows = effectiveTournamentDays.map((day, idx) => ({
-    tournament_id: tournamentId,
-    day_index: day.dayIndex ?? day.day_index ?? idx + 1,
-    event_date: day.eventDate ?? day.event_date,
-    start_time: (day.startTime ?? day.start_time ?? '09:00').slice(0, 5),
-    end_time: (day.endTime ?? day.end_time ?? '17:00').slice(0, 5),
-    label: day.label ?? null,
-  }))
-
-  const { error: insertErr } = await supabase
-    .from('tournament_days')
-    .insert(rows)
-
-  if (insertErr) throw insertErr
-}
-
-  if (!canGenerateSchedule) {
-    showMessage('Add divisions, teams, venues, and tournament days before generating.', 'error')
-    return
-  }
-
-  try {
-    setGeneratingSchedule(true)
-
-    if (!tournamentId) {
-      showMessage('Cannot save schedule: tournamentId is missing.', 'error')
-      return
-    }
-
-    await saveTournamentDaysIfMissing(tournamentId, effectiveTournamentDays)
-
-    const result = generateSchedule({
-      divisions,
-      teams,
-      pools,
-      poolAssignments,
-      venues,
-      tournamentDays: effectiveTournamentDays,
-      scheduleConfig: {
-        generationMode: scheduleSettings?.generationMode || 'round',
-        startTime: scheduleSettings?.startTime || '09:00',
-        endTime: scheduleSettings?.endTime || '23:00',
-        gameDurationMinutes: scheduleSettings?.gameDurationMinutes ?? 90,
-        breakBetweenGamesMinutes: scheduleSettings?.breakBetweenGamesMinutes ?? 30,
-        minRestBetweenTeamGames: scheduleSettings?.minRestBetweenTeamGames ?? 90,
-      },
-    })
-
-    const generatedSlots = result?.slots ?? []
-    const generatedMatches = result?.matches ?? []
-    const generatedConflicts = result?.conflicts ?? []
-
-    const {
-      errors: generationValidationErrors,
-      normalizedSlots,
-      normalizedMatches,
-    } = validateGeneratedSchedulePayload(generatedSlots, generatedMatches)
-
-    if (generationValidationErrors.length > 0) {
-      console.error('[handleGenerateSchedule] Invalid generated schedule payload', {
-        errors: generationValidationErrors,
-        generatedSlots,
-        generatedMatches,
-      })
-
-      showMessage(
-        generationValidationErrors[0] || 'Generated schedule payload is invalid.',
-        'error'
-      )
-      return
-    }
-
-    if (normalizedMatches.length === 0 && normalizedSlots.length === 0) {
-      showMessage(
-        'Schedule generation completed but produced no games or time slots.',
-        'error'
-      )
-      return
-    }
-
-    // ------------------------------------------------------------------
-    // NEW: detect existing DB matches and switch to append mode if needed
-    // ------------------------------------------------------------------
-    const { data: existingDbMatches, error: existingMatchesError } = await supabase
-      .from('matches')
-      .select(`
-        id,
-        tournament_id,
-        division_id,
-        pool_id,
-        phase,
-        status,
-        team_a_id,
-        team_b_id,
-        match_number,
-        round,
-        time_slot_id
-      `)
-      .eq('tournament_id', tournamentId)
-
-    if (existingMatchesError) throw existingMatchesError
-
-    const existing = existingDbMatches ?? []
-    const hasPlayedOrLive = existing.some(
-      m =>
-        m.status === 'complete' ||
-        m.status === 'forfeit' ||
-        m.status === 'in_progress'
-    )
-
-    const appendMode = hasPlayedOrLive
-
-    const buildMatchSignature = m => {
-      const a = m?.team_a_id || ''
-      const b = m?.team_b_id || ''
-      const [t1, t2] = [a, b].sort()
-
-      return [
-        m?.division_id || '',
-        m?.pool_id || '',
-        m?.phase ?? 1,
-        t1,
-        t2,
-      ].join('|')
-    }
-
-    const existingSignatures = new Set(existing.map(buildMatchSignature))
-
-    const missingNormalizedMatches = normalizedMatches.filter(m => {
-      const sig = buildMatchSignature(m)
-      return !existingSignatures.has(sig)
-    })
-
-    console.log('[schedule] normalizedMatches', normalizedMatches.length)
-    console.log('[schedule] missingNormalizedMatches', missingNormalizedMatches.length)
-
-    // ------------------------------------------------------------------
-    // Full regenerate only if no played/live matches
-    // ------------------------------------------------------------------
-    if (!appendMode) {
-      const { error: deleteMatchesError } = await supabase
-        .from('matches')
-        .delete()
+      const { data: existing, error: existingErr } = await supabase
+        .from('tournament_days')
+        .select('id, day_index, event_date, start_time, end_time, label')
         .eq('tournament_id', tournamentId)
+        .order('day_index')
 
-      if (deleteMatchesError) {
-        console.error('[schedule] delete matches error', deleteMatchesError)
-        throw deleteMatchesError
-      }
+      if (existingErr) throw existingErr
 
-      const { error: deleteSlotsError } = await supabase
-        .from('time_slots')
-        .delete()
-        .eq('tournament_id', tournamentId)
+      const existingRows = existing ?? []
+      if (existingRows.length > 0) return
 
-      if (deleteSlotsError) {
-        console.error('[schedule] delete slots error', deleteSlotsError)
-        throw deleteSlotsError
-      }
-    } else {
-      console.log('[schedule] append mode enabled: preserving existing played/live matches')
-    }
-
-    // ------------------------------------------------------------------
-    // Load existing slots in append mode, otherwise start fresh
-    // ------------------------------------------------------------------
-    let insertedSlots = []
-
-    if (appendMode) {
-      const { data: existingSlots, error: existingSlotsError } = await supabase
-        .from('time_slots')
-        .select('id, venue_id, scheduled_start, scheduled_end, offset_minutes')
-        .eq('tournament_id', tournamentId)
-
-      if (existingSlotsError) throw existingSlotsError
-      insertedSlots = existingSlots ?? []
-    }
-
-    const makeSlotKey = slot => {
-      const startMs = slot?.scheduled_start ? new Date(slot.scheduled_start).getTime() : ''
-      const endMs = slot?.scheduled_end ? new Date(slot.scheduled_end).getTime() : ''
-
-      return [
-        slot?.venue_id ?? '',
-        startMs,
-        endMs,
-      ].join('|')
-    }
-
-    const insertedSlotByKey = new Map(
-      insertedSlots.map(slot => [makeSlotKey(slot), slot])
-    )
-
-    // ------------------------------------------------------------------
-    // Insert only slots that do not already exist by key
-    // ------------------------------------------------------------------
-    const slotRowsToInsert = normalizedSlots
-      .filter(slot => !insertedSlotByKey.has(makeSlotKey(slot)))
-      .map(slot => ({
+      const rows = effectiveTournamentDays.map((day, idx) => ({
         tournament_id: tournamentId,
-        venue_id: slot.venue_id,
-        scheduled_start: slot.scheduled_start,
-        scheduled_end: slot.scheduled_end,
-        offset_minutes: slot.offset_minutes ?? 0,
+        day_index: day.dayIndex ?? day.day_index ?? idx + 1,
+        event_date: day.eventDate ?? day.event_date,
+        start_time: (day.startTime ?? day.start_time ?? '09:00').slice(0, 5),
+        end_time: (day.endTime ?? day.end_time ?? '17:00').slice(0, 5),
+        label: day.label ?? null,
       }))
 
-    if (slotRowsToInsert.length > 0) {
-      console.log('[schedule] inserting slot rows', slotRowsToInsert.length)
+      const { error: insertErr } = await supabase
+        .from('tournament_days')
+        .insert(rows)
 
-      const { data: savedSlots, error: slotInsertError } = await supabase
-        .from('time_slots')
-        .insert(slotRowsToInsert)
-        .select('id, venue_id, scheduled_start, scheduled_end, offset_minutes')
-
-      if (slotInsertError) {
-        console.error('[schedule] slot insert error', slotInsertError, slotRowsToInsert.slice(0, 3))
-        throw slotInsertError
-      }
-
-      const newlyInserted = (savedSlots ?? []).sort((a, b) =>
-        String(a.scheduled_start || '').localeCompare(String(b.scheduled_start || ''))
-      )
-
-      insertedSlots = [...insertedSlots, ...newlyInserted]
-      newlyInserted.forEach(slot => insertedSlotByKey.set(makeSlotKey(slot), slot))
+      if (insertErr) throw insertErr
     }
 
-    // ------------------------------------------------------------------
-    // Insert matches:
-    // - full mode: all normalized matches
-    // - append mode: only missing matches
-    // ------------------------------------------------------------------
-    const matchesToInsert = appendMode ? missingNormalizedMatches : normalizedMatches
+    if (!canGenerateSchedule) {
+      showMessage('Add divisions, teams, venues, and tournament days before generating.', 'error')
+      return
+    }
 
-    if (matchesToInsert.length > 0) {
-      const normalizedSlotById = new Map(normalizedSlots.map(slot => [slot.id, slot]))
+    try {
+      setGeneratingSchedule(true)
 
-      const matchRows = matchesToInsert.map((match, index) => {
-        const originalSlot = normalizedSlotById.get(match.slot_id) ?? null
-        const savedSlot =
-          originalSlot ? insertedSlotByKey.get(makeSlotKey(originalSlot)) ?? null : null
-        const savedSlotId = savedSlot?.id ?? null
-
-        return {
-          tournament_id: tournamentId,
-          division_id: match.division_id,
-          pool_id: match.pool_id,
-          team_a_id: match.team_a_id,
-          team_b_id: match.team_b_id,
-          venue_id: match.venue_id ?? originalSlot?.venue_id ?? savedSlot?.venue_id ?? null,
-          time_slot_id: savedSlotId,
-          round: match.round ?? 1,
-          match_number: match.match_number ?? index + 1,
-          phase: match.phase ?? 1,
-          status: 'scheduled',
-          match_origin: 'generated_pool',
-          pairing_locked: false,
-          schedule_locked: false,
-          is_manually_edited: false,
-          manual_edit_fields: [],
-          generated_baseline: null,
-        }
-      })
-
-      const invalidMatchRows = matchRows.filter(
-        row => !row.team_a_id || !row.team_b_id
-      )
-
-      if (invalidMatchRows.length > 0) {
-        console.error(
-          '[handleGenerateSchedule] Refusing to insert invalid match rows',
-          invalidMatchRows
-        )
-        showMessage('Generated matches are invalid. Aborting save.', 'error')
+      if (!tournamentId) {
+        showMessage('Cannot save schedule: tournamentId is missing.', 'error')
         return
       }
 
-      console.log('[schedule] inserting match rows', matchRows.length)
+      await saveTournamentDaysIfMissing(tournamentId, effectiveTournamentDays)
 
-      const { error: matchInsertError } = await supabase
-        .from('matches')
-        .insert(matchRows)
+      const result = generateSchedule({
+        divisions,
+        teams,
+        pools,
+        poolAssignments,
+        venues,
+        tournamentDays: effectiveTournamentDays,
+        scheduleConfig: {
+          generationMode: scheduleSettings?.generationMode || 'round',
+          startTime: scheduleSettings?.startTime || '09:00',
+          endTime: scheduleSettings?.endTime || '23:00',
+          gameDurationMinutes: scheduleSettings?.gameDurationMinutes ?? 90,
+          breakBetweenGamesMinutes: scheduleSettings?.breakBetweenGamesMinutes ?? 30,
+          minRestBetweenTeamGames: scheduleSettings?.minRestBetweenTeamGames ?? 90,
+        },
+      })
 
-      if (matchInsertError) {
-        console.error('[schedule] match insert error', matchInsertError, matchRows.slice(0, 3))
-        throw matchInsertError
+      const generatedSlots = result?.slots ?? []
+      const generatedMatches = result?.matches ?? []
+      const generatedConflicts = result?.conflicts ?? []
+
+      const {
+        errors: generationValidationErrors,
+        normalizedSlots,
+        normalizedMatches,
+      } = validateGeneratedSchedulePayload(generatedSlots, generatedMatches)
+
+      if (generationValidationErrors.length > 0) {
+        console.error('[handleGenerateSchedule] Invalid generated schedule payload', {
+          errors: generationValidationErrors,
+          generatedSlots,
+          generatedMatches,
+        })
+
+        showMessage(
+          generationValidationErrors[0] || 'Generated schedule payload is invalid.',
+          'error'
+        )
+        return
       }
 
-      console.log('[schedule] inserted matches ok')
+      if (normalizedMatches.length === 0 && normalizedSlots.length === 0) {
+        showMessage(
+          'Schedule generation completed but produced no games or time slots.',
+          'error'
+        )
+        return
+      }
+
+      const { data: existingDbMatches, error: existingMatchesError } = await supabase
+        .from('matches')
+        .select(`
+          id,
+          tournament_id,
+          division_id,
+          pool_id,
+          phase,
+          status,
+          team_a_id,
+          team_b_id,
+          match_number,
+          round,
+          time_slot_id
+        `)
+        .eq('tournament_id', tournamentId)
+
+      if (existingMatchesError) throw existingMatchesError
+
+      const existing = existingDbMatches ?? []
+      const hasPlayedOrLive = existing.some(
+        m =>
+          m.status === 'complete' ||
+          m.status === 'forfeit' ||
+          m.status === 'in_progress'
+      )
+
+      const appendMode = hasPlayedOrLive
+
+      const buildMatchSignature = m => {
+        const a = m?.team_a_id || ''
+        const b = m?.team_b_id || ''
+        const [t1, t2] = [a, b].sort()
+
+        return [
+          m?.division_id || '',
+          m?.pool_id || '',
+          m?.phase ?? 1,
+          t1,
+          t2,
+        ].join('|')
+      }
+
+      const existingSignatures = new Set(existing.map(buildMatchSignature))
+
+      const missingNormalizedMatches = normalizedMatches.filter(m => {
+        const sig = buildMatchSignature(m)
+        return !existingSignatures.has(sig)
+      })
+
+      console.log('[schedule] normalizedMatches', normalizedMatches.length)
+      console.log('[schedule] missingNormalizedMatches', missingNormalizedMatches.length)
+
+      if (!appendMode) {
+        const { error: deleteMatchesError } = await supabase
+          .from('matches')
+          .delete()
+          .eq('tournament_id', tournamentId)
+
+        if (deleteMatchesError) {
+          console.error('[schedule] delete matches error', deleteMatchesError)
+          throw deleteMatchesError
+        }
+
+        const { error: deleteSlotsError } = await supabase
+          .from('time_slots')
+          .delete()
+          .eq('tournament_id', tournamentId)
+
+        if (deleteSlotsError) {
+          console.error('[schedule] delete slots error', deleteSlotsError)
+          throw deleteSlotsError
+        }
+      } else {
+        console.log('[schedule] append mode enabled: preserving existing played/live matches')
+      }
+
+      let insertedSlots = []
+
+      if (appendMode) {
+        const { data: existingSlots, error: existingSlotsError } = await supabase
+          .from('time_slots')
+          .select('id, venue_id, scheduled_start, scheduled_end, offset_minutes')
+          .eq('tournament_id', tournamentId)
+
+        if (existingSlotsError) throw existingSlotsError
+        insertedSlots = existingSlots ?? []
+      }
+
+      const makeSlotKey = slot => {
+        const startMs = slot?.scheduled_start ? new Date(slot.scheduled_start).getTime() : ''
+        const endMs = slot?.scheduled_end ? new Date(slot.scheduled_end).getTime() : ''
+
+        return [
+          slot?.venue_id ?? '',
+          startMs,
+          endMs,
+        ].join('|')
+      }
+
+      const insertedSlotByKey = new Map(
+        insertedSlots.map(slot => [makeSlotKey(slot), slot])
+      )
+
+      const slotRowsToInsert = normalizedSlots
+        .filter(slot => !insertedSlotByKey.has(makeSlotKey(slot)))
+        .map(slot => ({
+          tournament_id: tournamentId,
+          venue_id: slot.venue_id,
+          scheduled_start: slot.scheduled_start,
+          scheduled_end: slot.scheduled_end,
+          offset_minutes: slot.offset_minutes ?? 0,
+        }))
+
+      if (slotRowsToInsert.length > 0) {
+        console.log('[schedule] inserting slot rows', slotRowsToInsert.length)
+
+        const { data: savedSlots, error: slotInsertError } = await supabase
+          .from('time_slots')
+          .insert(slotRowsToInsert)
+          .select('id, venue_id, scheduled_start, scheduled_end, offset_minutes')
+
+        if (slotInsertError) {
+          console.error('[schedule] slot insert error', slotInsertError, slotRowsToInsert.slice(0, 3))
+          throw slotInsertError
+        }
+
+        const newlyInserted = (savedSlots ?? []).sort((a, b) =>
+          String(a.scheduled_start || '').localeCompare(String(b.scheduled_start || ''))
+        )
+
+        insertedSlots = [...insertedSlots, ...newlyInserted]
+        newlyInserted.forEach(slot => insertedSlotByKey.set(makeSlotKey(slot), slot))
+      }
+
+      const matchesToInsert = appendMode ? missingNormalizedMatches : normalizedMatches
+
+      if (matchesToInsert.length > 0) {
+        const normalizedSlotById = new Map(normalizedSlots.map(slot => [slot.id, slot]))
+
+        const matchRows = matchesToInsert.map((match, index) => {
+          const originalSlot = normalizedSlotById.get(match.slot_id) ?? null
+          const savedSlot =
+            originalSlot ? insertedSlotByKey.get(makeSlotKey(originalSlot)) ?? null : null
+          const savedSlotId = savedSlot?.id ?? null
+
+          return {
+            tournament_id: tournamentId,
+            division_id: match.division_id,
+            pool_id: match.pool_id,
+            team_a_id: match.team_a_id,
+            team_b_id: match.team_b_id,
+            venue_id: match.venue_id ?? originalSlot?.venue_id ?? savedSlot?.venue_id ?? null,
+            time_slot_id: savedSlotId,
+            round: match.round ?? 1,
+            match_number: match.match_number ?? index + 1,
+            phase: match.phase ?? 1,
+            status: 'scheduled',
+            match_origin: 'generated_pool',
+            pairing_locked: false,
+            schedule_locked: false,
+            is_manually_edited: false,
+            manual_edit_fields: [],
+            generated_baseline: null,
+          }
+        })
+
+        const invalidMatchRows = matchRows.filter(
+          row => !row.team_a_id || !row.team_b_id
+        )
+
+        if (invalidMatchRows.length > 0) {
+          console.error(
+            '[handleGenerateSchedule] Refusing to insert invalid match rows',
+            invalidMatchRows
+          )
+          showMessage('Generated matches are invalid. Aborting save.', 'error')
+          return
+        }
+
+        console.log('[schedule] inserting match rows', matchRows.length)
+
+        const { error: matchInsertError } = await supabase
+          .from('matches')
+          .insert(matchRows)
+
+        if (matchInsertError) {
+          console.error('[schedule] match insert error', matchInsertError, matchRows.slice(0, 3))
+          throw matchInsertError
+        }
+
+        console.log('[schedule] inserted matches ok')
+      }
+
+      if (appendMode && matchesToInsert.length === 0) {
+        showMessage('No new games to add. Existing played/scheduled games already cover current generation scope.')
+      }
+
+      const { data: refreshedSlots } = await db.timeSlots.byTournament(tournamentId)
+      const { data: refreshedMatches } = await supabase
+        .from('matches')
+        .select(MATCH_SELECT)
+        .eq('tournament_id', tournamentId)
+        .neq('status', 'cancelled')
+
+      if ((refreshedMatches ?? []).length === 0 && normalizedMatches.length > 0) {
+        throw new Error('Schedule save failed: no matches persisted to DB.')
+      }
+
+      // FIX: normalize relations on refresh
+      const sortedMatches = [...(refreshedMatches ?? [])].map(normalizeMatchRelations).sort((a, b) => {
+        const aStart = a.time_slot?.scheduled_start ?? '9999'
+        const bStart = b.time_slot?.scheduled_start ?? '9999'
+        if (aStart !== bStart) return aStart.localeCompare(bStart)
+        return (a.match_number ?? 9999) - (b.match_number ?? 9999)
+      })
+
+      const previousConflicts = conflicts
+      setSlots(refreshedSlots ?? [])
+      setMatches(sortedMatches)
+
+      const nextConflicts = generatedConflicts
+      const introduced = getNewConflicts(previousConflicts, nextConflicts)
+      setConflicts(nextConflicts)
+      setNewConflictNotice(introduced.length > 0 ? introduced : [])
+
+      showMessage(
+        appendMode
+          ? `Schedule updated. Added ${matchesToInsert.length} new game(s) without changing played games.`
+          : 'Schedule generated'
+      )
+    } catch (err) {
+      console.error('[handleGenerateSchedule] failed', err)
+      showMessage('Failed to generate schedule: ' + err.message, 'error')
+    } finally {
+      setGeneratingSchedule(false)
     }
-
-    // If append mode and nothing new, be explicit
-    if (appendMode && matchesToInsert.length === 0) {
-      showMessage('No new games to add. Existing played/scheduled games already cover current generation scope.')
-    }
-
-    // ------------------------------------------------------------------
-    // Refresh
-    // ------------------------------------------------------------------
-    const { data: refreshedSlots } = await db.timeSlots.byTournament(tournamentId)
-    const { data: refreshedMatches } = await supabase
-      .from('matches')
-      .select(`
-        id, status, round, match_number, round_label, phase,
-        score_a, score_b, division_id, pool_id, venue_id, time_slot_id,
-        match_origin, pairing_locked, schedule_locked, is_manually_edited, manual_edit_fields,
-        team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
-        team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
-        venue:venues(id, name, short_name),
-        time_slot:time_slots(id, venue_id, scheduled_start, scheduled_end, offset_minutes),
-        division:divisions(id, name),
-        pool:pools(id, name)
-      `)
-      .eq('tournament_id', tournamentId)
-      .neq('status', 'cancelled')
-
-    // Hard fail if save produced nothing unexpectedly
-    if ((refreshedMatches ?? []).length === 0 && normalizedMatches.length > 0) {
-      throw new Error('Schedule save failed: no matches persisted to DB.')
-    }
-
-    const sortedMatches = [...(refreshedMatches ?? [])].sort((a, b) => {
-      const aStart = a.time_slot?.scheduled_start ?? '9999'
-      const bStart = b.time_slot?.scheduled_start ?? '9999'
-      if (aStart !== bStart) return aStart.localeCompare(bStart)
-      return (a.match_number ?? 9999) - (b.match_number ?? 9999)
-    })
-
-    const previousConflicts = conflicts
-    setSlots(refreshedSlots ?? [])
-    setMatches(sortedMatches)
-
-    const nextConflicts = generatedConflicts
-    const introduced = getNewConflicts(previousConflicts, nextConflicts)
-    setConflicts(nextConflicts)
-    setNewConflictNotice(introduced.length > 0 ? introduced : [])
-
-    showMessage(
-      appendMode
-        ? `Schedule updated. Added ${matchesToInsert.length} new game(s) without changing played games.`
-        : 'Schedule generated'
-    )
-  } catch (err) {
-    console.error('[handleGenerateSchedule] failed', err)
-    showMessage('Failed to generate schedule: ' + err.message, 'error')
-  } finally {
-    setGeneratingSchedule(false)
   }
-}
 
   async function handleClearGeneratedSchedule() {
     try {
@@ -855,21 +817,12 @@ const canGenerateSchedule = useMemo(() => {
       const { data: refreshedSlots } = await db.timeSlots.byTournament(tournamentId)
       const { data: refreshedMatches } = await supabase
         .from('matches')
-        .select(`
-          id, status, round, match_number, round_label, phase,
-          score_a, score_b, division_id, pool_id, venue_id, time_slot_id,
-          match_origin, pairing_locked, schedule_locked, is_manually_edited, manual_edit_fields,
-          team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
-          team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
-          venue:venues(id, name, short_name),
-          time_slot:time_slots(id, venue_id, scheduled_start, scheduled_end, offset_minutes),
-          division:divisions(id, name),
-          pool:pools(id, name)
-        `)
+        .select(MATCH_SELECT)
         .eq('tournament_id', tournamentId)
         .neq('status', 'cancelled')
 
-      const sortedMatches = [...(refreshedMatches ?? [])].sort((a, b) => {
+      // FIX: normalize relations on refresh
+      const sortedMatches = [...(refreshedMatches ?? [])].map(normalizeMatchRelations).sort((a, b) => {
         const aStart = a.time_slot?.scheduled_start ?? '9999'
         const bStart = b.time_slot?.scheduled_start ?? '9999'
         if (aStart !== bStart) return aStart.localeCompare(bStart)
@@ -923,9 +876,10 @@ const canGenerateSchedule = useMemo(() => {
         const oldSlot = slots.find(s => s.id === dragging.currentSlotId)
         const draggedMatch = matches.find(m => m.id === matchId)
 
+        // FIX: use getTeamId for safe id extraction
         const draggedPatch = buildManualEditPatch(draggedMatch, {
-          team_a_id: draggedMatch?.team_a?.id ?? null,
-          team_b_id: draggedMatch?.team_b?.id ?? null,
+          team_a_id: getTeamId(draggedMatch?.team_a),
+          team_b_id: getTeamId(draggedMatch?.team_b),
           time_slot_id: targetSlotId,
           venue_id: targetVenueId || null,
         })
@@ -940,8 +894,8 @@ const canGenerateSchedule = useMemo(() => {
           .eq('id', matchId)
 
         const occupantPatch = buildManualEditPatch(occupant, {
-          team_a_id: occupant?.team_a?.id ?? null,
-          team_b_id: occupant?.team_b?.id ?? null,
+          team_a_id: getTeamId(occupant?.team_a),
+          team_b_id: getTeamId(occupant?.team_b),
           time_slot_id: dragging.currentSlotId,
           venue_id: oldSlot?.venue_id || null,
         })
@@ -996,9 +950,10 @@ const canGenerateSchedule = useMemo(() => {
         const venue = venues.find(v => v.id === targetVenueId) ?? null
         const draggedMatch = matches.find(m => m.id === matchId)
 
+        // FIX: use getTeamId for safe id extraction
         const draggedPatch = buildManualEditPatch(draggedMatch, {
-          team_a_id: draggedMatch?.team_a?.id ?? null,
-          team_b_id: draggedMatch?.team_b?.id ?? null,
+          team_a_id: getTeamId(draggedMatch?.team_a),
+          team_b_id: getTeamId(draggedMatch?.team_b),
           time_slot_id: targetSlotId,
           venue_id: targetVenueId || null,
         })
@@ -1044,13 +999,7 @@ const canGenerateSchedule = useMemo(() => {
     setApplyingDelay(true)
 
     try {
-      await supabase.from('schedule_delays').insert({
-        tournament_id: tournamentId,
-        offset_minutes: globalDelay,
-        reason: globalDelay > 0 ? 'Director delay' : 'Director advance',
-        applies_from: new Date().toISOString(),
-        is_active: true,
-      })
+      console.log('[applyGlobalDelay]', { tournamentId, offsetMinutes: globalDelay })
 
       const now = new Date()
       const futureSlots = slots.filter(s => new Date(s.scheduled_start) > now)
@@ -1070,8 +1019,8 @@ const canGenerateSchedule = useMemo(() => {
       }
 
       const { data: newSlots } = await db.timeSlots.byTournament(tournamentId)
-      const normalizedSlots = newSlots ?? []
-      setSlots(normalizedSlots)
+      const normalizedSlotsData = newSlots ?? []
+      setSlots(normalizedSlotsData)
 
       const { data: newMatches } = await supabase
         .from('matches')
@@ -1087,20 +1036,20 @@ const canGenerateSchedule = useMemo(() => {
 
       const nextMatches = matches.map(m => {
         const updated = newMatches?.find(nm => nm.id === m.id)
-        return updated
-          ? {
-              ...m,
-              time_slot: updated.time_slot,
-              time_slot_id: updated.time_slot_id,
-              venue: updated.venue ?? m.venue,
-              venue_id: updated.venue_id,
-            }
-          : m
+        if (!updated) return m
+        return {
+          ...m,
+          // FIX: normalize relations in partial update
+          time_slot: pickRelOne(updated.time_slot),
+          time_slot_id: updated.time_slot_id,
+          venue: pickRelOne(updated.venue) ?? m.venue,
+          venue_id: updated.venue_id,
+        }
       })
 
       setMatches(nextMatches)
       const previousConflicts = conflicts
-      handlePostSaveConflicts(previousConflicts, nextMatches, normalizedSlots)
+      handlePostSaveConflicts(previousConflicts, nextMatches, normalizedSlotsData)
 
       showMessage(
         globalDelay > 0
@@ -1148,8 +1097,9 @@ const canGenerateSchedule = useMemo(() => {
     setEditForm({
       pool_id: match.pool_id ?? match.pool?.id ?? '',
       division_id: match.division_id ?? match.division?.id ?? '',
-      team_a_id: match.team_a?.id ?? '',
-      team_b_id: match.team_b?.id ?? '',
+      // FIX: use getTeamId for safe id extraction
+      team_a_id: getTeamId(match.team_a) ?? '',
+      team_b_id: getTeamId(match.team_b) ?? '',
       time_slot_id: match.time_slot_id ?? match.time_slot?.id ?? '',
       venue_id: match.venue_id ?? match.venue?.id ?? '',
       event_date: scheduledStart ? formatDateInputValue(scheduledStart) : '',
@@ -1294,20 +1244,13 @@ const canGenerateSchedule = useMemo(() => {
         const { data, error } = await supabase
           .from('matches')
           .insert(insertRow)
-          .select(`
-            id, status, round, match_number, round_label, phase,
-            score_a, score_b, division_id, pool_id, venue_id, time_slot_id,
-            match_origin, pairing_locked, schedule_locked, is_manually_edited, manual_edit_fields,
-            team_a:tournament_teams!team_a_id(id, name, short_name, primary_color),
-            team_b:tournament_teams!team_b_id(id, name, short_name, primary_color),
-            venue:venues(id, name, short_name),
-            time_slot:time_slots(id, venue_id, scheduled_start, scheduled_end, offset_minutes),
-            division:divisions(id, name),
-            pool:pools(id, name)
-          `)
+          .select(MATCH_SELECT)
           .single()
 
         if (error) throw error
+
+        // FIX: normalize new match before adding to state
+        const normalizedNew = normalizeMatchRelations(data)
 
         const nextSlots = (() => {
           const exists = slots.some(s => s.id === slot.id)
@@ -1318,7 +1261,7 @@ const canGenerateSchedule = useMemo(() => {
 
         setSlots(nextSlots)
 
-        const nextMatches = [...matches, data].sort((a, b) => {
+        const nextMatches = [...matches, normalizedNew].sort((a, b) => {
           const aStart = a.time_slot?.scheduled_start ?? '9999'
           const bStart = b.time_slot?.scheduled_start ?? '9999'
           if (aStart !== bStart) return aStart.localeCompare(bStart)
@@ -1458,7 +1401,6 @@ const canGenerateSchedule = useMemo(() => {
   const visibleMatchIds = useMemo(() => filtered.map(m => m.id), [filtered])
   const selectedVisibleCount = visibleMatchIds.filter(id => selectedMatchIds.includes(id)).length
   const allVisibleSelected = visibleMatchIds.length > 0 && selectedVisibleCount === visibleMatchIds.length
-
 
   function toggleSelectAllVisible() {
     if (allVisibleSelected) {
@@ -2106,9 +2048,10 @@ const canGenerateSchedule = useMemo(() => {
                         const slot = slots.find(s => s.id === slotId)
                         const venue = venues.find(v => v.id === slot?.venue_id) ?? null
 
+                        // FIX: use getTeamId for safe id extraction
                         const metadataPatch = buildManualEditPatch(m, {
-                          team_a_id: m.team_a?.id ?? null,
-                          team_b_id: m.team_b?.id ?? null,
+                          team_a_id: getTeamId(m.team_a),
+                          team_b_id: getTeamId(m.team_b),
                           time_slot_id: slotId || null,
                           venue_id: slot?.venue_id || null,
                         })
@@ -2152,9 +2095,10 @@ const canGenerateSchedule = useMemo(() => {
                       try {
                         const venue = venues.find(v => v.id === venueId) ?? null
 
+                        // FIX: use getTeamId for safe id extraction
                         const metadataPatch = buildManualEditPatch(m, {
-                          team_a_id: m.team_a?.id ?? null,
-                          team_b_id: m.team_b?.id ?? null,
+                          team_a_id: getTeamId(m.team_a),
+                          team_b_id: getTeamId(m.team_b),
                           time_slot_id: m.time_slot?.id ?? m.time_slot_id ?? null,
                           venue_id: venueId || null,
                         })
@@ -2486,6 +2430,12 @@ function MatchEditorCard({
           {m.pool && <span className="text-xs text-[var(--text-muted)]">{m.pool.name}</span>}
           {m.division && <span className="text-xs text-[var(--text-muted)]">{m.division.name}</span>}
           {m.round_label && <span className="text-xs text-[var(--text-muted)]">{m.round_label}</span>}
+          {m.match_code && <span className="text-xs text-[var(--text-muted)]">{m.match_code}</span>}
+          {m.bracket_type && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-purple-200 bg-purple-50 text-purple-700 font-medium">
+              {m.bracket_type}
+            </span>
+          )}
         </div>
 
         {(m.is_manually_edited || m.schedule_locked || m.pairing_locked) && (
@@ -2611,14 +2561,15 @@ function appendUnique(existing = [], fields = []) {
   return [...new Set([...(existing || []), ...fields])]
 }
 
+// FIX: use getTeamId for safe team id extraction from joined relation
 function getChangedMatchFields(prev, next) {
   const changed = []
 
-  if ((prev.team_a?.id ?? null) !== (next.team_a_id ?? null)) {
+  if ((getTeamId(prev.team_a) ?? null) !== (next.team_a_id ?? null)) {
     changed.push('team_a_id')
   }
 
-  if ((prev.team_b?.id ?? null) !== (next.team_b_id ?? null)) {
+  if ((getTeamId(prev.team_b) ?? null) !== (next.team_b_id ?? null)) {
     changed.push('team_b_id')
   }
 
@@ -2698,6 +2649,32 @@ async function findOrCreateTimeSlot({
 
   if (insertError) throw insertError
   return created
+}
+
+// FIX: normalize Supabase relation — may return array or object depending on query
+function pickRelOne(rel) {
+  if (Array.isArray(rel)) return rel[0] ?? null
+  return rel ?? null
+}
+
+// FIX: safely get team id from relation (handles array or object shape)
+function getTeamId(teamRel) {
+  const t = Array.isArray(teamRel) ? teamRel[0] : teamRel
+  return t?.id ?? null
+}
+
+// FIX: normalize all match relations after any DB fetch
+function normalizeMatchRelations(row) {
+  if (!row) return row
+  return {
+    ...row,
+    team_a: pickRelOne(row.team_a),
+    team_b: pickRelOne(row.team_b),
+    venue: pickRelOne(row.venue),
+    time_slot: pickRelOne(row.time_slot),
+    division: pickRelOne(row.division),
+    pool: pickRelOne(row.pool),
+  }
 }
 
 function combineDateAndTime(dateStr, timeStr) {
