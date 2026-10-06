@@ -1,15 +1,16 @@
 import { Check } from 'lucide-react'
+import { PageLoader } from '../../ui/PageLoader'
 
 const STEPS = [
   { n: 1, label: 'Basics' },
   { n: 2, label: 'Sport' },
   { n: 3, label: 'Divisions' },
   { n: 4, label: 'Venues' },
-  { n: 5, label: 'Teams' },
-  { n: 6, label: 'Schedule' },
-  { n: 7, label: 'Playoffs' },
-  { n: 8, label: 'Constraints' },
-  { n: 9, label: 'Preview and Publish' },
+  { n: 5, label: 'Teams & Pools' },
+  { n: 6, label: 'Constraints' },
+  { n: 7, label: 'Schedule' },
+  { n: 8, label: 'Playoffs' },
+  { n: 9, label: 'Review & Publish' },
 ]
 
 export function WizardProgress({ currentStep, onGoToStep }) {

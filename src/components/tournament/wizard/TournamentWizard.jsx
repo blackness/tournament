@@ -1,20 +1,40 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useWizardStore } from '../../../store/wizardStore'
 import { useAuth } from '../../../lib/AuthContext'
 import { db, supabase } from '../../../lib/supabase'
+import { PageLoader } from '../../ui/PageLoader'
 import { WizardProgress } from './WizardProgress'
-import { WizardStep1Basics } from './WizardStep1Basics'
-import { WizardStep2Sport } from './WizardStep2Sport'
-import { WizardStep3Divisions } from './WizardStep3Divisions'
-import { WizardStep4Venues } from './WizardStep4Venues'
-import { WizardStep5Teams } from './WizardStep5Teams'
-import { WizardStep6Constraints } from './WizardStep6Constraints'  // ← new
-import { WizardStep6Schedule } from './WizardStep6Schedule'         // ← now step 7
-import { WizardStep7Playoffs } from './WizardStep7Playoffs'         // ← now step 8
-import { WizardStep9Preview } from './WizardStep9Preview'           // ← now step 9
+import { assertWizardIntegrity } from '../../../lib/wizard/assertWizardIntegrity'
 
-// WizardStep8Constraints import removed — replaced by WizardStep6Constraints
+// Lazy load each step so WizardPage doesn't bundle everything upfront
+const WizardStep1Basics = lazy(() =>
+  import('./WizardStep1Basics').then(m => ({ default: m.WizardStep1Basics }))
+)
+const WizardStep2Sport = lazy(() =>
+  import('./WizardStep2Sport').then(m => ({ default: m.WizardStep2Sport }))
+)
+const WizardStep3Divisions = lazy(() =>
+  import('./WizardStep3Divisions').then(m => ({ default: m.WizardStep3Divisions }))
+)
+const WizardStep4Venues = lazy(() =>
+  import('./WizardStep4Venues').then(m => ({ default: m.WizardStep4Venues }))
+)
+const WizardStep5Teams = lazy(() =>
+  import('./WizardStep5Teams').then(m => ({ default: m.WizardStep5Teams }))
+)
+const WizardStep6Constraints = lazy(() =>
+  import('./WizardStep6Constraints').then(m => ({ default: m.WizardStep6Constraints }))
+)
+const WizardStep6Schedule = lazy(() =>
+  import('./WizardStep6Schedule').then(m => ({ default: m.WizardStep6Schedule }))
+)
+const WizardStep7Playoffs = lazy(() =>
+  import('./WizardStep7Playoffs').then(m => ({ default: m.WizardStep7Playoffs }))
+)
+const WizardStep9Preview = lazy(() =>
+  import('./WizardStep9Preview').then(m => ({ default: m.WizardStep9Preview }))
+)
 
 const STEP_COMPONENTS = [
   WizardStep1Basics,       // 1
@@ -273,9 +293,11 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
 
       markSaved()
 
-      assertWizardIntegrity(useWizardStore.getState(), {
+      if (import.meta.env.DEV) {
+    assertWizardIntegrity(useWizardStore.getState(), {
         label: 'hydrate-existing-tournament',
       })
+    }                   
     } finally {
       setLoadingEdit(false)
     }
@@ -319,15 +341,17 @@ export function TournamentWizard({ mode = 'create', tournamentId: existingId }) 
       )}
 
       <div className="wizard-card">
-        {CurrentStep && (
-          <CurrentStep
-            mode={mode}
-            onNext={nextStep}
-            onBack={prevStep}
-            isFirst={currentStep === 1}
-            isLast={currentStep === STEP_COMPONENTS.length}
-          />
-        )}
+        <Suspense fallback={<PageLoader />}>
+          {CurrentStep && (
+            <CurrentStep
+              mode={mode}
+              onNext={nextStep}
+              onBack={prevStep}
+              isFirst={currentStep === 1}
+              isLast={currentStep === STEP_COMPONENTS.length}
+            />
+          )}
+        </Suspense>
       </div>
 
       {mode === 'create' && currentStep === 1 && (

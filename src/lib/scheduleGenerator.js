@@ -1,4 +1,5 @@
 import { FORMAT_TYPES } from '../lib/constants'
+import { validateConstraints } from './constraints/constraintValidator'
 
 /**
  * Suggest how many pools to create for a given team count.
@@ -25,7 +26,6 @@ export function suggestPoolStructure(teamCount, options = {}) {
 
 /**
  * Serpentine (snake) seed teams into pools for balanced strength distribution.
- * e.g. 8 teams, 2 pools: Pool A gets seeds 1,4,5,8 / Pool B gets 2,3,6,7
  */
 export function serpentineSeeding(teams, numPools) {
   if (!teams || teams.length === 0 || numPools <= 0) return teams
@@ -43,22 +43,18 @@ export function serpentineSeeding(teams, numPools) {
   return result
 }
 
-// Preferred 4-team pool play order:
-// Round 1: 1v3, 2v4
-// Round 2: 1v4, 2v3
-// Round 3: 1v2, 3v4
 const FOUR_TEAM_POOL_TEMPLATE = [
   [
-    [0, 2], // 1 vs 3
-    [1, 3], // 2 vs 4
+    [0, 2],
+    [1, 3],
   ],
   [
-    [0, 3], // 1 vs 4
-    [1, 2], // 2 vs 3
+    [0, 3],
+    [1, 2],
   ],
   [
-    [0, 1], // 1 vs 2
-    [2, 3], // 3 vs 4
+    [0, 1],
+    [2, 3],
   ],
 ]
 
@@ -80,8 +76,6 @@ function generateSingleElimRound1Matchups(teamsInDivision, divisionId, tournamen
     const bottom = seededTeams[size - 1 - i]
 
     if (!top && !bottom) continue
-
-    // Skip pure byes for MVP round-1 scheduling
     if (!top || !bottom) continue
 
     matchups.push({
@@ -100,9 +94,179 @@ function generateSingleElimRound1Matchups(teamsInDivision, divisionId, tournamen
   return matchups
 }
 
+// ---------------------------------------------------------------------------
+// Constraint pre-processing helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build fast lookup maps from constraint rows for use during slot assignment.
+ * Returns {
+ *   teamNotBefore:    Map<teamId, 'HH:MM'>
+ *   teamNotAfter:     Map<teamId, 'HH:MM'>
+ *   teamUnavailDays:  Map<teamId, Set<dayIndex>>
+ *   teamVenueLock:    Map<teamId, venueId>
+ *   poolVenueLock:    Map<poolId, venueId>
+ *   divisionVenueLock:Map<divisionId, venueId>
+ *   teamMinRest:      Map<teamId, minutes>
+ * }
+ */
+function buildConstraintMaps(constraints = []) {
+  const teamNotBefore    = new Map()
+  const teamNotAfter     = new Map()
+  const teamUnavailDays  = new Map()
+  const teamVenueLock    = new Map()
+  const poolVenueLock    = new Map()
+  const divisionVenueLock = new Map()
+  const teamMinRest      = new Map()
+
+  for (const c of constraints) {
+    if (!c.is_active) continue
+
+    switch (c.constraint_type) {
+      case 'team_not_before':
+        if (c.entity_id && c.params?.not_before) {
+          teamNotBefore.set(c.entity_id, c.params.not_before)
+        }
+        break
+
+      case 'team_not_after':
+        if (c.entity_id && c.params?.not_after) {
+          teamNotAfter.set(c.entity_id, c.params.not_after)
+        }
+        break
+
+      case 'team_unavailable_day':
+        if (c.entity_id && c.params?.day_index != null) {
+          if (!teamUnavailDays.has(c.entity_id)) {
+            teamUnavailDays.set(c.entity_id, new Set())
+          }
+          teamUnavailDays.get(c.entity_id).add(c.params.day_index)
+        }
+        break
+
+      case 'team_venue_lock':
+        if (c.entity_id && c.entity_b_id) {
+          teamVenueLock.set(c.entity_id, c.entity_b_id)
+        }
+        break
+
+      case 'pool_venue_lock':
+        if (c.entity_id && c.entity_b_id) {
+          poolVenueLock.set(c.entity_id, c.entity_b_id)
+        }
+        break
+
+      case 'division_venue_lock':
+        if (c.entity_id && c.entity_b_id) {
+          divisionVenueLock.set(c.entity_id, c.entity_b_id)
+        }
+        break
+
+      case 'min_rest_override':
+        if (c.entity_id && c.params?.min_rest_minutes != null) {
+          teamMinRest.set(c.entity_id, c.params.min_rest_minutes)
+        }
+        break
+
+      default:
+        break
+    }
+  }
+
+  return {
+    teamNotBefore,
+    teamNotAfter,
+    teamUnavailDays,
+    teamVenueLock,
+    poolVenueLock,
+    divisionVenueLock,
+    teamMinRest,
+  }
+}
+
+/**
+ * Get day index for a slot time given the tournament days.
+ */
+function getDayIndexForSlot(slotStart, tournamentDays = []) {
+  const slotDate = new Date(slotStart).toISOString().slice(0, 10)
+  const day = tournamentDays.find(d => {
+    const dayDate = d.eventDate ?? d.event_date ?? ''
+    return dayDate === slotDate
+  })
+  return day?.dayIndex ?? day?.day_index ?? null
+}
+
+/**
+ * Get HH:MM time string from ISO timestamp.
+ */
+function getTimeOfDay(isoString) {
+  const d = new Date(isoString)
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  return `${hh}:${mm}`
+}
+
+/**
+ * Check whether a slot is allowed for a matchup given hard constraints.
+ * Returns true if the slot is valid, false if it should be skipped.
+ */
+function slotPassesHardConstraints(slot, matchup, constraintMaps, tournamentDays) {
+  const {
+    teamNotBefore,
+    teamNotAfter,
+    teamUnavailDays,
+    teamVenueLock,
+    poolVenueLock,
+    divisionVenueLock,
+  } = constraintMaps
+
+  const slotTime = getTimeOfDay(slot.scheduled_start)
+  const dayIndex = getDayIndexForSlot(slot.scheduled_start, tournamentDays)
+  const venueId = slot.venue_id
+
+  const teamIds = [matchup.team_a_id, matchup.team_b_id].filter(Boolean)
+
+  for (const teamId of teamIds) {
+    // team_not_before
+    const notBefore = teamNotBefore.get(teamId)
+    if (notBefore && slotTime < notBefore) return false
+
+    // team_not_after
+    const notAfter = teamNotAfter.get(teamId)
+    if (notAfter && slotTime > notAfter) return false
+
+    // team_unavailable_day
+    const unavailDays = teamUnavailDays.get(teamId)
+    if (unavailDays && dayIndex != null && unavailDays.has(dayIndex)) return false
+
+    // team_venue_lock (hard)
+    const lockedVenue = teamVenueLock.get(teamId)
+    if (lockedVenue && venueId !== lockedVenue) return false
+  }
+
+  // pool_venue_lock (hard)
+  if (matchup.pool_id) {
+    const lockedVenue = poolVenueLock.get(matchup.pool_id)
+    if (lockedVenue && venueId !== lockedVenue) return false
+  }
+
+  // division_venue_lock (hard)
+  if (matchup.division_id) {
+    const lockedVenue = divisionVenueLock.get(matchup.division_id)
+    if (lockedVenue && venueId !== lockedVenue) return false
+  }
+
+  return true
+}
+
+// ---------------------------------------------------------------------------
+// Main generator
+// ---------------------------------------------------------------------------
+
 /**
  * Generate a full tournament schedule.
- * Full implementation - called by WizardStep6Schedule.
+ * Accepts optional constraints[] for hard enforcement during generation
+ * and soft violation detection post-generation.
  */
 export function generateSchedule(config) {
   const {
@@ -115,6 +279,7 @@ export function generateSchedule(config) {
     scheduleDays = [],
     scheduleConfig = {},
     tournamentId,
+    constraints = [],  // NEW: tournament_constraint rows
   } = config
 
   const {
@@ -235,7 +400,6 @@ export function generateSchedule(config) {
         team.poolId ??
         team.pool_id ??
         null
-
       return assignedPoolId === pool.id
     }),
   }))
@@ -279,7 +443,6 @@ export function generateSchedule(config) {
   allMatchups.sort((a, b) => {
     const roundDiff = (a.round ?? 1) - (b.round ?? 1)
     if (roundDiff !== 0) return roundDiff
-
     const aKey = a.pool_id ?? a.division_id ?? ''
     const bKey = b.pool_id ?? b.division_id ?? ''
     return String(aKey).localeCompare(String(bKey))
@@ -294,9 +457,16 @@ export function generateSchedule(config) {
     matchupsToSchedule = allMatchups.filter(m => (m.round ?? 1) === firstRound)
   }
 
+  // NEW: build constraint maps for fast lookup during slot assignment
+  const constraintMaps = buildConstraintMaps(constraints)
+  const hasConstraints = constraints.some(c => c.is_active)
+
   const matches = []
   const teamLastSlot = {}
   const minRestMs = minRestBetweenTeamGames * 60 * 1000
+
+  // NEW: track hard constraint blocks for reporting
+  const hardConstraintBlocks = []
 
   for (const matchup of matchupsToSchedule) {
     let assigned = false
@@ -305,15 +475,27 @@ export function generateSchedule(config) {
       const slotTimeMs = round.time.getTime()
       const slotEndMs = slotTimeMs + gameDurationMinutes * 60 * 1000
 
+      // Standard rest check (per-team min rest, with override support)
       const aLast = teamLastSlot[matchup.team_a_id]
       const bLast = teamLastSlot[matchup.team_b_id]
 
-      if (aLast && slotTimeMs - aLast < minRestMs) continue
-      if (bLast && slotTimeMs - bLast < minRestMs) continue
+      // NEW: use per-team min rest override if available
+      const aMinRest = constraintMaps.teamMinRest.get(matchup.team_a_id) ?? minRestBetweenTeamGames
+      const bMinRest = constraintMaps.teamMinRest.get(matchup.team_b_id) ?? minRestBetweenTeamGames
+
+      if (aLast && slotTimeMs - aLast < aMinRest * 60 * 1000) continue
+      if (bLast && slotTimeMs - bLast < bMinRest * 60 * 1000) continue
 
       const slot =
-        round.slots.find(s => !s._assigned && s.venue_id === matchup.home_venue) ??
-        round.slots.find(s => !s._assigned)
+        round.slots.find(s =>
+          !s._assigned &&
+          s.venue_id === matchup.home_venue &&
+          (!hasConstraints || slotPassesHardConstraints(s, matchup, constraintMaps, inputDays))
+        ) ??
+        round.slots.find(s =>
+          !s._assigned &&
+          (!hasConstraints || slotPassesHardConstraints(s, matchup, constraintMaps, inputDays))
+        )
 
       if (!slot) continue
 
@@ -339,6 +521,23 @@ export function generateSchedule(config) {
     }
 
     if (!assigned) {
+      // NEW: log whether constraint blocking caused this
+      const blockedByConstraint = hasConstraints && timeRounds.some(round =>
+        round.slots.some(s =>
+          !s._assigned &&
+          !slotPassesHardConstraints(s, matchup, constraintMaps, inputDays)
+        )
+      )
+
+      if (blockedByConstraint) {
+        hardConstraintBlocks.push({
+          team_a_id: matchup.team_a_id,
+          team_b_id: matchup.team_b_id,
+          pool_id: matchup.pool_id,
+          division_id: matchup.division_id,
+        })
+      }
+
       matches.push({
         id: crypto.randomUUID(),
         tournament_id: matchup.tournament_id ?? null,
@@ -358,23 +557,74 @@ export function generateSchedule(config) {
   const usedSlots = slots.filter(s => usedSlotIds.has(s.id))
 
   if (matches.some(m => !m.slot_id)) {
-    console.warn('[generateSchedule] Some matches could not be assigned to slots')
+    console.warn('[generateSchedule] Some matches could not be assigned to slots', {
+      unscheduled: matches.filter(m => !m.slot_id).length,
+      blockedByConstraints: hardConstraintBlocks.length,
+    })
   }
 
-  const conflicts = validateSchedule(matches, usedSlots, minRestBetweenTeamGames)
+  // Standard conflict detection
+  const baseConflicts = validateSchedule(matches, usedSlots, minRestBetweenTeamGames)
 
-  return { slots: usedSlots, matches, conflicts }
+  // NEW: constraint violation detection (soft constraints + post-generation hard check)
+  const constraintResult = hasConstraints
+    ? validateConstraints({
+        matches,
+        slots: usedSlots,
+        constraints,
+        tournamentDays: inputDays,
+        entityMaps: {},  // entity name resolution not needed here — ScheduleEditor handles display
+      })
+    : { violations: [], warnings: [] }
+
+  // NEW: hard constraint blocks become errors in conflicts
+  const constraintBlockConflicts = hardConstraintBlocks.map(block => ({
+    type: 'constraint_block',
+    severity: 'error',
+    teamId: block.team_a_id,
+    matchIds: [],
+    message: 'A game could not be scheduled due to a hard constraint (time, day, or venue restriction).',
+  }))
+
+  const conflicts = [
+    ...baseConflicts,
+    ...constraintBlockConflicts,
+    // soft constraint warnings surface alongside standard warnings
+    ...constraintResult.warnings.map(v => ({
+      type: 'constraint_warning',
+      severity: 'warning',
+      teamId: v.matchId ?? null,
+      matchIds: v.matchId ? [v.matchId] : [],
+      message: v.message,
+    })),
+    // hard constraint violations that slipped through (post-generation check)
+    ...constraintResult.violations.map(v => ({
+      type: 'constraint_violation',
+      severity: 'error',
+      teamId: null,
+      matchIds: v.matchId ? [v.matchId] : [],
+      message: v.message,
+    })),
+  ]
+
+  return {
+    slots: usedSlots,
+    matches,
+    conflicts: dedupeConflicts(conflicts),
+    // NEW: expose constraint result for caller to inspect
+    constraintViolations: constraintResult.violations,
+    constraintWarnings: constraintResult.warnings,
+  }
 }
-/**
- * Generate round-robin matchups for a pool.
- * Uses the director-preferred template for 4-team pools.
- * Falls back to the generic circle method for other pool sizes.
- */
+
+// ---------------------------------------------------------------------------
+// Pool matchup generation
+// ---------------------------------------------------------------------------
+
 export function generatePoolMatchups(pool) {
   const teams = pool.teams ?? []
   if (teams.length < 2) return []
 
-  // Director-preferred template for 4-team pools
   if (teams.length === 4) {
     const matchups = []
 
@@ -398,7 +648,6 @@ export function generatePoolMatchups(pool) {
     return matchups
   }
 
-  // Fallback: generic round-robin circle method
   const n = teams.length % 2 === 0 ? teams.length : teams.length + 1
   const fixed = teams[0]
   const rotating = [...teams.slice(1)]
@@ -427,9 +676,10 @@ export function generatePoolMatchups(pool) {
   return matchups
 }
 
-/**
- * Validate a generated schedule and return conflict objects.
- */
+// ---------------------------------------------------------------------------
+// Schedule validation
+// ---------------------------------------------------------------------------
+
 export function validateSchedule(matches, slots, minRestMinutes) {
   const conflicts = []
   const slotMap = Object.fromEntries(slots.map(s => [s.id, s]))
@@ -506,7 +756,6 @@ export function validateSchedule(matches, slots, minRestMinutes) {
     }
   }
 
-  // Duplicate slot usage
   for (const [, games] of Object.entries(slotUsage)) {
     if (games.length > 1) {
       conflicts.push({
@@ -519,7 +768,6 @@ export function validateSchedule(matches, slots, minRestMinutes) {
     }
   }
 
-  // Team overlap + rest checks
   for (const [teamId, games] of Object.entries(teamGames)) {
     const scheduled = games
       .filter(g => {
@@ -544,7 +792,6 @@ export function validateSchedule(matches, slots, minRestMinutes) {
       const prevEnd = new Date(prevSlot.scheduled_end).getTime()
       const nextStart = new Date(nextSlot.scheduled_start).getTime()
 
-      // Overlap / same-time double booking
       if (nextStart < prevEnd) {
         conflicts.push({
           type: 'team_overlap',
@@ -555,7 +802,6 @@ export function validateSchedule(matches, slots, minRestMinutes) {
         })
       }
 
-      // Rest
       const restMin = (nextStart - prevEnd) / 60000
       if (restMin < minRestMinutes) {
         conflicts.push({
@@ -571,6 +817,7 @@ export function validateSchedule(matches, slots, minRestMinutes) {
 
   return dedupeConflicts(conflicts)
 }
+
 function dedupeConflicts(conflicts) {
   const seen = new Set()
   const result = []
@@ -592,9 +839,10 @@ function dedupeConflicts(conflicts) {
   return result
 }
 
-/**
- * Apply a delay offset to all slots at or after a given time.
- */
+// ---------------------------------------------------------------------------
+// Schedule delay
+// ---------------------------------------------------------------------------
+
 export function applyScheduleDelay(slots, fromTime, offsetMinutes, venueId = null) {
   return slots.map(slot => {
     const slotTime = new Date(slot.scheduled_start).getTime()
@@ -612,9 +860,10 @@ export function applyScheduleDelay(slots, fromTime, offsetMinutes, venueId = nul
   })
 }
 
-/**
- * Tiebreaker calculation - returns teams sorted by tiebreaker order.
- */
+// ---------------------------------------------------------------------------
+// Tiebreakers
+// ---------------------------------------------------------------------------
+
 export function applyTiebreakers(teamStats, headToHead, tiebreakerOrder, discFlipOrder = {}) {
   return [...teamStats].sort((a, b) => {
     for (const rule of tiebreakerOrder) {
@@ -626,40 +875,35 @@ export function applyTiebreakers(teamStats, headToHead, tiebreakerOrder, discFli
           if (h2h !== undefined) diff = h2h > 0 ? -1 : h2h < 0 ? 1 : 0
           break
         }
-
         case 'wins':
           diff = (b.wins ?? 0) - (a.wins ?? 0)
           break
-
         case 'points_against':
           diff = (a.points_against ?? 0) - (b.points_against ?? 0)
           break
-
         case 'points_scored':
           diff = (b.points_scored ?? 0) - (a.points_scored ?? 0)
           break
-
         case 'disc_flip': {
           const aOrder = discFlipOrder?.[a.team_id] ?? 0
           const bOrder = discFlipOrder?.[b.team_id] ?? 0
           diff = aOrder - bOrder
           break
         }
-
         default:
           break
       }
 
       if (diff !== 0) return diff
     }
-
     return 0
   })
 }
 
-/**
- * Generate a single-elimination bracket from pool standings.
- */
+// ---------------------------------------------------------------------------
+// Single elimination bracket
+// ---------------------------------------------------------------------------
+
 export function generateSingleEliminationBracket(standings, divisionId, options = {}) {
   const { includeThirdPlace = false } = options
   const n = standings.length
@@ -667,7 +911,6 @@ export function generateSingleEliminationBracket(standings, divisionId, options 
   const slots = []
   const crypto = globalThis.crypto
 
-  // Round 1
   const seeded = [...standings]
   while (seeded.length < size) seeded.push(null)
 
@@ -692,10 +935,6 @@ export function generateSingleEliminationBracket(standings, divisionId, options 
   }
 
   slots.push(...round1)
-
-  if (includeThirdPlace) {
-    // placeholder for future extension
-  }
 
   return slots
 }

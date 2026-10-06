@@ -1,5 +1,4 @@
 // src/lib/schedule/syncTournamentDaysFromDateRange.js
-// src/lib/schedule/syncTournamentDaysFromDateRange.js
 export function syncTournamentDaysFromDateRange(
   startDate,
   endDate,
@@ -75,40 +74,6 @@ export function syncTournamentDaysFromDateRange(
   }
 
   return out
-}
-
-function asDateOnly(value) {
-  const s = normalizeDateString(value)
-  if (!s) return null
-  const d = new Date(`${s}T12:00:00`)
-  return Number.isNaN(d.getTime()) ? null : d
-}
-
-function normalizeDateString(value) {
-  if (!value) return ''
-  const s = String(value).trim()
-  if (!s) return ''
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-  const d = new Date(s)
-  if (Number.isNaN(d.getTime())) return ''
-  return toYMD(d)
-}
-
-function toYMD(d) {
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
-}
-
-function normalizeTime(value) {
-  if (!value) return ''
-  const s = String(value).trim()
-  const m = s.match(/^(\d{1,2}):(\d{2})/)
-  if (!m) return ''
-  const hh = String(Math.max(0, Math.min(23, Number(m[1])))).padStart(2, '0')
-  const mm = String(Math.max(0, Math.min(59, Number(m[2])))).padStart(2, '0')
-  return `${hh}:${mm}`
 }
 
 function asDateOnly(value) {

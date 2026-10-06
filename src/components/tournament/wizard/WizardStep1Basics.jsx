@@ -2,12 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { useWizardStore } from '../../../store/wizardStore'
 import { WizardNavButtons } from './WizardNavButtons'
 import { supabase, db } from '../../../lib/supabase'
-import { AlertTriangle, FileSpreadsheet, Globe, MapPin, Type, Upload } from 'lucide-react'
-import { generateTournamentWorkbookDraft } from '../../../lib/workbook/generateTournamentWorkbookDraft'
-import { UploadWorkbookModal } from '../../../lib/workbook/UploadWorkbookModal'
-import { applyWorkbookToWizardState } from '../../../lib/workbook/mapWorkbookToWizardState'
 import { useAuth } from '../../../lib/AuthContext'
-import { SAMPLE_WORKBOOK_PRESETS } from '../../../lib/workbook/sampleWorkbookPresets'
+import { AlertTriangle, FileSpreadsheet, Globe, MapPin, Type, Upload } from 'lucide-react'
+
+// Workbook imports are lazy-loaded on demand to avoid bundling ExcelJS (~1MB) upfront
 
 export function WizardStep1Basics({ onNext }) {
   const { user } = useAuth()
@@ -43,9 +41,37 @@ export function WizardStep1Basics({ onNext }) {
   const [downloadingWorkbook, setDownloadingWorkbook] = useState(false)
   const [showWorkbookUpload, setShowWorkbookUpload] = useState(false)
   const [workbookSummary, setWorkbookSummary] = useState(null)
-  const [selectedWorkbookPresetKey, setSelectedWorkbookPresetKey] = useState(
-    SAMPLE_WORKBOOK_PRESETS[0]?.key || ''
-  )
+  const [selectedWorkbookPresetKey, setSelectedWorkbookPresetKey] = useState('')
+
+  // Lazy-loaded workbook module state
+  const [workbookMod, setWorkbookMod] = useState(null)
+
+  async function ensureWorkbookLoaded() {
+    if (workbookMod) return workbookMod
+
+    const [gen, upload, apply, presets] = await Promise.all([
+      import('../../../lib/workbook/generateTournamentWorkbookDraft'),
+      import('../../../lib/workbook/UploadWorkbookModal'),
+      import('../../../lib/workbook/mapWorkbookToWizardState'),
+      import('../../../lib/workbook/sampleWorkbookPresets'),
+    ])
+
+    const mod = {
+      generateTournamentWorkbookDraft: gen.generateTournamentWorkbookDraft,
+      UploadWorkbookModal: upload.UploadWorkbookModal,
+      applyWorkbookToWizardState: apply.applyWorkbookToWizardState,
+      SAMPLE_WORKBOOK_PRESETS: presets.SAMPLE_WORKBOOK_PRESETS,
+    }
+
+    setWorkbookMod(mod)
+
+    // Set default preset key once loaded
+    if (!selectedWorkbookPresetKey && presets.SAMPLE_WORKBOOK_PRESETS?.[0]?.key) {
+      setSelectedWorkbookPresetKey(presets.SAMPLE_WORKBOOK_PRESETS[0].key)
+    }
+
+    return mod
+  }
 
   const hasSetupData = useMemo(() => {
     return (
@@ -102,7 +128,9 @@ export function WizardStep1Basics({ onNext }) {
     setFormError(null)
 
     try {
-      const preset = SAMPLE_WORKBOOK_PRESETS.find(
+      const mod = await ensureWorkbookLoaded()
+
+      const preset = mod.SAMPLE_WORKBOOK_PRESETS.find(
         p => p.key === selectedWorkbookPresetKey
       )
 
@@ -111,7 +139,7 @@ export function WizardStep1Basics({ onNext }) {
         return
       }
 
-      const result = await generateTournamentWorkbookDraft(preset.config)
+      const result = await mod.generateTournamentWorkbookDraft(preset.config)
 
       const blob = new Blob([result.buffer], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -141,6 +169,8 @@ export function WizardStep1Basics({ onNext }) {
     setWorkbookSummary(null)
 
     try {
+      const mod = await ensureWorkbookLoaded()
+
       const workbookSchedules = buildWorkbookSchedules({
         generatedMatches,
         generatedSlots,
@@ -156,7 +186,7 @@ export function WizardStep1Basics({ onNext }) {
         venues,
       })
 
-      const result = await generateTournamentWorkbookDraft({
+      const result = await mod.generateTournamentWorkbookDraft({
         tournament: {
           name: name || '',
           slug: slug || '',
@@ -217,13 +247,11 @@ export function WizardStep1Basics({ onNext }) {
               scheduleConfig?.breakBetweenGamesMinutes ??
               30,
             sortOrder: division.sortOrder ?? index,
-
             pools: divisionPools.map((pool, poolIndex) => ({
               name: pool.name || '',
               shortName: pool.shortName || '',
               sortOrder: pool.sortOrder ?? poolIndex + 1,
             })),
-
             teams: divisionTeams.map(team => ({
               name: team.name || '',
               shortName: team.shortName || '',
@@ -237,8 +265,6 @@ export function WizardStep1Basics({ onNext }) {
           }
         }),
         schedules: workbookSchedules,
-
-        // NEW: exact object shape for playoff workbook export
         playoffScheduleTemplate: [
           {
             division: 'Open',
@@ -248,8 +274,8 @@ export function WizardStep1Basics({ onNext }) {
             scheduled_time: '13:00',
             notes: 'Semi 1'
           }
-        ]
-              })
+        ],
+      })
 
       const blob = new Blob([result.buffer], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -266,7 +292,6 @@ export function WizardStep1Basics({ onNext }) {
     } catch (err) {
       console.error('Workbook draft generation failed:', err)
       console.error('Validation errors:', err.validationErrors)
-
       setFormError(
         Array.isArray(err.validationErrors)
           ? err.validationErrors.join(' ')
@@ -348,12 +373,15 @@ export function WizardStep1Basics({ onNext }) {
     }
   }
 
+  // Presets from loaded module, or empty while not yet loaded
+  const samplePresets = workbookMod?.SAMPLE_WORKBOOK_PRESETS ?? []
+
   return (
     <div className="space-y-6">
       <div>
         <h2 className="section-title">Tournament Basics</h2>
         <p className="section-subtitle">
-          Set up tournament identity here. Tournament start/end dates are required here; detailed daily schedule windows are configured in Step 6.
+          Set up tournament identity here. Tournament start/end dates are required here; detailed daily schedule windows are configured in Step 7.
         </p>
       </div>
 
@@ -497,13 +525,16 @@ export function WizardStep1Basics({ onNext }) {
             disabled={downloadingWorkbook}
           >
             <FileSpreadsheet size={16} />
-            {downloadingWorkbook ? 'Generating workbook...' : 'Download Current Tournament Excel workbook'}
+            {downloadingWorkbook ? 'Generating workbook...' : 'Download current tournament Excel workbook'}
           </button>
 
           <button
             type="button"
             className="btn-secondary btn"
-            onClick={() => setShowWorkbookUpload(true)}
+            onClick={async () => {
+              await ensureWorkbookLoaded()
+              setShowWorkbookUpload(true)
+            }}
           >
             <Upload size={16} />
             Upload workbook
@@ -554,12 +585,17 @@ export function WizardStep1Basics({ onNext }) {
               value={selectedWorkbookPresetKey}
               onChange={e => setSelectedWorkbookPresetKey(e.target.value)}
               style={{ minWidth: 280 }}
+              onFocus={ensureWorkbookLoaded}
             >
-              {SAMPLE_WORKBOOK_PRESETS.map(preset => (
-                <option key={preset.key} value={preset.key}>
-                  {preset.label || preset.key}
-                </option>
-              ))}
+              {samplePresets.length === 0 ? (
+                <option value="">Loading presets...</option>
+              ) : (
+                samplePresets.map(preset => (
+                  <option key={preset.key} value={preset.key}>
+                    {preset.label || preset.key}
+                  </option>
+                ))
+              )}
             </select>
 
             <button
@@ -584,7 +620,7 @@ export function WizardStep1Basics({ onNext }) {
           Wizard structure
         </p>
         <p className="text-sm text-[var(--text-muted)]">
-          Step 1 is for tournament identity and workbook setup. Step 2 handles sport-specific details and tracked stats. Step 6 handles detailed schedule windows and generation settings.
+          Step 1 is for tournament identity and workbook setup. Step 2 handles sport-specific details and tracked stats. Step 7 handles detailed schedule windows and generation settings.
         </p>
       </div>
 
@@ -613,21 +649,18 @@ export function WizardStep1Basics({ onNext }) {
               {workbookSummary.tournamentDayCount} tournament day
               {workbookSummary.tournamentDayCount !== 1 ? 's' : ''} loaded
             </li>
-
             {workbookSummary.rosterCount > 0 && (
               <li>
                 {workbookSummary.rosterCount} roster row
                 {workbookSummary.rosterCount !== 1 ? 's' : ''} loaded
               </li>
             )}
-
             {workbookSummary.scheduleRowCount > 0 && (
               <li>
                 {workbookSummary.scheduleRowCount} schedule row
                 {workbookSummary.scheduleRowCount !== 1 ? 's' : ''} loaded
               </li>
             )}
-
             {workbookSummary.scheduleApplied && (
               <li>
                 {workbookSummary.scheduleAppliedCount} schedule row
@@ -640,7 +673,6 @@ export function WizardStep1Basics({ onNext }) {
                 {workbookSummary.playoffTemplateRowCount !== 1 ? 's' : ''} found
               </li>
             )}
-
             {workbookSummary.playoffTemplateAppliedCount > 0 && (
               <li>
                 {workbookSummary.playoffTemplateAppliedCount} playoff template row
@@ -651,23 +683,25 @@ export function WizardStep1Basics({ onNext }) {
 
           {workbookSummary.scheduleRowCount > 0 && !workbookSummary.scheduleApplied && (
             <p className="text-xs text-green-700 mt-2">
-              Schedule rows were found in the workbook, but they could not be applied yet. Generate or load a schedule in Step 6 first, then upload again if you want workbook schedule edits to map onto existing generated matches.
+              Schedule rows were found in the workbook, but they could not be applied yet. Generate or load a schedule in Step 7 first, then upload again if you want workbook schedule edits to map onto existing generated matches.
             </p>
           )}
 
           <p className="text-xs text-green-700 mt-2">
             Review the imported data in each wizard step, then click Continue to save tournament basics and proceed.
           </p>
+
           {workbookSummary.playoffTemplateWarnings > 0 && (
             <p className="text-xs text-amber-700 mt-2">
               {workbookSummary.playoffTemplateWarnings} playoff template row
-              {workbookSummary.playoffTemplateWarnings !== 1 ? 's' : ''} had warnings and were skipped. 
+              {workbookSummary.playoffTemplateWarnings !== 1 ? 's' : ''} had warnings and were skipped.
               Check division names, match codes, venue names, and date/time formats.
             </p>
           )}
+
           {workbookSummary.playoffTemplateAppliedCount > 0 && (
             <p className="text-xs text-green-700 mt-2">
-              Imported playoff schedule template rows will pre-populate playoff match venue/time in Step 7 when matching playoff match codes are generated.
+              Imported playoff schedule template rows will pre-populate playoff match venue/time in Step 8 when matching playoff match codes are generated.
             </p>
           )}
         </div>
@@ -681,25 +715,28 @@ export function WizardStep1Basics({ onNext }) {
         nextDisabled={checkingSlug || saving}
       />
 
-      <UploadWorkbookModal
-        isOpen={showWorkbookUpload}
-        onClose={() => setShowWorkbookUpload(false)}
-        onValidated={result => {
-          try {
-            if (!result || !result.validation) {
-              throw new Error('Workbook validation did not return expected data.')
-            }
+      {/* Lazy-rendered upload modal */}
+      {showWorkbookUpload && workbookMod && (
+        <workbookMod.UploadWorkbookModal
+          isOpen={showWorkbookUpload}
+          onClose={() => setShowWorkbookUpload(false)}
+          onValidated={result => {
+            try {
+              if (!result || !result.validation) {
+                throw new Error('Workbook validation did not return expected data.')
+              }
 
-            const applied = applyWorkbookToWizardState(result)
-            setFormError(null)
-            setWorkbookSummary(applied.summary || null)
-            setShowWorkbookUpload(false)
-          } catch (err) {
-            console.error('[Workbook apply error]', err, result)
-            setFormError(err.message || 'Failed to apply workbook data.')
-          }
-        }}
-      />
+              const applied = workbookMod.applyWorkbookToWizardState(result)
+              setFormError(null)
+              setWorkbookSummary(applied.summary || null)
+              setShowWorkbookUpload(false)
+            } catch (err) {
+              console.error('[Workbook apply error]', err, result)
+              setFormError(err.message || 'Failed to apply workbook data.')
+            }
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -720,35 +757,17 @@ function buildWorkbookSchedules({
 
   return (generatedMatches || []).map((match, index) => {
     const division =
-      divisionMap[match.divisionId] ||
-      divisionMap[match.division_id] ||
-      null
-
+      divisionMap[match.divisionId] || divisionMap[match.division_id] || null
     const pool =
-      poolMap[match.poolId] ||
-      poolMap[match.pool_id] ||
-      null
-
+      poolMap[match.poolId] || poolMap[match.pool_id] || null
     const teamA =
-      teamMap[match.teamAId] ||
-      teamMap[match.team_a_id] ||
-      null
-
+      teamMap[match.teamAId] || teamMap[match.team_a_id] || null
     const teamB =
-      teamMap[match.teamBId] ||
-      teamMap[match.team_b_id] ||
-      null
-
+      teamMap[match.teamBId] || teamMap[match.team_b_id] || null
     const venue =
-      venueMap[match.venueId] ||
-      venueMap[match.venue_id] ||
-      null
-
+      venueMap[match.venueId] || venueMap[match.venue_id] || null
     const slot =
-      slotMap[match.slotId] ||
-      slotMap[match.slot_id] ||
-      slotMap[match.time_slot_id] ||
-      null
+      slotMap[match.slotId] || slotMap[match.slot_id] || slotMap[match.time_slot_id] || null
 
     let scheduledDate = ''
     let startTime = ''
@@ -763,16 +782,12 @@ function buildWorkbookSchedules({
     return {
       match_id: match.dbId || match.id || '',
       match_code:
-        match.matchCode ||
-        match.match_code ||
-        buildFallbackMatchCode(match, index),
+        match.matchCode || match.match_code || buildFallbackMatchCode(match, index),
       division_name: division?.name || '',
       pool_name: pool?.name || '',
       bracket_type: match.bracketType || match.bracket_type || '',
       round_label:
-        match.roundLabel ||
-        match.round_label ||
-        buildFallbackRoundLabel(match, index),
+        match.roundLabel || match.round_label || buildFallbackRoundLabel(match, index),
       team_a_name: teamA?.name || '',
       team_b_name: teamB?.name || '',
       scheduled_date: scheduledDate,
@@ -791,7 +806,6 @@ function buildPlayoffScheduleTemplateRows({
 }) {
   const divisionMap = Object.fromEntries((divisions || []).map(d => [d.id, d]))
   const venueMap = Object.fromEntries((venues || []).map(v => [v.id, v]))
-
   const rows = []
 
   for (const [divisionId, config] of Object.entries(playoffConfigs || {})) {
@@ -800,7 +814,6 @@ function buildPlayoffScheduleTemplateRows({
 
     for (const [matchCode, entry] of Object.entries(template)) {
       const venue = entry?.venueId ? venueMap[entry.venueId] : null
-
       rows.push({
         division: division?.name || '',
         match_code: matchCode,
@@ -816,26 +829,14 @@ function buildPlayoffScheduleTemplateRows({
 }
 
 function buildFallbackMatchCode(match, index) {
-  if (match.round && match.match_number) {
-    return `R${match.round}-M${match.match_number}`
-  }
-
-  if (match.match_number) {
-    return `M${match.match_number}`
-  }
-
+  if (match.round && match.match_number) return `R${match.round}-M${match.match_number}`
+  if (match.match_number) return `M${match.match_number}`
   return `MATCH-${index + 1}`
 }
 
 function buildFallbackRoundLabel(match, index) {
-  if (match.roundLabel || match.round_label) {
-    return match.roundLabel || match.round_label
-  }
-
-  if (match.round) {
-    return `Round ${match.round}`
-  }
-
+  if (match.roundLabel || match.round_label) return match.roundLabel || match.round_label
+  if (match.round) return `Round ${match.round}`
   return `Match ${index + 1}`
 }
 

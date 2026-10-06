@@ -521,6 +521,12 @@ export function ScheduleEditor({ embedded = false, footer = null, tournamentId: 
 
       await saveTournamentDaysIfMissing(tournamentId, effectiveTournamentDays)
 
+      const { data: constraintRows } = await supabase
+        .from('tournament_constraints')
+        .select('*')
+        .eq('tournament_id', tournamentId)
+        .eq('is_active', true)
+
       const result = generateSchedule({
         divisions,
         teams,
@@ -535,7 +541,10 @@ export function ScheduleEditor({ embedded = false, footer = null, tournamentId: 
           gameDurationMinutes: scheduleSettings?.gameDurationMinutes ?? 90,
           breakBetweenGamesMinutes: scheduleSettings?.breakBetweenGamesMinutes ?? 30,
           minRestBetweenTeamGames: scheduleSettings?.minRestBetweenTeamGames ?? 90,
+        
         },
+          constraints: constraintRows ?? [],  // ← ADD THIS
+
       })
 
       const generatedSlots = result?.slots ?? []
@@ -2557,8 +2566,9 @@ function hasManualField(match, field) {
   return Array.isArray(match?.manual_edit_fields) && match.manual_edit_fields.includes(field)
 }
 
-function appendUnique(existing = [], fields = []) {
-  return [...new Set([...(existing || []), ...fields])]
+function appendUnique(existing, fields = []) {
+  const safeExisting = Array.isArray(existing) ? existing : []
+  return [...new Set([...safeExisting, ...fields])]
 }
 
 // FIX: use getTeamId for safe team id extraction from joined relation

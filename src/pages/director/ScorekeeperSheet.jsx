@@ -163,7 +163,7 @@ function MatchCard({ match: m, pin }) {
 
   const teamA = m.team_a?.name ?? 'TBD'
   const teamB = m.team_b?.name ?? 'TBD'
-  const isBracket = m.notes?.startsWith('bracket:') || !m.team_a?.name
+  const isBracket = !!(m.match_code || m.bracket_type) || !m.team_a?.name
 
   return (
     <div style={{
@@ -236,20 +236,44 @@ function MatchCard({ match: m, pin }) {
   )
 }
 
-function bracketLabel(notes, roundLabel) {
-  if (roundLabel) return roundLabel
-  if (!notes) return 'TBD vs TBD'
-  // Convert notes like 'bracket:1A-vs-2D' → '1st Pool A vs 2nd Pool D'
-  const map = {
-    '1A': '1st Pool A', '2A': '2nd Pool A', '3A': '3rd Pool A', '4A': '4th Pool A',
-    '1B': '1st Pool B', '2B': '2nd Pool B', '3B': '3rd Pool B', '4B': '4th Pool B', '5B': '5th Pool B',
-    '1C': '1st Pool C', '2C': '2nd Pool C', '3C': '3rd Pool C', '4C': '4th Pool C',
-    '1D': '1st Pool D', '2D': '2nd Pool D', '3D': '3rd Pool D', '4D': '4th Pool D',
-    'winG1': 'Winner G1', 'winG2': 'Winner G2', 'winG3': 'Winner G3', 'winG4': 'Winner G4',
-    'winnerV': 'Winner Game V', 'winY': 'Winner Y', 'winZ': 'Winner Z',
-    'winW': 'Winner W', 'winX': 'Winner X',
+function bracketLabel(m) {
+  // Prefer structured display fields from new bracket model
+  if (m.display_label) return m.display_label
+  if (m.round_label) return m.round_label
+
+  // Fall back to source refs if available
+  const refA = m.source_a_ref ?? 'TBD'
+  const refB = m.source_b_ref ?? 'TBD'
+
+  if (m.source_a_ref || m.source_b_ref) {
+    return `${formatRef(refA)} vs ${formatRef(refB)}`
   }
-  const inner = notes.replace('bracket:', '')
-  const [a, b] = inner.split('-vs-')
-  return (map[a] ?? a) + ' vs ' + (map[b] ?? b)
+
+  // Legacy notes fallback (bracket:1A-vs-2D)
+  if (m.notes?.startsWith('bracket:')) {
+    const inner = m.notes.replace('bracket:', '')
+    const [a, b] = inner.split('-vs-')
+    return `${formatRef(a ?? 'TBD')} vs ${formatRef(b ?? 'TBD')}`
+  }
+
+  return 'TBD vs TBD'
+}
+
+function formatRef(ref) {
+  if (!ref) return 'TBD'
+  // '1A' → '1st Pool A'
+  const m1 = ref.match(/^(\d+)([A-Z])$/)
+  if (m1) return `${ordinal(Number(m1[1]))} Pool ${m1[2]}`
+  // 'A1' → '1st Pool A'
+  const m2 = ref.match(/^([A-Z])(\d+)$/)
+  if (m2) return `${ordinal(Number(m2[2]))} Pool ${m2[1]}`
+  // 'winG1', 'Winner G1', etc.
+  if (/^win/i.test(ref)) return ref.replace(/^win/i, 'Winner ')
+  return ref
+}
+
+function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd']
+  const v = n % 100
+  return n + (s[(v - 20) % 10] || s[v] || s[0])
 }

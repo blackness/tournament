@@ -1,962 +1,397 @@
-import { useState, useRef, useEffect } from 'react'
+import { useMemo } from 'react'
 import { useWizardStore } from '../../../store/wizardStore'
-import { db, supabase } from '../../../lib/supabase'
 import { WizardNavButtons } from './WizardNavButtons'
-import { autoDetect } from '../../../lib/constraintEngine'
-import { ConstraintEditor } from '../teams/ConstraintEditor'
-import {
-  PlusCircle,
-  Trash2,
-  Upload,
-  Users,
-  ChevronDown,
-  ChevronUp,
-  AlertTriangle,
-  Settings,
-  GripVertical,
-} from 'lucide-react'
-import { suggestPoolStructure, serpentineSeeding } from '../../../lib/scheduleGenerator'
+import { validateSchedule } from '../../../lib/scheduleGenerator'
+import { AlertTriangle, Check, Clock, Home } from 'lucide-react'
 
-const crypto = globalThis.crypto
-
-function newTeam(divisionId, seed) {
-  return {
-    id: crypto.randomUUID(),
-    name: '',
-    shortName: '',
-    divisionId,
-    clubName: '',
-    primaryColor: '#1a56db',
-    seed,
-    headCoachName: '',
-    headCoachEmail: '',
-    constraints: {},
-  }
+const CONFLICT_ICONS = {
+  same_club: <Home size={13} />,
+  rest_time: <Clock size={13} />,
+  field_clash: <AlertTriangle size={13} />,
+  slot_double_booked: <AlertTriangle size={13} />,
+  team_overlap: <AlertTriangle size={13} />,
+  unscheduled: <AlertTriangle size={13} />,
+  missing_slot: <AlertTriangle size={13} />,
+  missing_team: <AlertTriangle size={13} />,
+  slot_venue_mismatch: <AlertTriangle size={13} />,
+  team_self: <AlertTriangle size={13} />,
+  default: <AlertTriangle size={13} />,
 }
 
-export function WizardStep5Teams({ onNext, onBack }) {
+export function WizardStep6Constraints({ onNext, onBack }) {
   const {
-    divisions,
     teams,
-    pools,
-    poolAssignments,
     venues,
-    addTeam,
-    updateTeam,
-    setPoolsForDivision,
-    setPoolAssignment,
-    setPoolAssignments,
-    tournamentId,
+    generatedMatches,
+    generatedPlayoffMatches,
+    generatedSlots,
+    scheduleConfig,
+    acknowledgedConflicts,
+    acknowledgeConflict,
   } = useWizardStore()
 
-  const firstDivId = divisions[0]?.id ?? null
-  const [activeDivision, setActiveDivision] = useState(firstDivId)
-  const [errors, setErrors] = useState({})
-  const [formError, setFormError] = useState(null)
-  const [saving, setSaving] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [violations, setViolations] = useState([])
-  const fileRef = useRef(null)
+  const effectiveMatches = useMemo(
+    () => [
+      ...(generatedMatches ?? []),
+      ...(generatedPlayoffMatches ?? []),
+    ],
+    [generatedMatches, generatedPlayoffMatches]
+  )
 
-  useEffect(() => {
-    if (!activeDivision && divisions.length > 0) {
-      setActiveDivision(divisions[0].id)
-    }
-  }, [activeDivision, divisions])
+  const inlinePlayoffSlots = useMemo(
+    () =>
+      (generatedPlayoffMatches ?? [])
+        .filter(match =>
+          (match.slot_id || match.slotId || match.time_slot_id) &&
+          (match.scheduled_start || match.scheduledStart) &&
+          (match.scheduled_end || match.scheduledEnd) &&
+          (match.venue_id || match.venueId)
+        )
+        .map(match => ({
+          id: match.slot_id || match.slotId || match.time_slot_id,
+          venue_id: match.venue_id || match.venueId || null,
+          scheduled_start: match.scheduled_start || match.scheduledStart || null,
+          scheduled_end: match.scheduled_end || match.scheduledEnd || null,
+        })),
+    [generatedPlayoffMatches]
+  )
 
-  useEffect(() => {
-    const found = autoDetect({ teams, pools, poolAssignments, matches: [], slots: [] })
-    setViolations(found)
-  }, [teams.length, JSON.stringify(poolAssignments)])
+  const effectiveSlots = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          [
+            ...(generatedSlots ?? []),
+            ...inlinePlayoffSlots,
+          ].map(slot => [slot.id, slot])
+        ).values()
+      ),
+    [generatedSlots, inlinePlayoffSlots]
+  )
 
-  const effectiveDivisionId = divisions.length > 0 ? activeDivision : null
-  const divTeams = divisions.length === 0 ? teams : teams.filter(t => t.divisionId === activeDivision)
-  const divPools = pools.filter(p => p.divisionId === activeDivision)
+  const liveConflicts = useMemo(() => {
+    const minRestBetweenTeamGames = Number(scheduleConfig?.minRestBetweenTeamGames ?? 90)
+    return validateSchedule(effectiveMatches, effectiveSlots, minRestBetweenTeamGames)
+  }, [effectiveMatches, effectiveSlots, scheduleConfig?.minRestBetweenTeamGames])
 
-  function validate() {
-    const e = {}
-    const liveTeams = useWizardStore.getState().teams
+  const matchMap = useMemo(
+    () => Object.fromEntries(effectiveMatches.map(m => [m.id, m])),
+    [effectiveMatches]
+  )
 
-    liveTeams.forEach(t => {
-      if (!t.name.trim()) e[t.id + '_name'] = 'Name required'
+  const slotMap = useMemo(
+    () => Object.fromEntries(effectiveSlots.map(s => [s.id, s])),
+    [effectiveSlots]
+  )
+
+  const teamMap = useMemo(
+    () => Object.fromEntries(teams.map(t => [t.dbId || t.id, t])),
+    [teams]
+  )
+
+  const venueMap = useMemo(
+    () => Object.fromEntries(venues.map(v => [v.dbId || v.id, v])),
+    [venues]
+  )
+
+  const errors = liveConflicts.filter(c => c.severity === 'error')
+  const warnings = liveConflicts.filter(c => c.severity === 'warning')
+
+  const unacknowledgedErrors = errors.filter(
+    c => !acknowledgedConflicts.includes(`${c.type}:${c.teamId}`)
+  )
+
+  const scheduledEffectiveMatches = effectiveMatches.filter(
+    m => !!(m.slot_id || m.slotId || m.time_slot_id || m.scheduled_start || m.scheduledStart)
+  )
+
+  const playoffGeneratedCount = (generatedPlayoffMatches ?? []).length
+
+  const playoffScheduledCount = (generatedPlayoffMatches ?? []).filter(
+    m => !!(m.slot_id || m.slotId || m.time_slot_id || m.scheduled_start || m.scheduledStart)
+  ).length
+
+  const scheduledMatchList = useMemo(() => {
+    return [...scheduledEffectiveMatches].sort((a, b) => {
+      const aSlotId = a.slot_id || a.slotId || a.time_slot_id || null
+      const bSlotId = b.slot_id || b.slotId || b.time_slot_id || null
+
+      const aStart = aSlotId && slotMap[aSlotId]?.scheduled_start
+        ? new Date(slotMap[aSlotId].scheduled_start).getTime()
+        : Infinity
+
+      const bStart = bSlotId && slotMap[bSlotId]?.scheduled_start
+        ? new Date(slotMap[bSlotId].scheduled_start).getTime()
+        : Infinity
+
+      if (aStart !== bStart) return aStart - bStart
+
+      return String(a.match_code || a.display_label || a.id).localeCompare(
+        String(b.match_code || b.display_label || b.id)
+      )
     })
-
-    setErrors(e)
-
-    if (Object.keys(e).length > 0) {
-      setFormError('Fix team names before continuing')
-      return false
-    }
-
-    setFormError(null)
-    return true
-  }
-
-  function handleAutoPool(divisionId) {
-    const dt = teams.filter(t => t.divisionId === divisionId)
-    if (dt.length === 0) return
-
-    const { numPools } = suggestPoolStructure(dt.length, {
-      preferredPoolSize: 4,
-      maxPoolSize: 6,
-    })
-
-    const newPools = Array.from({ length: numPools }, (_, i) => ({
-      id: crypto.randomUUID(),
-      divisionId,
-      name: 'Pool ' + String.fromCharCode(65 + i),
-      shortName: String.fromCharCode(65 + i),
-      sortOrder: i,
-    }))
-
-    setPoolsForDivision(divisionId, newPools)
-
-    const seeded = serpentineSeeding(dt, numPools)
-    const assignments = {}
-    seeded.forEach((team, idx) => {
-      assignments[team.id] = newPools[idx % numPools].id
-    })
-    setPoolAssignments(assignments)
-  }
-
-  async function handleCSV(file) {
-    if (!file) return
-
-    const liveDivisions = useWizardStore.getState().divisions
-    const targetDivision = activeDivision || liveDivisions[0]?.id || null
-
-    setImporting(true)
-    setFormError(null)
-
-    try {
-      const { default: Papa } = await import('papaparse')
-
-      Papa.parse(file, {
-        header: true,
-        skipEmptyLines: true,
-        complete: ({ data }) => {
-          try {
-            const currentCount = useWizardStore.getState().teams.filter(
-              t => t.divisionId === targetDivision
-            ).length
-
-            const imported = data
-              .map((row, i) => {
-                const teamName =
-                  (row['Team Name'] ??
-                    row['team name'] ??
-                    row['Name'] ??
-                    row['name'] ??
-                    '').toString().trim()
-
-                const shortName =
-                  (row['Short Name'] ??
-                    row['short name'] ??
-                    row['short_name'] ??
-                    '').toString().trim()
-
-                const clubName =
-                  (row['Club'] ??
-                    row['club'] ??
-                    row['School'] ??
-                    row['school'] ??
-                    '').toString().trim()
-
-                const headCoachName =
-                  (row['Coach'] ??
-                    row['coach'] ??
-                    '').toString().trim()
-
-                const headCoachEmail =
-                  (row['Email'] ??
-                    row['email'] ??
-                    '').toString().trim()
-
-                const rawColor =
-                  (row['Color'] ??
-                    row['color'] ??
-                    '').toString().trim()
-
-                const primaryColor =
-                  /^#[0-9A-Fa-f]{6}$/.test(rawColor) ? rawColor : '#1a56db'
-
-                const rawSeed =
-                  (row['Seed'] ??
-                    row['seed'] ??
-                    '').toString().trim()
-
-                const parsedSeed = Number(rawSeed)
-                const seed =
-                  Number.isFinite(parsedSeed) && parsedSeed > 0
-                    ? parsedSeed
-                    : currentCount + i + 1
-
-                return {
-                  ...newTeam(targetDivision, seed),
-                  name: teamName,
-                  shortName,
-                  clubName,
-                  headCoachName,
-                  headCoachEmail,
-                  primaryColor,
-                }
-              })
-              .filter(t => t.name.length > 0)
-
-            if (imported.length === 0) {
-              setFormError(
-                'No valid teams found. Check the file has a "Team Name" column and at least one non-empty row.'
-              )
-            } else {
-              useWizardStore.getState().addTeams(imported)
-
-              if (targetDivision) {
-                setActiveDivision(targetDivision)
-              }
-            }
-          } catch (err) {
-            console.error('[CSV] import processing failed', err)
-            setFormError('CSV import processing failed')
-          } finally {
-            setImporting(false)
-          }
-        },
-        error: (err) => {
-          console.error('[CSV] parse failed', err)
-          setFormError('Failed to parse CSV')
-          setImporting(false)
-        },
-      })
-    } catch (err) {
-      console.error('[CSV] papaparse load failed', err)
-      setFormError('CSV import failed -- run: npm install papaparse')
-      setImporting(false)
-    }
-
-    if (fileRef.current) fileRef.current.value = ''
-  }
-
-  async function handleNext() {
-    if (!validate()) return
-    if (!tournamentId) {
-      onNext()
-      return
-    }
-
-    setSaving(true)
-
-    try {
-      const liveState = useWizardStore.getState()
-
-      const { data: dbDivisions, error: divErr } = await db.divisions.byTournament(tournamentId)
-      if (divErr) throw new Error('Failed to load divisions: ' + divErr.message)
-      if (!dbDivisions || dbDivisions.length === 0) {
-        throw new Error('No divisions found in DB for this tournament. Go back to Step 3 and save divisions first.')
-      }
-
-      const resolvedDivisions = liveState.divisions.map(div => {
-        const dbDiv = dbDivisions.find(d =>
-          d.id === div.dbId ||
-          (div.slug && d.slug === div.slug) ||
-          d.name.trim().toLowerCase() === div.name.trim().toLowerCase()
-        )
-
-        if (dbDiv && !div.dbId) {
-          useWizardStore.getState().updateDivision(div.id, { dbId: dbDiv.id })
-        }
-
-        return { storeDiv: div, dbDivId: dbDiv?.id ?? null }
-      })
-
-      const unmapped = resolvedDivisions.filter(r => !r.dbDivId)
-      if (unmapped.length > 0) {
-        throw new Error(
-          `Could not match division "${unmapped[0].storeDiv.name}" to a saved division. Go back to Step 3 and re-save.`
-        )
-      }
-
-      const state2 = useWizardStore.getState()
-
-      for (const { storeDiv, dbDivId } of resolvedDivisions) {
-        const dt = state2.teams.filter(t => t.divisionId === storeDiv.id)
-        const dp = state2.pools.filter(p => p.divisionId === storeDiv.id)
-
-        const { data: existingDbTeams, error: existingTeamsErr } = await supabase
-          .from('tournament_teams')
-          .select('id, name')
-          .eq('tournament_id', tournamentId)
-          .eq('division_id', dbDivId)
-
-        if (existingTeamsErr) {
-          throw new Error('Failed to load existing teams for cleanup: ' + existingTeamsErr.message)
-        }
-
-        const localDbIds = new Set(dt.map(t => t.dbId).filter(Boolean))
-
-        const teamsToDelete = (existingDbTeams ?? []).filter(dbTeam => {
-          return !localDbIds.has(dbTeam.id)
-        })
-        for (const dbTeam of teamsToDelete) {
-          
-          const { data: linkedMatches, error: linkedMatchesErr } = await supabase
-  .from('matches')
-  .select('id, tournament_id, division_id, team_a_id, team_b_id')
-  .eq('division_id', dbDivId)
-  .or(`team_a_id.eq.${dbTeam.id},team_b_id.eq.${dbTeam.id}`)
-  .limit(5)
-
-          if (linkedMatchesErr) {
-            throw new Error(
-              `Failed checking existing schedule references for removed team "${dbTeam.name}": ${linkedMatchesErr.message}`
-              
-            )
-          }
-          if (Array.isArray(linkedMatches) && linkedMatches.length > 0) {
-            throw new Error(
-              `Team "${dbTeam.name}" appears to be removed, but it is still referenced by existing matches. If this team should remain, re-import while preserving team identity. If it should truly be removed, clear or rebuild the affected schedule first.`
-            )
-          }
-
-          const { error: deleteTeamErr } = await db.teams.delete(dbTeam.id)
-          if (deleteTeamErr) {
-            throw new Error(`Failed to delete removed team "${dbTeam.name}": ${deleteTeamErr.message}`)
-          }
-        }
-        const { data: dbPools, error: dbPoolsErr } = await supabase
-          .from('pools')
-          .select('id, name')
-          .eq('division_id', dbDivId)
-
-        if (dbPoolsErr) {
-          throw new Error('Failed to load existing pools: ' + dbPoolsErr.message)
-        }
-
-        const dbPoolByName = Object.fromEntries(
-          (dbPools ?? []).map(p => [p.name.trim().toLowerCase(), p.id])
-        )
-
-        // Create/update current pools
-        for (const pool of dp) {
-          const existingDbId = pool.dbId || dbPoolByName[pool.name.trim().toLowerCase()]
-
-          if (existingDbId) {
-            if (!pool.dbId) {
-              useWizardStore.getState().updatePool(pool.id, { dbId: existingDbId })
-            }
-          } else {
-            const { data, error: poolErr } = await supabase
-              .from('pools')
-              .insert({
-                division_id: dbDivId,
-                name: pool.name,
-                short_name: pool.shortName || null,
-                sort_order: pool.sortOrder ?? 0,
-              })
-              .select()
-              .single()
-
-            if (poolErr) {
-              throw new Error('Failed to save pool "' + pool.name + '": ' + poolErr.message)
-            }
-
-            if (data) {
-              useWizardStore.getState().updatePool(pool.id, { dbId: data.id })
-            }
-          }
-        }
-
-        const state3 = useWizardStore.getState()
-
-        // Reload division pool set after create/update
-        const currentDivisionPools = state3.pools.filter(p => p.divisionId === storeDiv.id)
-        const localPoolDbIds = new Set(currentDivisionPools.map(p => p.dbId).filter(Boolean))
-        const localPoolNames = new Set(currentDivisionPools.map(p => p.name.trim().toLowerCase()))
-
-        // Delete removed DB pools for this division
-        const poolsToDelete = (dbPools ?? []).filter(dbPool => {
-          if (localPoolDbIds.has(dbPool.id)) return false
-          if (localPoolNames.has(dbPool.name.trim().toLowerCase())) return false
-          return true
-        })
-
-        for (const dbPool of poolsToDelete) {
-          const { error: clearTeamsErr } = await supabase
-            .from('tournament_teams')
-            .update({ pool_id: null })
-            .eq('division_id', dbDivId)
-            .eq('pool_id', dbPool.id)
-
-          if (clearTeamsErr) {
-            throw new Error(`Failed clearing teams from removed pool "${dbPool.name}": ${clearTeamsErr.message}`)
-          }
-
-          const { error: deletePoolErr } = await supabase
-            .from('pools')
-            .delete()
-            .eq('id', dbPool.id)
-
-          if (deletePoolErr) {
-            throw new Error(`Failed deleting removed pool "${dbPool.name}": ${deletePoolErr.message}`)
-          }
-        }
-
-        const validPoolDbIds = new Set(
-          currentDivisionPools.map(p => p.dbId).filter(Boolean)
-        )
-
-        for (const [i, team] of dt.entries()) {
-          const assignedPool = state3.pools.find(
-            p =>
-              p.id === state3.poolAssignments[team.id] &&
-              p.divisionId === storeDiv.id
-          )
-
-          const assignedPoolDbId =
-            assignedPool?.dbId && validPoolDbIds.has(assignedPool.dbId)
-              ? assignedPool.dbId
-              : null
-
-          const payload = {
-            tournament_id: tournamentId,
-            division_id: dbDivId,
-            pool_id: assignedPoolDbId,
-            name: team.name.trim(),
-            short_name: team.shortName?.trim() || null,
-            club_name: team.clubName?.trim() || null,
-            primary_color: team.primaryColor || '#1a56db',
-            seed: team.seed ?? i + 1,
-            head_coach_name: team.headCoachName?.trim() || null,
-            head_coach_email: team.headCoachEmail?.trim() || null,
-            constraints: team.constraints ?? {},
-          }
-
-          if (team.dbId) {
-            const { error: updateErr } = await db.teams.update(team.dbId, payload)
-            if (updateErr) {
-              throw new Error('Failed to update team "' + team.name + '": ' + updateErr.message)
-            }
-          } else {
-            const { data: existing } = await supabase
-              .from('tournament_teams')
-              .select('id')
-              .eq('tournament_id', tournamentId)
-              .eq('division_id', dbDivId)
-              .eq('name', team.name.trim())
-              .maybeSingle()
-
-            if (existing) {
-              updateTeam(team.id, { dbId: existing.id })
-
-              const { error: updateErr } = await db.teams.update(existing.id, payload)
-              if (updateErr) {
-                throw new Error('Failed to update imported team "' + team.name + '": ' + updateErr.message)
-              }
-            } else {
-              const { data, error: teamErr } = await db.teams.create(payload)
-              if (teamErr) {
-                throw new Error('Failed to save team "' + team.name + '": ' + teamErr.message)
-              }
-              if (data) {
-                updateTeam(team.id, { dbId: data.id })
-              }
-            }
-          }
-        }
-
-        // Clear stale standings rows for this division so old pool memberships don't linger
-// Clear stale standings rows for both old and current pools in this division
-        const affectedPoolIds = [
-          ...(dbPools ?? []).map(p => p.id),
-          ...Array.from(localPoolDbIds),
-        ].filter(Boolean)
-
-        if (affectedPoolIds.length > 0) {
-          const { error: clearStandingsErr } = await supabase
-            .from('pool_standings')
-            .delete()
-            .in('pool_id', affectedPoolIds)
-
-          if (clearStandingsErr) {
-            throw new Error('Failed to clear stale standings: ' + clearStandingsErr.message)
-          }
-        }
-      }
-
-      useWizardStore.getState().markSaved()
-      onNext()
-    } catch (err) {
-      console.error('[Step5 save] Error:', err)
-      setFormError(err.message || 'Failed to save teams')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const errorCount = violations.filter(v => v.severity === 'error').length
-  const warningCount = violations.filter(v => v.severity === 'warning').length
+  }, [scheduledEffectiveMatches, slotMap])
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="section-title">Teams & Pools</h2>
+        <h2 className="section-title">Constraint Review</h2>
         <p className="section-subtitle">
-          Add teams, assign pools, and set constraints. Same-club conflicts are auto-detected.
+          Review scheduling conflicts before publishing.
+          Conflicts are informational only — you decide how to handle them.
         </p>
       </div>
 
-      {formError && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex gap-2">
-          <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" /> {formError}
+      <div className="grid grid-cols-3 gap-3">
+        <div className={`rounded-xl p-4 text-center ${errors.length > 0 ? 'bg-red-50 border border-red-100' : 'bg-green-50'}`}>
+          <p className={`text-2xl font-bold ${errors.length > 0 ? 'text-red-700' : 'text-green-700'}`}>{errors.length}</p>
+          <p className={`text-xs mt-0.5 ${errors.length > 0 ? 'text-red-600' : 'text-green-600'}`}>Errors</p>
         </div>
-      )}
-
-      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-        You can safely clear and re-import teams here. Team changes, deletions, CSV imports, and pool assignments are saved when you click <span className="font-semibold">Next</span>.
+        <div className={`rounded-xl p-4 text-center ${warnings.length > 0 ? 'bg-yellow-50' : 'bg-green-50'}`}>
+          <p className={`text-2xl font-bold ${warnings.length > 0 ? 'text-yellow-700' : 'text-green-700'}`}>{warnings.length}</p>
+          <p className={`text-xs mt-0.5 ${warnings.length > 0 ? 'text-yellow-600' : 'text-green-600'}`}>Warnings</p>
+        </div>
+        <div className="rounded-xl p-4 text-center">
+          <p className="text-2xl font-bold text-[var(--text-secondary)]">{teams.length}</p>
+          <p className="text-xs text-[var(--text-muted)] mt-0.5">Teams</p>
+        </div>
       </div>
 
-      {violations.length > 0 && (
-        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-1">
-          <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5">
-            <AlertTriangle size={13} />
-            {errorCount > 0 && `${errorCount} conflict${errorCount !== 1 ? 's' : ''}`}
-            {errorCount > 0 && warningCount > 0 && ', '}
-            {warningCount > 0 && `${warningCount} warning${warningCount !== 1 ? 's' : ''}`}
-            {' auto-detected'}
-          </p>
-          {violations.slice(0, 3).map((v, i) => (
-            <p key={i} className="text-xs text-amber-700 ml-5">{v.message}</p>
-          ))}
-          {violations.length > 3 && (
-            <p className="text-xs text-amber-600 ml-5">
-              +{violations.length - 3} more (review in Step 7)
+      <div className="rounded-xl border border-[var(--border)] p-4 bg-[var(--bg-surface)]">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+          <div>
+            <p className="text-[var(--text-muted)] text-xs">Total scheduled games</p>
+            <p className="font-semibold text-[var(--text-primary)] mt-1">
+              {scheduledEffectiveMatches.length}
             </p>
-          )}
+          </div>
+          <div>
+            <p className="text-[var(--text-muted)] text-xs">Playoff games generated</p>
+            <p className="font-semibold text-[var(--text-primary)] mt-1">
+              {playoffGeneratedCount}
+            </p>
+          </div>
+          <div>
+            <p className="text-[var(--text-muted)] text-xs">Playoff games scheduled</p>
+            <p className="font-semibold text-[var(--text-primary)] mt-1">
+              {playoffScheduledCount}
+            </p>
+          </div>
         </div>
-      )}
+      </div>
 
-      {divisions.length > 1 && (
-        <div className="flex gap-0 border-b border-[var(--border)]">
-          {divisions.map(div => (
-            <button
-              key={div.id}
-              onClick={() => setActiveDivision(div.id)}
-              className={
-                'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ' +
-                (
-                  activeDivision === div.id
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                )
-              }
-            >
-              {div.name || ('Division ' + (divisions.indexOf(div) + 1))}
-              <span className="ml-1.5 text-xs text-[var(--text-muted)]">
-                ({teams.filter(t => t.divisionId === div.id).length})
-              </span>
-            </button>
-          ))}
+      <div className="rounded-xl border border-[var(--border)] p-4 bg-[var(--bg-surface)]">
+        <div className="mb-3">
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+            Games currently scheduled
+          </h3>
+          <p className="text-xs text-[var(--text-muted)] mt-1">
+            Review the games currently placed in the schedule, including playoff games.
+          </p>
         </div>
-      )}
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <button
-          onClick={() => addTeam(newTeam(effectiveDivisionId, divTeams.length + 1))}
-          className="btn-primary btn btn-sm"
-        >
-          <PlusCircle size={14} /> Add team
-        </button>
+        {scheduledMatchList.length === 0 ? (
+          <p className="text-sm text-[var(--text-muted)]">No games are scheduled yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {scheduledMatchList.map(match => {
+              const slotId = match.slot_id || match.slotId || match.time_slot_id || null
+              const slot = slotId ? slotMap[slotId] : null
+              const venueId = match.venue_id || match.venueId || slot?.venue_id || null
+              const venue = venueMap[venueId] || null
+              const teamA = teamMap[match.team_a_id] || null
+              const teamB = teamMap[match.team_b_id] || null
 
-        <button
-          onClick={() => fileRef.current?.click()}
-          disabled={importing}
-          className="btn-secondary btn btn-sm"
-        >
-          <Upload size={14} /> {importing ? 'Importing...' : 'Import CSV'}
-        </button>
+              const label =
+                match.match_code ||
+                match.display_label ||
+                match.round_label ||
+                (match.round ? `Round ${match.round}` : 'Game')
 
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".csv"
-          className="hidden"
-          onChange={e => handleCSV(e.target.files?.[0])}
-        />
-
-        <a
-          href="/team_import_template.csv"
-          download
-          className="btn-ghost btn btn-sm text-xs text-[var(--text-muted)]"
-        >
-          Download template
-        </a>
-
-        {divTeams.length >= 4 && (
-          <button
-            onClick={() => handleAutoPool(activeDivision)}
-            className="btn-secondary btn btn-sm ml-auto"
-          >
-            <Users size={14} /> Auto-generate pools
-          </button>
+              return (
+                <div
+                  key={match.id}
+                  className="rounded-lg border border-[var(--border)] px-3 py-2 bg-[var(--bg-raised)]"
+                >
+                  <p className="text-sm font-medium text-[var(--text-primary)]">
+                    {label}
+                  </p>
+                  <p className="text-xs text-[var(--text-muted)] mt-1">
+                    {(teamA?.shortName || teamA?.name || 'TBD')} vs {(teamB?.shortName || teamB?.name || 'TBD')}
+                  </p>
+                  <p className="text-xs text-[var(--text-muted)] mt-1">
+                    {slot?.scheduled_start
+                      ? new Date(slot.scheduled_start).toLocaleString('en-CA', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true,
+                        })
+                      : 'Unscheduled'}
+                    {' • '}
+                    {venue?.shortName || venue?.name || 'Venue: —'}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
 
-      {divTeams.length === 0 ? (
-        <div className="text-center py-8 text-[var(--text-muted)] border-2 border-dashed border-[var(--border)] rounded-xl">
-          <Users size={28} className="mx-auto mb-2 opacity-40" />
-          <p className="text-sm">No teams currently in this division.</p>
-          <p className="text-xs mt-1">
-            Add manually or import a CSV. Team additions, edits, deletions, and pool assignments are saved when you click Next.
-          </p>
+      {liveConflicts.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 py-8 text-green-600">
+          <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+            <Check size={22} />
+          </div>
+          <p className="font-medium">No scheduling conflicts found!</p>
+          <p className="text-sm text-[var(--text-muted)]">Your schedule looks good. Continue to publish.</p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {divTeams.map((team, idx) => (
-            <TeamRow
-              key={team.id}
-              team={team}
-              idx={idx}
-              pools={divPools}
-              allTeams={divTeams}
-              venues={venues}
-              assignment={poolAssignments[team.id]}
-              violations={violations.filter(v => (v.teamIds ?? []).includes(team.id))}
-              errors={errors}
-              onUpdate={u => updateTeam(team.id, u)}
-              onRemove={() => useWizardStore.getState().removeTeam(team.id)}
-              onAssign={poolId => setPoolAssignment(team.id, poolId)}
-            />
-          ))}
+        <div className="space-y-3">
+          {errors.map((c, i) => {
+            const key = `${c.type}:${c.teamId}`
+            const acked = acknowledgedConflicts.includes(key)
+            return (
+              <ConflictRow
+                key={`e-${i}`}
+                conflict={c}
+                acknowledged={acked}
+                onAcknowledge={() => acknowledgeConflict(key)}
+                matchMap={matchMap}
+                slotMap={slotMap}
+                teamMap={teamMap}
+              />
+            )
+          })}
+
+          {warnings.map((c, i) => {
+            const key = `${c.type}:${c.teamId}`
+            const acked = acknowledgedConflicts.includes(key)
+            return (
+              <ConflictRow
+                key={`w-${i}`}
+                conflict={c}
+                acknowledged={acked}
+                onAcknowledge={() => acknowledgeConflict(key)}
+                matchMap={matchMap}
+                slotMap={slotMap}
+                teamMap={teamMap}
+              />
+            )
+          })}
         </div>
       )}
 
-      {divPools.length > 0 && (
-        <PoolSummary
-          pools={divPools}
-          teams={divTeams}
-          assignments={poolAssignments}
-          violations={violations}
-          onAssign={(teamId, poolId) => setPoolAssignment(teamId, poolId)}
-        />
+      {unacknowledgedErrors.length > 0 && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex gap-2">
+          <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+          <span>
+            {unacknowledgedErrors.length} unacknowledged error{unacknowledgedErrors.length !== 1 ? 's' : ''}.
+            Acknowledge each one to proceed — conflicts are <strong>informational only</strong> and won't block publishing.
+          </span>
+        </div>
       )}
-
-      <div className="text-xs text-[var(--text-muted)] text-right space-y-1">
-        <p>{teams.length} team{teams.length !== 1 ? 's' : ''} total</p>
-        <p>Team additions, edits, deletions, CSV imports, and pool assignments are saved when you click Next.</p>
-      </div>
 
       <WizardNavButtons
-        onNext={handleNext}
+        onNext={onNext}
         onBack={onBack}
-        saving={saving}
-        nextLabel="Save teams & continue"
+        nextDisabled={unacknowledgedErrors.length > 0}
+        nextLabel="Continue to preview"
       />
     </div>
   )
 }
 
-function TeamRow({
-  team,
-  idx,
-  pools,
-  allTeams,
-  venues,
-  assignment,
-  violations,
-  errors,
-  onUpdate,
-  onRemove,
-  onAssign,
-}) {
-  const [expanded, setExpanded] = useState(false)
-  const [showConstraints, setShowConstraints] = useState(false)
-
-  const hasViolations = violations.length > 0
-  const hasErrors = violations.some(v => v.severity === 'error')
+function ConflictRow({ conflict, acknowledged, onAcknowledge, matchMap, slotMap, teamMap }) {
+  const isError = conflict.severity === 'error'
+  const relatedMatches = (conflict.matchIds || [])
+    .map(id => matchMap?.[id])
+    .filter(Boolean)
 
   return (
     <div
-      className={
-        'border rounded-xl overflow-hidden ' +
-        (hasErrors ? 'border-red-300' : hasViolations ? 'border-amber-300' : 'border-gray-200')
-      }
+      className={`flex gap-3 p-3 rounded-xl border transition-opacity ${
+        acknowledged ? 'opacity-50' : ''
+      } ${
+        isError
+          ? 'bg-red-50 border-red-200'
+          : 'bg-yellow-50 border-yellow-200'
+      }`}
     >
-      <div className="flex items-center gap-2 px-3 py-2.5">
-        <span className="text-xs text-[var(--text-muted)] w-5 text-right flex-shrink-0">
-          {idx + 1}
+      <div className={`flex-shrink-0 mt-0.5 ${isError ? 'text-red-500' : 'text-yellow-600'}`}>
+        {CONFLICT_ICONS[conflict.type] ?? CONFLICT_ICONS.default}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className={`text-sm font-medium ${isError ? 'text-red-800' : 'text-yellow-800'}`}>
+          {conflict.message}
+        </p>
+
+        {conflict.matchIds?.length > 0 && (
+          <p className="text-xs text-[var(--text-muted)] mt-0.5">
+            Affects {conflict.matchIds.length} game{conflict.matchIds.length !== 1 ? 's' : ''}
+          </p>
+        )}
+
+        {relatedMatches.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {relatedMatches.map(match => (
+              <p
+                key={match.id}
+                className="text-xs text-[var(--text-muted)] break-words"
+              >
+                • {formatConstraintMatch(match, slotMap, teamMap)}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {!acknowledged ? (
+        <button
+          onClick={onAcknowledge}
+          className={`flex-shrink-0 text-xs px-2 py-1 rounded-lg font-medium ${
+            isError
+              ? 'bg-red-100 text-red-700 hover:bg-red-200'
+              : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+          }`}
+        >
+          Acknowledge
+        </button>
+      ) : (
+        <span className="flex-shrink-0 text-xs text-[var(--text-muted)] flex items-center gap-1">
+          <Check size={12} /> OK
         </span>
-
-        <input
-          type="color"
-          value={team.primaryColor || '#1a56db'}
-          onChange={e => onUpdate({ primaryColor: e.target.value })}
-          className="w-6 h-6 rounded-full border border-[var(--border)] cursor-pointer flex-shrink-0 p-0"
-        />
-
-        <input
-          type="text"
-          className={
-            'flex-1 text-sm font-medium bg-transparent border-b border-transparent focus:border-blue-400 outline-none py-0.5 min-w-0 ' +
-            (errors[team.id + '_name'] ? 'border-red-400 text-red-700' : '')
-          }
-          placeholder="Team name"
-          value={team.name}
-          onChange={e => onUpdate({ name: e.target.value })}
-        />
-
-        {hasViolations && (
-          <span
-            className={
-              'flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full font-medium ' +
-              (hasErrors ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700')
-            }
-          >
-            {violations.length} {hasErrors ? 'conflict' : 'warning'}
-            {violations.length !== 1 ? 's' : ''}
-          </span>
-        )}
-
-        {pools.length > 0 && (
-          <select
-            className="text-xs border border-[var(--border)] rounded px-1.5 py-1 text-[var(--text-secondary)] focus:ring-1 focus:ring-blue-400 flex-shrink-0"
-            value={assignment ?? ''}
-            onChange={e => onAssign(e.target.value || null)}
-          >
-            <option value="">Pool</option>
-            {pools.map(p => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        )}
-
-        <button
-          onClick={() => setShowConstraints(c => !c)}
-          className={
-            'p-1 flex-shrink-0 rounded-lg transition-colors ' +
-            (showConstraints ? 'text-blue-600 bg-blue-50' : 'text-gray-400 hover:text-blue-600')
-          }
-          title="Constraints"
-        >
-          <Settings size={14} />
-        </button>
-
-        <button
-          onClick={() => setExpanded(e => !e)}
-          className="p-1 text-[var(--text-muted)] hover:text-[var(--text-secondary)] flex-shrink-0"
-        >
-          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-        </button>
-
-        <button
-          onClick={onRemove}
-          className="p-1 text-[var(--text-muted)] hover:text-red-500 flex-shrink-0"
-        >
-          <Trash2 size={14} />
-        </button>
-      </div>
-
-      {showConstraints && (
-        <div className="border-t border-blue-100 bg-[var(--accent-dim)]/30 px-4 py-4">
-          <p className="text-xs font-semibold text-[var(--accent)] mb-3">
-            Constraints for {team.name || 'this team'}
-          </p>
-          <ConstraintEditor
-            team={team}
-            allTeams={allTeams}
-            venues={venues}
-            constraints={team.constraints}
-            onChange={newConstraints => onUpdate({ constraints: newConstraints })}
-          />
-        </div>
-      )}
-
-      {expanded && (
-        <div className="px-3 pb-3 pt-2 border-t border-[var(--border)] grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <div className="field-group">
-            <label className="field-label text-xs">Short name</label>
-            <input
-              type="text"
-              className="field-input text-sm"
-              value={team.shortName ?? ''}
-              onChange={e => onUpdate({ shortName: e.target.value })}
-              maxLength={8}
-            />
-          </div>
-
-          <div className="field-group">
-            <label className="field-label text-xs">Club / school</label>
-            <input
-              type="text"
-              className="field-input text-sm"
-              value={team.clubName ?? ''}
-              onChange={e => onUpdate({ clubName: e.target.value })}
-            />
-          </div>
-
-          <div className="field-group">
-            <label className="field-label text-xs">Seed</label>
-            <input
-              type="number"
-              className="field-input text-sm"
-              min={1}
-              value={team.seed ?? ''}
-              onChange={e => onUpdate({ seed: Number(e.target.value) })}
-            />
-          </div>
-
-          <div className="field-group">
-            <label className="field-label text-xs">Head coach</label>
-            <input
-              type="text"
-              className="field-input text-sm"
-              value={team.headCoachName ?? ''}
-              onChange={e => onUpdate({ headCoachName: e.target.value })}
-            />
-          </div>
-
-          <div className="field-group sm:col-span-2">
-            <label className="field-label text-xs">Coach email</label>
-            <input
-              type="email"
-              className="field-input text-sm"
-              value={team.headCoachEmail ?? ''}
-              onChange={e => onUpdate({ headCoachEmail: e.target.value })}
-            />
-          </div>
-        </div>
       )}
     </div>
   )
 }
 
-function PoolSummary({ pools, teams, assignments, violations, onAssign }) {
-  const [dragTeamId, setDragTeamId] = useState(null)
-  const [dragOver, setDragOver] = useState(null)
+function formatConstraintMatch(match, slotMap, teamMap) {
+  const slotId = match.slot_id || match.slotId || match.time_slot_id || null
+  const slot = slotId ? slotMap?.[slotId] : null
 
-  function handleDragStart(teamId) {
-    setDragTeamId(teamId)
-  }
+  const teamA = teamMap?.[match.team_a_id] || null
+  const teamB = teamMap?.[match.team_b_id] || null
 
-  function handleDragOver(e, poolId) {
-    e.preventDefault()
-    setDragOver(poolId)
-  }
+  const label =
+    match.match_code ||
+    match.display_label ||
+    match.round_label ||
+    (match.round ? `Round ${match.round}` : 'Game')
 
-  function handleDragLeave() {
-    setDragOver(null)
-  }
+  const teamLabelA = teamA?.shortName || teamA?.name || 'TBD'
+  const teamLabelB = teamB?.shortName || teamB?.name || 'TBD'
 
-  function handleDrop(poolId) {
-    if (dragTeamId) onAssign(dragTeamId, poolId)
-    setDragTeamId(null)
-    setDragOver(null)
-  }
+  const timeLabel = slot?.scheduled_start
+    ? new Date(slot.scheduled_start).toLocaleString('en-CA', {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      })
+    : 'Unscheduled'
 
-  const unassigned = teams.filter(
-    t => !assignments[t.id] || !pools.find(p => p.id === assignments[t.id])
-  )
-
-  return (
-    <div className="mt-2 space-y-3">
-      <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">
-        Pool board — drag teams between pools
-      </h4>
-
-      {unassigned.length > 0 && (
-        <div
-          className={
-            'border-2 border-dashed rounded-xl p-3 ' +
-            (dragOver === '__unassigned'
-              ? 'border-[var(--accent)] bg-[var(--accent-dim)]'
-              : 'border-[var(--border)]')
-          }
-          onDragOver={e => handleDragOver(e, '__unassigned')}
-          onDragLeave={handleDragLeave}
-          onDrop={() => handleDrop(null)}
-        >
-          <p className="text-xs font-semibold text-[var(--text-muted)] mb-2">
-            Unassigned ({unassigned.length})
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {unassigned.map(t => (
-              <PoolTeamChip key={t.id} team={t} onDragStart={handleDragStart} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div
-        className="grid gap-3"
-        style={{ gridTemplateColumns: `repeat(${Math.min(pools.length, 4)}, 1fr)` }}
-      >
-        {pools.map(pool => {
-          const poolTeams = teams.filter(t => assignments[t.id] === pool.id)
-          const poolViolations = violations.filter(v => v.poolId === pool.id)
-          const isOver = dragOver === pool.id
-
-          return (
-            <div
-              key={pool.id}
-              onDragOver={e => handleDragOver(e, pool.id)}
-              onDragLeave={handleDragLeave}
-              onDrop={() => handleDrop(pool.id)}
-              className={
-                'border-2 rounded-xl p-3 min-h-24 transition-colors ' +
-                (
-                  isOver
-                    ? 'border-[var(--accent)] bg-[var(--accent-dim)]'
-                    : poolViolations.length > 0
-                      ? 'border-amber-300 bg-amber-50/30'
-                      : 'border-[var(--border)] bg-[var(--bg-raised)]'
-                )
-              }
-            >
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wide">
-                  {pool.name}
-                </p>
-                <span className="text-xs text-[var(--text-muted)]">{poolTeams.length}</span>
-              </div>
-
-              {poolViolations.length > 0 && (
-                <p className="text-xs text-amber-600 flex items-center gap-1 mb-1.5">
-                  <AlertTriangle size={10} /> {poolViolations[0].message}
-                </p>
-              )}
-
-              <div className="space-y-1">
-                {poolTeams.length === 0 ? (
-                  <p className="text-xs text-[var(--text-muted)] italic py-2 text-center">Drop here</p>
-                ) : (
-                  poolTeams.map(t => (
-                    <PoolTeamChip key={t.id} team={t} onDragStart={handleDragStart} />
-                  ))
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function PoolTeamChip({ team, onDragStart }) {
-  return (
-    <div
-      draggable
-      onDragStart={() => onDragStart(team.id)}
-      className="flex items-center gap-1.5 px-2 py-1 bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg cursor-grab active:cursor-grabbing select-none hover:border-[var(--border-mid)] transition-colors"
-    >
-      <GripVertical size={11} className="text-[var(--text-muted)] flex-shrink-0" />
-      <div
-        className="w-2 h-2 rounded-full flex-shrink-0"
-        style={{ backgroundColor: team.primaryColor ?? '#e5e7eb' }}
-      />
-      <span className="text-xs font-medium text-[var(--text-secondary)] truncate max-w-24">
-        {team.name || 'Unnamed'}
-      </span>
-    </div>
-  )
+  return `${label} — ${teamLabelA} vs ${teamLabelB} — ${timeLabel}`
 }

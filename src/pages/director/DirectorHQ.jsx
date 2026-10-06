@@ -149,132 +149,141 @@ export function DirectorHQ() {
     }
   }
 
-  async function seedBracket() {
-    setSeedingBracket(true)
-    setSeedResult(null)
-    setError(null)
-    try {
-      const { data: playedBracket } = await supabase
-        .from('matches')
-        .select('id, status, round_label')
-        .eq('tournament_id', tournamentId)
-        .eq('phase', 2)
-        .neq('status', 'scheduled')
+async function seedBracket() {
+  setSeedingBracket(true)
+  setSeedResult(null)
+  setError(null)
+  try {
+    const { data: playedBracket } = await supabase
+      .from('matches')
+      .select('id, status, round_label')
+      .eq('tournament_id', tournamentId)
+      .eq('phase', 2)
+      .neq('status', 'scheduled')
 
-      if (playedBracket?.length > 0) {
-        const labels = playedBracket.map(m => m.round_label ?? 'a game').join(', ')
-        setError(`Cannot re-seed — ${labels} has already been played. Use "Change teams" to fix individual games.`)
-        setSeedingBracket(false)
-        return
-      }
-
-      const { data: standings, error: stErr } = await supabase
-        .from('pool_standings_display')
-        .select('team_id, pool_id, rank, pool_name, team_name')
-        .in('division_id', divisions.map(d => d.id))
-        .order('pool_id')
-        .order('rank')
-      if (stErr) throw new Error(stErr.message)
-
-      const byPool = {}
-      for (const s of standings) {
-        if (!byPool[s.pool_name]) byPool[s.pool_name] = []
-        byPool[s.pool_name].push(s)
-      }
-
-      const pools = Object.keys(byPool).sort()
-      if (pools.length < 2) throw new Error('Need at least 2 pools to seed bracket')
-
-      const { data: bracketMatches } = await supabase
-        .from('matches')
-        .select('id, bracket_position, notes, team_a_id, team_b_id')
-        .eq('tournament_id', tournamentId)
-        .eq('phase', 2)
-        .order('match_number')
-
-      const seedMap = {}
-      for (const pool of pools) {
-        const letter = pool.replace('Pool ', '')
-        for (const s of byPool[pool]) {
-          seedMap[letter + s.rank] = s.team_id
-        }
-      }
-
-      const updates = []
-      for (const m of bracketMatches) {
-        if (!m.notes?.startsWith('bracket:')) continue
-        if (m.team_a_id && m.team_b_id) continue
-
-        const inner = m.notes.replace('bracket:', '')
-        const [rawA, rawB] = inner.split('-vs-')
-
-        const normalize = s => {
-          if (!s) return null
-          if (s.startsWith('win') || s.startsWith('loser') || s.startsWith('semi')) return null
-          const m1 = s.match(/^(\d+)([A-Z])$/)
-          if (m1) return m1[2] + m1[1]
-          const m2 = s.match(/^([A-Z])(\d+)$/)
-          if (m2) return m2[1] + m2[2]
-          return null
-        }
-
-        const keyA = normalize(rawA)
-        const keyB = normalize(rawB)
-        const teamA = keyA ? seedMap[keyA] : null
-        const teamB = keyB ? seedMap[keyB] : null
-
-        if (teamA || teamB) {
-          const update = { id: m.id }
-          if (teamA && !m.team_a_id) update.team_a_id = teamA
-          if (teamB && !m.team_b_id) update.team_b_id = teamB
-          updates.push(update)
-        }
-      }
-
-      let seeded = 0
-      for (const u of updates) {
-        const { id, ...fields } = u
-        await supabase.from('matches').update(fields).eq('id', id)
-        seeded++
-      }
-
-      setSeedResult(`✓ Seeded ${seeded} bracket game${seeded !== 1 ? 's' : ''} successfully`)
-
-      const { data: refreshed } = await supabase
-        .from('matches')
-        .select(`
-          id,
-          status,
-          score_a,
-          score_b,
-          scorekeeper_pin,
-          tournament_id,
-          venue_id,
-          time_slot_id,
-          match_code,
-          bracket_type,
-          round_label,
-          display_label,
-          source_a_type,
-          source_a_ref,
-          source_b_type,
-          source_b_ref,
-          team_a:tournament_teams!team_a_id(name, id, short_name, primary_color),
-          team_b:tournament_teams!team_b_id(name, id, short_name, primary_color),
-          time_slot:time_slots(scheduled_start),
-          venue:venues(name)
-        `)
-        .eq('tournament_id', tournamentId)
-        .neq('status', 'cancelled')
-        .order('time_slot(scheduled_start)')
-      if (refreshed) setMatches(refreshed)
-
-    } catch (err) {
-      setError('Bracket seeding failed: ' + err.message)
-    } finally {
+    if (playedBracket?.length > 0) {
+      const labels = playedBracket.map(m => m.round_label ?? 'a game').join(', ')
+      setError(`Cannot re-seed — ${labels} has already been played. Use "Change teams" to fix individual games.`)
       setSeedingBracket(false)
+      return
     }
+
+    const { data: standings, error: stErr } = await supabase
+      .from('pool_standings_display')
+      .select('team_id, pool_id, rank, pool_name, team_name')
+      .in('division_id', divisions.map(d => d.id))
+      .order('pool_id')
+      .order('rank')
+    if (stErr) throw new Error(stErr.message)
+
+    const byPool = {}
+    for (const s of standings) {
+      if (!byPool[s.pool_name]) byPool[s.pool_name] = []
+      byPool[s.pool_name].push(s)
+    }
+
+    const pools = Object.keys(byPool).sort()
+    if (pools.length < 2) throw new Error('Need at least 2 pools to seed bracket')
+
+    // FIX: use match_code + source refs instead of notes
+    const { data: bracketMatches } = await supabase
+      .from('matches')
+      .select('id, match_code, source_a_type, source_a_ref, source_b_type, source_b_ref, team_a_id, team_b_id')
+      .eq('tournament_id', tournamentId)
+      .eq('phase', 2)
+      .order('match_number')
+
+    // Build seed map: 'A1' → team_id, 'B2' → team_id, etc.
+    const seedMap = {}
+    for (const pool of pools) {
+      const letter = pool.replace('Pool ', '')
+      for (const s of byPool[pool]) {
+        seedMap[letter + s.rank] = s.team_id
+      }
+    }
+
+    // Normalize ref string to seedMap key format (e.g. '1A' or 'A1' both → 'A1')
+    const normalizeRef = s => {
+      if (!s) return null
+      // Skip advancement refs (winner of another match)
+      if (/^(win|loser|semi)/i.test(s)) return null
+      // '1A' → 'A1'
+      const m1 = s.match(/^(\d+)([A-Z])$/)
+      if (m1) return m1[2] + m1[1]
+      // 'A1' → 'A1' (already correct)
+      const m2 = s.match(/^([A-Z])(\d+)$/)
+      if (m2) return m2[1] + m2[2]
+      return null
+    }
+
+    const updates = []
+    for (const m of bracketMatches) {
+      // FIX: use source refs instead of notes
+      const rawA = m.source_a_ref
+      const rawB = m.source_b_ref
+
+      // Skip if no source refs to seed from
+      if (!rawA && !rawB) continue
+      // Skip if already fully seeded
+      if (m.team_a_id && m.team_b_id) continue
+
+      const keyA = normalizeRef(rawA)
+      const keyB = normalizeRef(rawB)
+      const teamA = keyA ? seedMap[keyA] : null
+      const teamB = keyB ? seedMap[keyB] : null
+
+      if (teamA || teamB) {
+        const update = { id: m.id }
+        if (teamA && !m.team_a_id) update.team_a_id = teamA
+        if (teamB && !m.team_b_id) update.team_b_id = teamB
+        updates.push(update)
+      }
+    }
+
+    let seeded = 0
+    for (const u of updates) {
+      const { id, ...fields } = u
+      await supabase.from('matches').update(fields).eq('id', id)
+      seeded++
+    }
+
+    setSeedResult(`✓ Seeded ${seeded} bracket game${seeded !== 1 ? 's' : ''} successfully`)
+
+    const { data: refreshed } = await supabase
+      .from('matches')
+      .select(`
+        id,
+        status,
+        score_a,
+        score_b,
+        scorekeeper_pin,
+        tournament_id,
+        venue_id,
+        time_slot_id,
+        match_code,
+        bracket_type,
+        round_label,
+        display_label,
+        source_a_type,
+        source_a_ref,
+        source_b_type,
+        source_b_ref,
+        team_a:tournament_teams!team_a_id(name, id, short_name, primary_color),
+        team_b:tournament_teams!team_b_id(name, id, short_name, primary_color),
+        time_slot:time_slots(scheduled_start),
+        venue:venues(name)
+      `)
+      .eq('tournament_id', tournamentId)
+      .neq('status', 'cancelled')
+      .order('scheduled_start', { foreignTable: 'time_slot', ascending: true })
+    if (refreshed) setMatches(refreshed)
+
+  } catch (err) {
+    setError('Bracket seeding failed: ' + err.message)
+  } finally {
+    setSeedingBracket(false)
   }
+}
 
   if (loading) return <PageLoader />
   if (!tournament) return null

@@ -135,6 +135,9 @@ export async function savePlayoffMatchesSafe({
   const skipped = []
   const warnings = []
 
+  // FIX: track match_number per division for sequential fallback
+  const matchNumberCounterByDivision = {}
+
   for (const match of playoffMatches) {
     const matchCode = match.match_code || match.matchCode || null
 
@@ -160,20 +163,37 @@ export async function savePlayoffMatchesSafe({
     const venueDbId = venueDbIdByLocalId[localVenueId] || localVenueId || null
     const slotDbId = localSlotId ? slotDbIdByLocalId[String(localSlotId)] || null : null
 
+    // FIX: warn if no slot resolved (but don't abort — match may be unscheduled intentionally)
+    if (localSlotId && !slotDbId) {
+      warnings.push(
+        `Playoff match ${matchCode} has a local slot ID but no resolved DB slot — will be saved without time slot.`
+      )
+    }
+
+    // FIX: sequential match_number fallback per division
+    const divKey = divisionDbId || 'unknown'
+    if (!matchNumberCounterByDivision[divKey]) {
+      matchNumberCounterByDivision[divKey] = 900
+    }
+    matchNumberCounterByDivision[divKey] += 1
+    const resolvedMatchNumber =
+      match.match_number ?? match.matchNumber ?? matchNumberCounterByDivision[divKey]
+
     const payload = {
       tournament_id: tournamentId,
       division_id: divisionDbId,
-      pool_id: poolDbId,
+      pool_id: poolDbId ?? null,           // FIX: always null for playoff matches
       venue_id: venueDbId,
       time_slot_id: slotDbId,
       team_a_id: teamADbId,
       team_b_id: teamBDbId,
       round: match.round ?? null,
-      match_number: match.match_number ?? null,
+      match_number: resolvedMatchNumber,   // FIX: always set
       round_label: match.round_label || match.roundLabel || null,
       display_label: match.display_label || match.displayLabel || null,
       status: match.status || 'scheduled',
-      phase: match.phase || null,
+      phase: match.phase ?? 2,             // FIX: default to 2 for playoffs
+      match_origin: 'playoff',             // FIX: always set
       bracket_position: match.bracket_position ?? null,
       match_code: matchCode,
       bracket_type: match.bracket_type || match.bracketType || null,
@@ -187,6 +207,12 @@ export async function savePlayoffMatchesSafe({
       loser_to_slot: match.loser_to_slot || null,
       placement_min: match.placement_min ?? null,
       placement_max: match.placement_max ?? null,
+      // FIX: add edit tracking fields
+      match_origin: 'playoff',
+      pairing_locked: !!(teamADbId && teamBDbId),
+      schedule_locked: !!slotDbId,
+      is_manually_edited: false,
+      manual_edit_fields: [],
     }
 
     if (!existing) {

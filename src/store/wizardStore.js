@@ -46,13 +46,13 @@ const INITIAL_STATE = {
   tournamentDays: [],
   rosters: [],
 
+    // ── Step 6: Constraints ───────────────────────────────────────────────────────
+  reviewedTeamIds: [],
+  acknowledgedConflicts: [],
+
   // ── Step 7: Playoffs ──────────────────────────────────────────────────────────
   playoffConfigs: {},
   generatedPlayoffMatches: [],
-
-  // ── Step 8: Constraints ───────────────────────────────────────────────────────
-  reviewedTeamIds: [],
-  acknowledgedConflicts: [],
 
   // ── Step 9: Preview / publish ─────────────────────────────────────────────────
   isPublished: false,
@@ -354,7 +354,7 @@ export const useWizardStore = create(
           }
         }),
 
-      // ── Step 8: Constraints ────────────────────────────────────────────────────
+      // ── Step 6: Constraints ────────────────────────────────────────────────────
       markTeamReviewed: teamId =>
         set(s => ({
           reviewedTeamIds: [...new Set([...s.reviewedTeamIds, teamId])],

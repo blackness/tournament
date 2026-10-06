@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { Suspense, lazy } from 'react'
 import { AuthProvider } from './lib/AuthContext'
 import { AdminProvider } from './lib/AdminContext'
@@ -19,6 +19,11 @@ import { LiveScoreboard }  from './pages/LiveScoreboard'
 import { CourtLanding }    from './pages/CourtLanding'
 import { LoginPage }       from './pages/LoginPage'
 import { SignupPage }      from './pages/SignupPage'
+
+function ConstraintsRedirect() {
+  const { tournamentId } = useParams()
+  return <Navigate to={`/director/${tournamentId}/edit?step=6`} replace />
+}
 
 
 // Lazy-loaded public pages
@@ -41,7 +46,6 @@ const ScheduleEditor    = lazy(() => import('./pages/director/ScheduleEditor').t
 const BracketGenerator  = lazy(() => import('./pages/director/BracketGenerator').then(m => ({ default: m.BracketGenerator })))
 const RosterManager     = lazy(() => import('./pages/director/RosterManager').then(m => ({ default: m.RosterManager })))
 const QRManager         = lazy(() => import('./pages/director/QRManager').then(m => ({ default: m.QRManager })))
-const ConstraintReview  = lazy(() => import('./pages/director/ConstraintReview').then(m => ({ default: m.ConstraintReview })))
 const AdminDashboard    = lazy(() => import('./pages/admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })))
 const SpectatorDashboard = lazy(() => import('./pages/SpectatorDashboard').then(m => ({ default: m.SpectatorDashboard })))
 const MarketingPreviewPage = lazy(() => import('./pages/MarketingPreviewPage').then(m => ({ default: m.MarketingPreviewPage }))
@@ -89,7 +93,7 @@ export default function App() {
             <Route path="/director/:tournamentId/schedule"    element={<ScheduleEditor />} />
             <Route path="/director/:tournamentId/bracket"     element={<BracketGenerator />} />
             <Route path="/director/:tournamentId/roster"      element={<RosterManager />} />
-            <Route path="/director/:tournamentId/constraints" element={<ConstraintReview />} />
+            <Route path="/director/:tournamentId/constraints" element={<ConstraintsRedirect />} />
             <Route path="/director/:tournamentId/qr"          element={<QRManager />} />
           </Route>
 

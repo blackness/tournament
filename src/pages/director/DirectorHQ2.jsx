@@ -186,7 +186,7 @@ export function DirectorHQ() {
           <QuickLink to={'/director/' + tournamentId + '/schedule'} label="Schedule editor" sub="Drag to adjust game times" />
           <QuickLink to={'/director/' + tournamentId + '/bracket'} label="Generate brackets" sub="Seed teams from pool standings" />
           <QuickLink to={'/director/' + tournamentId + '/roster'} label="Roster manager" sub="Add and manage players" />
-          <QuickLink to={'/director/' + tournamentId + '/constraints'} label="Constraint review" sub="Review scheduling conflicts" />
+          <QuickLink to={`/director/${tournamentId}/edit?step=6`} label="Constraints" sub="Team availability, venue locks, rest rules" />
           <QuickLink to={'/director/' + tournamentId + '/qr'} label="QR codes" sub="Print field QR cards" />
           {divisions.map(div => (
             <QuickLink
