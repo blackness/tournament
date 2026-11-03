@@ -1,6 +1,9 @@
 import { FORMAT_TYPES } from '../constants.js'
 import { toSlug } from './workbookDraftConfig.js'
 
+import { KINGSTON_VOLLEYBALL } from './presets/kingstonVolleyball'
+import { generateTournamentWorkbookDraft } from './generateTournamentWorkbookDraft'
+
 function makeTournament(name, startDate = '2026-05-22', numberOfDays = 2) {
   return {
     tournament: {
